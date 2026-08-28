@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
-	import { AI_MODELS, type AiModelConfig } from '$lib/constants';
+	import type { AiModelConfig } from '$lib/constants';
 
 	let {
 		store,
@@ -41,16 +41,6 @@
 		})
 	);
 
-	let activeModelConfig = $derived(
-		availableModels.find((m) => m.id === store.aiModel) ||
-			AI_MODELS.find((m) => m.id === store.aiModel) || {
-				id: store.aiModel,
-				name: store.aiModel,
-				description: 'Google Gemini Generative Model',
-				speed: 'Fast' as const,
-				contextWindow: '1M tokens'
-			}
-	);
 </script>
 
 <div class="settings-section ai-section flex flex-col gap-5">
@@ -165,38 +155,15 @@
 			</div>
 		{/if}
 
-		<!-- Active Model Hero Card -->
-		<div class="active-model-hero bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl p-3.5 flex flex-col sm:flex-row justify-between gap-3 shadow-sm">
-			<div class="model-hero-left flex flex-col gap-1">
-				<div class="model-hero-title-row flex items-center gap-2">
-					<span class="model-hero-name font-bold text-[14px] text-[var(--text-1)]">{activeModelConfig.name}</span>
-					{#if activeModelConfig.badge === 'Default'}
-						<span class="badge badge-accent inline-flex text-[10.5px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Recommended</span>
-					{/if}
-					<span class="badge badge-neutral inline-flex text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[var(--surface-3)] text-[var(--text-2)]">{activeModelConfig.speed || 'Standard'}</span>
-				</div>
-				<p class="model-hero-desc text-[12.5px] text-[var(--text-3)] m-0">{activeModelConfig.description}</p>
-			</div>
-			<div class="model-hero-meta flex sm:flex-col justify-between sm:justify-center items-start sm:items-end gap-1 shrink-0 text-[11.5px]">
-				<div class="meta-item flex gap-1.5">
-					<span class="meta-label text-[var(--text-3)]">Context Window:</span>
-					<span class="meta-val font-medium text-[var(--text-1)]">{activeModelConfig.contextWindow || '1M tokens'}</span>
-				</div>
-				<div class="meta-item flex gap-1.5">
-					<span class="meta-label text-[var(--text-3)]">Model ID:</span>
-					<span class="meta-val-mono font-mono text-[var(--text-2)]">{store.aiModel}</span>
-				</div>
-			</div>
-		</div>
-
 		<!-- Model Dropdown Switcher -->
 		<div class="model-picker-container flex flex-col gap-2">
 			<div class="picker-label-row flex items-center justify-between">
 				<label for="model-search" class="picker-label text-[13px] font-semibold text-[var(--text-1)]">Available Models ({availableModels.length})</label>
-				<span class="picker-sub text-[11.5px] text-[var(--text-3)]">Click any model below to activate</span>
+				<span class="picker-sub text-[11.5px] text-[var(--text-3)]">{store.aiModel}</span>
 			</div>
 
-			<div class="model-search-wrap flex items-center gap-2 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg px-3 py-1.5 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-emerald-500/20">
+			{#if availableModels.length > 8}
+				<div class="model-search-wrap flex items-center gap-2 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg px-3 py-1.5 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-emerald-500/20">
 				<Icon name="search" size={14} class="opacity-50 text-[var(--text-3)] shrink-0" />
 				<input
 					id="model-search"
@@ -204,10 +171,11 @@
 					bind:value={modelSearch}
 					placeholder="Filter models by name or capability..."
 					class="model-search-input bg-transparent border-none outline-none text-[12.5px] text-[var(--text-1)] w-full placeholder:text-[var(--text-3)]"
-				/>
-			</div>
+					/>
+				</div>
+			{/if}
 
-			<div class="model-grid grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-60 overflow-y-auto p-0.5" role="radiogroup" aria-label="Available Google Gemini Models">
+			<div class="model-grid grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="radiogroup" aria-label="Available Google Gemini Models">
 				{#each filteredModels as model (model.id)}
 					{@const isSelected = store.aiModel === model.id}
 					<button

@@ -12,7 +12,7 @@ export const LS_THEME_KEY = 'xlsx-ai:theme';
 export const LS_API_KEY = 'xlsx-ai:gemini-key';
 export const LS_AI_MODEL = 'xlsx-ai:gemini-model';
 
-export const DEFAULT_AI_MODEL = 'gemini-3.5-flash-lite';
+export const DEFAULT_AI_MODEL = 'gemini-3.7-flash';
 
 export interface AiModelConfig {
 	id: string;
@@ -23,29 +23,31 @@ export interface AiModelConfig {
 	contextWindow: string;
 }
 
+// Offline fallback catalog shown before a key is saved. Every id here must be a real
+// Generative Language API model — "Fetch Live Models" replaces this list once a key exists.
 export const AI_MODELS: AiModelConfig[] = [
 	{
-		id: 'gemini-3.5-flash-lite',
-		name: 'Gemini 3.5 Flash Lite',
-		description: 'Ultra-fast, cost-efficient model optimized for instant table analysis and transforms.',
+		id: 'gemini-3.7-flash',
+		name: 'Gemini 3.7 Flash',
+		description: 'Latest Flash-class workhorse — strongest document extraction and tabular reasoning per second.',
 		badge: 'Default',
 		speed: 'Ultra-Fast',
 		contextWindow: '1M tokens'
 	},
 	{
-		id: 'gemini-3.7-flash',
-		name: 'Gemini 3.7 Flash',
-		description: 'Latest high-speed multimodal model for advanced tabular analytics and high-throughput transformations.',
+		id: 'gemini-3.5-flash-lite',
+		name: 'Gemini 3.5 Flash Lite',
+		description: 'Cheapest low-latency option for bulk document parsing and simple table transforms.',
 		speed: 'Ultra-Fast',
 		contextWindow: '1M tokens'
 	},
 	{
-		id: 'gemini-3.1-pro',
+		id: 'gemini-3.1-pro-preview',
 		name: 'Gemini 3.1 Pro',
-		description: 'Advanced reasoning model for complex multi-step table transformations and deep analysis.',
+		description: 'Deepest reasoning for messy multi-invoice documents and complex multi-step transformations.',
 		badge: 'Pro',
 		speed: 'Balanced',
-		contextWindow: '2M tokens'
+		contextWindow: '1M tokens'
 	}
 ];
 
@@ -58,12 +60,6 @@ const numberFormatter = new Intl.NumberFormat('en-US', {
 const currencyFormatter = new Intl.NumberFormat('en-US', {
 	style: 'currency',
 	currency: 'USD',
-	maximumFractionDigits: 2
-});
-// #18 INR fallback when value contains ₹
-const inrFormatter = new Intl.NumberFormat('en-IN', {
-	style: 'currency',
-	currency: 'INR',
 	maximumFractionDigits: 2
 });
 
@@ -91,10 +87,7 @@ export function formatCellValue(type: ColumnType | string | undefined, value: Ce
 
 	if (safeType === 'currency') {
 		const num = numericCellValue('currency', value);
-		if (num === null) return String(value);
-		// #18 honor ₹ if present in raw string
-		if (typeof value === 'string' && value.includes('₹')) return inrFormatter.format(num);
-		return currencyFormatter.format(num);
+		return num === null ? String(value) : currencyFormatter.format(num);
 	}
 
 	if (safeType === 'percent') {

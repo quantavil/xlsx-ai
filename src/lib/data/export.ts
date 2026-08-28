@@ -1,5 +1,4 @@
 import type { TableData, Column, CellValue } from '$lib/types';
-import { formatCellValue } from '$lib/constants';
 
 export function sanitizeFilename(raw?: string): string {
 	const clean = (raw || 'table-export')
@@ -42,10 +41,7 @@ export function sanitizeCsvValue(val: CellValue, safeFormulaEscape = true): stri
 	return str;
 }
 
-export function tableToRecords(
-	table: TableData,
-	options: { safeFormulaEscape?: boolean } = {}
-): Record<string, CellValue>[] {
+export function tableToRecords(table: TableData): Record<string, CellValue>[] {
 	const headerMap = buildUniqueExportHeaders(table.columns || []);
 	const rows = table.rows || [];
 
@@ -77,7 +73,7 @@ export function tableToCsv(table: TableData, options: { safeFormulaEscape?: bool
 	return lines.join('\r\n');
 }
 
-export async function exportTableToXlsx(table: TableData, customFilename?: string): Promise<Uint8Array> {
+export async function exportTableToXlsx(table: TableData): Promise<Uint8Array> {
 	const XLSX = await import('xlsx');
 	const headerMap = buildUniqueExportHeaders(table.columns || []);
 	const headers = headerMap.map((h) => h.header);
@@ -98,7 +94,7 @@ export async function exportTableToXlsx(table: TableData, customFilename?: strin
 }
 
 export async function downloadTableAsXlsx(table: TableData, customFilename?: string): Promise<void> {
-	const bytes = await exportTableToXlsx(table, customFilename);
+	const bytes = await exportTableToXlsx(table);
 	const filename = `${sanitizeFilename(customFilename || table.title)}.xlsx`;
 	const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 	const blob = new Blob([arrayBuffer], {
@@ -119,7 +115,7 @@ export async function exportTableToExcel(table: TableData, filename?: string): P
 	if (typeof window !== 'undefined') {
 		await downloadTableAsXlsx(table, filename);
 	}
-	return exportTableToXlsx(table, filename);
+	return exportTableToXlsx(table);
 }
 
 export async function exportTableToCsv(table: TableData, filename?: string): Promise<string> {

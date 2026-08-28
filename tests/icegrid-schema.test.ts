@@ -91,3 +91,56 @@ describe('ICEGrid Schema Validation', () => {
 		expect(result.success).toBe(false);
 	});
 });
+
+describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
+	// Regression guard for the bug that made every ICEGrid import fail with
+	// "Gemini could not complete the request": Gemini's responseSchema only allows `enum`
+	// on STRING types, so z.literal(1) -> {type:"number",enum:[1]} returned HTTP 400.
+	function collectViolations(node: unknown, path = '$'): string[] {
+		if (!node || typeof node !== 'object') return [];
+		if (Array.isArray(node)) return node.flatMap((n, i) => collectViolations(n, `${path}[${i}]`));
+
+		const schema = node as Record<string, unknown>;
+		const found: string[] = [];
+		if (Array.isArray(schema.enum) && schema.type !== 'string') {
+			found.push(`${path}: enum on type "${String(schema.type)}" (Gemini allows enum only on STRING)`);
+		}
+		for (const [key, value] of Object.entries(schema)) {
+			found.push(...collectViolations(value, `${path}.${key}`));
+		}
+		return found;
+	}
+
+	it('sends Gemini a responseSchema with no non-string enums', async () => {
+		const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
+		const { generateObject } = await import('ai');
+		const { IcegridExtractionSchema } = await import('../src/lib/modules/icegrid/schema');
+
+		let responseSchema: unknown = null;
+		const captureFetch = (async (_url: string, init: { body: string }) => {
+			responseSchema = JSON.parse(init.body).generationConfig?.responseSchema;
+			return new Response(
+				JSON.stringify({
+					candidates: [
+						{
+							content: { role: 'model', parts: [{ text: '{"rows":[],"warnings":[]}' }] },
+							finishReason: 'STOP'
+						}
+					],
+					usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 }
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			);
+		}) as unknown as typeof fetch;
+
+		const google = createGoogleGenerativeAI({ apiKey: 'x'.repeat(30), fetch: captureFetch });
+		await generateObject({
+			model: google('gemini-3.7-flash'),
+			prompt: 'extract',
+			schema: IcegridExtractionSchema
+		}).catch(() => undefined); // the canned empty response fails rows.min(1); we only want the request
+
+		expect(responseSchema).toBeTruthy();
+		expect(collectViolations(responseSchema)).toEqual([]);
+	});
+});

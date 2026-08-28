@@ -6,7 +6,9 @@ import type {
 	SortConfig,
 	ColumnSummary,
 	ColumnType,
-	HistoryEntry
+	HistoryEntry,
+	CellAlign,
+	CellAlignMap
 } from '$lib/types';
 import {
 	MAX_HISTORY,
@@ -17,7 +19,7 @@ import {
 	DEFAULT_TABLE_TITLE,
 	COLUMN_TYPE_CONFIG
 } from '$lib/constants';
-import { normalizeCellValue, numericCellValue } from './cells';
+import { normalizeCellValue, numericCellValue, defaultAlignForType } from './cells';
 import {
 	parseAndMigrateTableDocument,
 	sanitizeAndNormalizeTableData,
@@ -29,18 +31,39 @@ import { createLocalStorageAdapter, type SaveStatus } from './persistence';
 
 export interface TableStoreOptions {
 	persist?: boolean;
-	storageKey?: string;
+	/** Pass a getter when the destination changes at runtime (one key per open file). */
+	storageKey?: string | (() => string);
 }
 
 function cloneState<T>(data: T): T {
 	return structuredClone($state.snapshot(data) as T);
 }
 
-function computeDocumentHash(title: string, columns: Column[], rows: Row[]): string {
+export interface CellRef {
+	rowId: string;
+	columnId: string;
+	rowIndex: number;
+	colIndex: number;
+}
+
+export interface SelectionRect {
+	r0: number;
+	r1: number;
+	c0: number;
+	c1: number;
+}
+
+function computeDocumentHash(
+	title: string,
+	columns: Column[],
+	rows: Row[],
+	cellAlign: CellAlignMap
+): string {
 	return JSON.stringify({
 		t: title,
 		c: columns.map((c) => ({ id: c.id, n: c.name, t: c.type, w: c.width })),
-		r: rows
+		r: rows,
+		a: cellAlign
 	});
 }
 
@@ -61,7 +84,11 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	let rows = $state<Row[]>(cloneState(sanitizedInitial.rows));
 	let searchQuery = $state<string>('');
 	let sortConfig = $state<SortConfig | null>(null);
-	let activeCell = $state<{ rowId: string; columnId: string } | null>(null);
+	let cellAlign = $state<CellAlignMap>(cloneState(initialData?.cellAlign ?? {}));
+	// Anchor is where the selection started, focus is the cell the keyboard drives.
+	// Equal anchor and focus means a single-cell selection, exactly like Excel.
+	let selectionAnchor = $state<CellRef | null>(null);
+	let selectionFocus = $state<CellRef | null>(null);
 	let isAiOpen = $state<boolean>(false);
 	let apiKey = $state<string>('');
 	let aiModel = $state<string>(DEFAULT_AI_MODEL);
@@ -70,7 +97,12 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	let hydrated = $state<boolean>(false);
 
 	let savedBaselineHash = $state<string>(
-		computeDocumentHash(sanitizedInitial.title, sanitizedInitial.columns, sanitizedInitial.rows)
+		computeDocumentHash(
+			sanitizedInitial.title,
+			sanitizedInitial.columns,
+			sanitizedInitial.rows,
+			initialData?.cellAlign ?? {}
+		)
 	);
 	let saveStatus = $state<SaveStatus>('idle');
 
@@ -82,7 +114,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	});
 
 	let isDirty = $derived.by(() => {
-		const currentHash = computeDocumentHash(title, columns, rows);
+		const currentHash = computeDocumentHash(title, columns, rows, cellAlign);
 		return currentHash !== savedBaselineHash;
 	});
 
@@ -91,7 +123,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		storageAdapter.scheduleSave({
 			title,
 			columns: cloneState(columns),
-			rows: cloneState(rows)
+			rows: cloneState(rows),
+			cellAlign: cloneState(cellAlign)
 		});
 	}
 
@@ -104,7 +137,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		const snapshot: HistoryEntry = {
 			title,
 			columns: cloneState(columns),
-			rows: cloneState(rows)
+			rows: cloneState(rows),
+			cellAlign: cloneState(cellAlign)
 		};
 
 		const nextHistory = [...history, snapshot];
@@ -390,15 +424,77 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		searchQuery = query;
 	}
 
-	function setActiveCell(cell: { rowId: string; columnId: string } | null) {
-		activeCell = cell;
+	/**
+	 * Moves the selection. `extend` keeps the existing anchor (shift-click, shift-arrow),
+	 * so a range is just the rectangle between anchor and focus.
+	 */
+	function setSelection(cell: CellRef | null, extend = false) {
+		selectionFocus = cell;
+		if (!extend || !selectionAnchor || !cell) selectionAnchor = cell;
+	}
+
+	const selectionRect = $derived.by<SelectionRect | null>(() => {
+		if (!selectionFocus) return null;
+		const a = selectionAnchor ?? selectionFocus;
+		return {
+			r0: Math.min(a.rowIndex, selectionFocus.rowIndex),
+			r1: Math.max(a.rowIndex, selectionFocus.rowIndex),
+			c0: Math.min(a.colIndex, selectionFocus.colIndex),
+			c1: Math.max(a.colIndex, selectionFocus.colIndex)
+		};
+	});
+
+	/** Resolved alignment for one cell: explicit override, else the column type's default. */
+	function alignFor(rowId: string, columnId: string, type: ColumnType): CellAlign {
+		return cellAlign[`${rowId}::${columnId}`] ?? defaultAlignForType(type);
+	}
+
+	/** Applies (or with `null`, clears) alignment across every cell in the current selection. */
+	function alignSelection(align: CellAlign | null) {
+		const rect = selectionRect;
+		if (!rect) return;
+		const next: CellAlignMap = { ...cellAlign };
+		let changed = false;
+		for (let r = rect.r0; r <= rect.r1; r++) {
+			const row = filteredRows[r];
+			if (!row) continue;
+			for (let c = rect.c0; c <= rect.c1; c++) {
+				const col = columns[c];
+				if (!col) continue;
+				const key = `${row.id}::${col.id}`;
+				if (align) {
+					if (next[key] === align) continue;
+					next[key] = align;
+				} else {
+					if (!(key in next)) continue;
+					delete next[key];
+				}
+				changed = true;
+			}
+		}
+		if (!changed) return;
+		pushHistory();
+		cellAlign = next;
+		triggerSave();
 	}
 
 	function toggleAi(open?: boolean) {
 		isAiOpen = open !== undefined ? open : !isAiOpen;
 	}
 
-	function loadTable(data: TableData) {
+	/**
+	 * Replace the whole document. Undoable by default — importing a file or starting a new
+	 * sheet must not silently destroy unsaved work.
+	 */
+	function loadTable(data: TableData, options: { undoable?: boolean } = {}) {
+		const undoable = options.undoable ?? true;
+		if (undoable && columns.length > 0) {
+			pushHistory();
+		} else {
+			history = [];
+			future = [];
+		}
+
 		const sanitized = sanitizeAndNormalizeTableData(
 			data.title || DEFAULT_TABLE_TITLE,
 			data.columns || [],
@@ -407,21 +503,31 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		title = sanitized.title;
 		columns = cloneState(sanitized.columns);
 		rows = cloneState(sanitized.rows);
-		history = [];
-		future = [];
+		cellAlign = cloneState(sanitized.cellAlign ?? {});
 		searchQuery = '';
 		sortConfig = null;
-		activeCell = null;
-		savedBaselineHash = computeDocumentHash(title, columns, rows);
+		setSelection(null);
+		savedBaselineHash = computeDocumentHash(title, columns, rows, cellAlign);
 		triggerSave();
 	}
 
-	function resetTable() {
-		loadTable({
-			title: DEFAULT_TABLE_TITLE,
-			columns: [],
-			rows: []
+	const NEW_SHEET_COLUMNS = 5;
+	const NEW_SHEET_ROWS = 20;
+
+	/** Blank spreadsheet: lettered columns and empty rows, ready to type into. */
+	function newSheet(options: { undoable?: boolean } = {}) {
+		const blankColumns: Column[] = Array.from({ length: NEW_SHEET_COLUMNS }, (_, i) => ({
+			id: `c${i + 1}`,
+			name: String.fromCharCode(65 + i),
+			type: 'text' as ColumnType,
+			width: 160
+		}));
+		const blankRows: Row[] = Array.from({ length: NEW_SHEET_ROWS }, (_, r) => {
+			const row: Row = { id: `r${r + 1}` };
+			for (const col of blankColumns) row[col.id] = null;
+			return row;
 		});
+		loadTable({ title: DEFAULT_TABLE_TITLE, columns: blankColumns, rows: blankRows }, options);
 	}
 
 	function undo() {
@@ -433,7 +539,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			{
 				title,
 				columns: cloneState(columns),
-				rows: cloneState(rows)
+				rows: cloneState(rows),
+				cellAlign: cloneState(cellAlign)
 			},
 			...future
 		];
@@ -441,6 +548,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		title = previous.title;
 		columns = cloneState(previous.columns);
 		rows = cloneState(previous.rows);
+		cellAlign = cloneState(previous.cellAlign ?? {});
 		triggerSave();
 	}
 
@@ -454,7 +562,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			{
 				title,
 				columns: cloneState(columns),
-				rows: cloneState(rows)
+				rows: cloneState(rows),
+				cellAlign: cloneState(cellAlign)
 			}
 		];
 		if (nextHistory.length > MAX_HISTORY) {
@@ -465,11 +574,12 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		title = next.title;
 		columns = cloneState(next.columns);
 		rows = cloneState(next.rows);
+		cellAlign = cloneState(next.cellAlign ?? {});
 		triggerSave();
 	}
 
 	function hydrate(): HydrationResult {
-		if (!persist || typeof window === 'undefined' || !window.localStorage) {
+		if (!persist || typeof localStorage === 'undefined') {
 			hydrated = true;
 			return { status: 'missing' };
 		}
@@ -484,18 +594,19 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 					title = result.document.title;
 					columns = cloneState(result.document.columns);
 					rows = cloneState(result.document.rows);
-					savedBaselineHash = computeDocumentHash(title, columns, rows);
+					cellAlign = cloneState(result.document.cellAlign ?? {});
+					savedBaselineHash = computeDocumentHash(title, columns, rows, cellAlign);
 				}
 			}
 
 			// Hydrate API Key from localStorage
-			const savedApiKey = localStorage.getItem(LS_API_KEY) || localStorage.getItem('table-ai:gemini-key');
+			const savedApiKey = localStorage.getItem(LS_API_KEY);
 			if (savedApiKey) {
 				apiKey = savedApiKey;
 			}
 
 			// Hydrate AI Model from localStorage (migrate obsolete/shut-down models)
-			const savedModel = localStorage.getItem(LS_AI_MODEL) || localStorage.getItem('table-ai:gemini-model');
+			const savedModel = localStorage.getItem(LS_AI_MODEL);
 			if (savedModel && !savedModel.includes('gemini-2.0') && !savedModel.includes('undefined')) {
 				aiModel = savedModel;
 			} else {
@@ -546,7 +657,13 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			return sortConfig;
 		},
 		get activeCell() {
-			return activeCell;
+			return selectionFocus;
+		},
+		get selectionRect() {
+			return selectionRect;
+		},
+		get cellAlign() {
+			return cellAlign;
 		},
 		get isAiOpen() {
 			return isAiOpen;
@@ -590,10 +707,6 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		get saveStatus() {
 			return saveStatus;
 		},
-
-		markClean() {
-			savedBaselineHash = computeDocumentHash(title, columns, rows);
-		},
 		setTitle,
 		setCell,
 		applyCellPatches,
@@ -607,12 +720,14 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		updateColumnWidth,
 		setSort,
 		setSearchQuery,
-		setActiveCell,
+		setSelection,
+		alignFor,
+		alignSelection,
 		toggleAi,
 		setApiKey,
 		setAiModel,
 		loadTable,
-		resetTable,
+		newSheet,
 		undo,
 		redo,
 		hydrate,

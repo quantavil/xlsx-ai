@@ -1,7 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { ModuleAiHandler } from '$lib/server/modules/types';
-import { IcegridReportSchema } from './schema';
+import { IcegridExtractionSchema, type IcegridReport } from './schema';
 
 export const IcegridExtractInputSchema = z.object({
 	sourceFiles: z.array(z.string().min(1).max(200)).min(1).max(20),
@@ -34,10 +34,16 @@ Extract all line items and output the complete ICEGrid JSON report.`;
 			model: context.model,
 			system,
 			prompt,
-			schema: IcegridReportSchema,
+			schema: IcegridExtractionSchema,
 			abortSignal: context.signal
 		});
 
-		return result.object;
+		const report: IcegridReport = {
+			reportVersion: 1,
+			sourceFiles: documentContext.sourceFiles,
+			rows: result.object.rows,
+			warnings: result.object.warnings ?? []
+		};
+		return report;
 	}
 };

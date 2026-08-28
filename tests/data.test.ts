@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
-	detectColumnType,
+	inferColumnTypeFromSamples,
 	importFileToTable,
 	exportTableToCsv,
-	sampleTables
 } from '../src/lib/data';
 import type { TableData } from '../src/lib/types';
 import { formatCellValue } from '../src/lib/constants';
@@ -42,13 +41,13 @@ describe('Data Management & SheetJS I/O', () => {
 
 
 	it('infers column types accurately based on heuristics', () => {
-		expect(detectColumnType(['$1,200.00', '$450.50', '$99.99', '$3,400'])).toBe('currency');
-		expect(detectColumnType(['12.5%', '85%', '99.9%', '0.4%'])).toBe('percent');
-		expect(detectColumnType(['2025-01-15', '2024-12-01', '2025-06-20'])).toBe('date');
-		expect(detectColumnType(['Active', 'Pending', 'Active', 'Pending', 'Closed Won'])).toBe('dropdown');
-		expect(detectColumnType([100, 250, 45.5, -12, '400'])).toBe('number');
-		expect(detectColumnType(['1,200', '4,500', '12,500.50', '980'])).toBe('number');
-		expect(detectColumnType(['Acme Corp', 'Stripe Inc', 'Vercel LLC', 'Google Cloud'])).toBe('text');
+		expect(inferColumnTypeFromSamples(['$1,200.00', '$450.50', '$99.99', '$3,400'])).toBe('currency');
+		expect(inferColumnTypeFromSamples(['12.5%', '85%', '99.9%', '0.4%'])).toBe('percent');
+		expect(inferColumnTypeFromSamples(['2025-01-15', '2024-12-01', '2025-06-20'])).toBe('date');
+		expect(inferColumnTypeFromSamples(['Active', 'Pending', 'Active', 'Pending', 'Closed Won'])).toBe('dropdown');
+		expect(inferColumnTypeFromSamples([100, 250, 45.5, -12, '400'])).toBe('number');
+		expect(inferColumnTypeFromSamples(['1,200', '4,500', '12,500.50', '980'])).toBe('number');
+		expect(inferColumnTypeFromSamples(['Acme Corp', 'Stripe Inc', 'Vercel LLC', 'Google Cloud'])).toBe('text');
 	});
 
 	it('correctly normalizes and formats fractional percentages', () => {
@@ -56,21 +55,6 @@ describe('Data Management & SheetJS I/O', () => {
 		expect(formatCellValue('percent', 0.005)).toBe('0.5%');
 		expect(formatCellValue('percent', '12.5%')).toBe('12.5%');
 		expect(formatCellValue('percent', 0.125)).toBe('12.5%');
-	});
-
-	it('provides 3 rich sample datasets with 25 rows each', () => {
-		expect(sampleTables.saas.rows.length).toBe(25);
-		expect(sampleTables.sales.rows.length).toBe(25);
-		expect(sampleTables.inventory.rows.length).toBe(25);
-
-		expect(sampleTables.saas.columns.map((c) => c.type)).toContain('currency');
-		expect(sampleTables.saas.columns.map((c) => c.type)).toContain('percent');
-		expect(sampleTables.saas.columns.map((c) => c.type)).toContain('dropdown');
-		expect(sampleTables.saas.columns.map((c) => c.type)).toContain('date');
-		expect(String(sampleTables.inventory.rows[0].c1)).toContain('Processor');
-		expect(typeof sampleTables.inventory.rows[0].c4).toBe('number');
-		expect(Number(sampleTables.inventory.rows[0].c5)).toBeGreaterThanOrEqual(0);
-		expect(Number(sampleTables.inventory.rows[0].c5)).toBeLessThanOrEqual(1);
 	});
 
 	it('imports XLSX workbook buffer into structured TableData', async () => {

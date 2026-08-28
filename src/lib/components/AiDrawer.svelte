@@ -20,6 +20,33 @@
 		AI_MODELS.find((m) => m.id === store.aiModel)?.name || store.aiModel
 	);
 
+	// Derived from the live table instead of hardcoded to one sample dataset.
+	let examplePrompts = $derived.by(() => {
+		const firstNumeric = store.columns.find(
+			(c) => c.type === 'number' || c.type === 'currency' || c.type === 'percent'
+		);
+		const firstCategorical = store.columns.find((c) => c.type === 'dropdown' || c.type === 'text');
+		const chips = [
+			{
+				label: 'Summarize dataset',
+				prompt: 'Summarize this dataset, highlighting key metrics and anomalies.'
+			}
+		];
+		if (firstNumeric) {
+			chips.push({
+				label: `Top 5 by ${firstNumeric.name}`,
+				prompt: `List the top 5 rows by ${firstNumeric.name} and explain what they have in common.`
+			});
+		}
+		if (firstCategorical) {
+			chips.push({
+				label: `Break down by ${firstCategorical.name}`,
+				prompt: `Break the table down by ${firstCategorical.name} and describe the distribution.`
+			});
+		}
+		return chips;
+	});
+
 	// AI States
 	let promptInput = $state<string>('');
 	let isGenerating = $state<boolean>(false);
@@ -263,6 +290,15 @@
 		}
 	}
 
+	// The ribbon button toggles this panel, so a dedicated X was redundant chrome. Esc
+	// keeps the keyboard path intact now that the button is gone.
+	function handleDrawerKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && store.isAiOpen) {
+			e.preventDefault();
+			store.toggleAi(false);
+		}
+	}
+
 	function clearChat() {
 		cancelRequest();
 		messages = [];
@@ -270,6 +306,8 @@
 		onNotify('info', 'Chat history cleared.');
 	}
 </script>
+
+<svelte:window onkeydown={handleDrawerKeydown} />
 
 <aside
 	class="ai-drawer relative h-full bg-[var(--surface-1)] border-l border-[var(--border-strong)] z-10 flex flex-col shrink-0 overflow-hidden transition-all duration-200 ease-out {store.isAiOpen ? 'open w-[380px] max-w-[420px] opacity-100 visible' : 'closed w-0 border-l-transparent opacity-0 pointer-events-none invisible'}"
@@ -301,14 +339,6 @@
 						<Icon name="trash" size={14} />
 					</button>
 				{/if}
-				<button
-					class="drawer-close-btn w-7 h-7 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text-1)] flex items-center justify-center cursor-pointer transition-colors"
-					onclick={() => store.toggleAi()}
-					title="Close drawer"
-					aria-label="Close AI drawer"
-				>
-					<Icon name="x" size={14} />
-				</button>
 			</div>
 		</div>
 
@@ -414,9 +444,12 @@
 					<p class="empty-title font-semibold text-[13px] text-[var(--text-1)] m-0">Ask anything about this table</p>
 					<p class="empty-desc text-[12px] text-[var(--text-3)] max-w-[240px] m-0">Summarize trends, fill blanks, or clean formats. Try a prompt:</p>
 					<div class="example-chips flex flex-col gap-1.5 mt-2 w-full max-w-[260px]">
-						<button class="chip action-chip w-full text-left text-[11.5px] px-2.5 py-1.5 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors cursor-pointer truncate" onclick={() => sendChatMessage('Summarize this dataset, highlighting key metrics and anomalies.')}>Summarize dataset</button>
-						<button class="chip action-chip w-full text-left text-[11.5px] px-2.5 py-1.5 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors cursor-pointer truncate" onclick={() => sendChatMessage('What are the top 3 highest stockout risks?')}>Top stockout risks?</button>
-						<button class="chip action-chip w-full text-left text-[11.5px] px-2.5 py-1.5 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors cursor-pointer truncate" onclick={() => sendChatMessage('Explain the distribution of inventory status.')}>Status breakdown</button>
+						{#each examplePrompts as chip (chip.label)}
+							<button
+								class="chip action-chip w-full text-left text-[11.5px] px-2.5 py-1.5 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors cursor-pointer truncate"
+								onclick={() => sendChatMessage(chip.prompt)}>{chip.label}</button
+							>
+						{/each}
 					</div>
 				</div>
 			{:else}

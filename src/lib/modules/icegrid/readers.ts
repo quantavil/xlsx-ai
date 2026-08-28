@@ -2,7 +2,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { WorkBook } from 'xlsx';
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MiB per file
-export const MAX_COMBINED_BYTES = 750_000; // Must not exceed the server module content limit
+export const MAX_COMBINED_BYTES = 750_000; // Matches IcegridExtractInputSchema's content cap
 
 async function loadPdfJs() {
 	const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -167,14 +167,12 @@ export async function combineDocumentSources(
 
 		onProgress?.(`Reading ${file.name} (${i + 1}/${files.length})...`);
 
-		let extracted: ExtractedDocumentResult;
-		if (ext.endsWith('.xlsx') || ext.endsWith('.xls')) {
-			extracted = await extractSpreadsheetText(file);
-		} else if (ext.endsWith('.pdf')) {
-			extracted = await extractPdfText(file);
-		} else {
+		if (!isSupportedExtension(file.name)) {
 			throw new Error(`Unsupported file type for "${file.name}". Supported formats: .pdf, .xlsx, .xls`);
 		}
+		const extracted = ext.endsWith('.pdf')
+			? await extractPdfText(file)
+			: await extractSpreadsheetText(file);
 
 		results.push(extracted);
 		combinedBlocks.push(`=== FILE: ${file.name} ===\n${extracted.content}`);

@@ -3,8 +3,10 @@
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import type { createModuleStore } from '$lib/modules/module-store.svelte';
 	import type { WorkspaceModule } from '$lib/modules/types';
-	import { importFileToTable, exportTableToExcel, exportTableToCsv } from '$lib/data/index';
+	import { exportTableToExcel, exportTableToCsv } from '$lib/data/index';
 	import { handleMenuKeydown } from '$lib/ui/menu';
+	import type { NotifyFn } from '$lib/ui/toast.svelte';
+	import type { TableData } from '$lib/types';
 
 	let {
 		store,
@@ -12,40 +14,26 @@
 		theme,
 		onToggleTheme,
 		onOpenSettings,
-		onNotify
+		onNotify,
+		onCreateFile
 	}: {
 		store: ReturnType<typeof createTableStore>;
 		moduleStore?: ReturnType<typeof createModuleStore>;
 		theme: 'dark' | 'light';
 		onToggleTheme: () => void;
 		onOpenSettings?: () => void;
-		onNotify: (type: 'info' | 'success' | 'warning' | 'error', msg: string) => void;
+		onNotify: NotifyFn;
+		onCreateFile: (table: TableData) => void;
 	} = $props();
 
 	let moduleFileInputRefs = $state<Record<string, HTMLInputElement | null>>({});
+	let moduleWarnings = $state<string[]>([]);
+	let showWarnings = $state<boolean>(false);
 
-	let fileInputRef = $state<HTMLInputElement | null>(null);
 	let showExportMenu = $state<boolean>(false);
 	let isExporting = $state<boolean>(false);
 	let exportBtnRef = $state<HTMLButtonElement | null>(null);
 	let exportMenuItemsRef = $state<HTMLButtonElement[]>([]);
-
-	async function handleFileUpload(e: Event) {
-		const target = e.target as HTMLInputElement;
-		const file = target.files?.[0];
-		if (!file) return;
-
-		try {
-			const imported = await importFileToTable(file);
-			store.loadTable(imported);
-			onNotify('success', `Imported "${file.name}" (${imported.rows.length} rows, ${imported.columns.length} columns).`);
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : 'Failed to import file.';
-			onNotify('error', msg);
-		} finally {
-			target.value = '';
-		}
-	}
 
 	async function handleModuleTrigger(mod: WorkspaceModule) {
 		if (mod.requirements.gemini && (!store.apiKey || store.apiKey.trim().length < 20)) {
@@ -61,6 +49,8 @@
 		const files = target.files ? Array.from(target.files) : [];
 		if (files.length === 0 || !moduleStore) return;
 
+		moduleWarnings = [];
+		showWarnings = false;
 		try {
 			const result = await moduleStore.runModule(mod.id, files, {
 				apiKey: store.apiKey,
@@ -68,12 +58,18 @@
 			});
 
 			if (result && result.table && result.table.columns.length > 0) {
-				store.loadTable(result.table);
+				onCreateFile(result.table);
 				onNotify('success', `Imported ${result.table.rows.length} row(s) via ${mod.name}.`);
-				if (result.warnings && result.warnings.length > 0) {
-					for (const w of result.warnings) {
-						onNotify('warning', w);
-					}
+				// One summary toast. A 40-row extraction can raise 40 warnings; firing one
+				// toast each buries the screen and pushes the success message off-stack.
+				const warnings = result.warnings ?? [];
+				if (warnings.length > 0) {
+					moduleWarnings = warnings;
+					onNotify(
+						'warning',
+						`${warnings.length} row(s) need review after import.`,
+						{ action: { label: 'Show', onClick: () => (showWarnings = true) } }
+					);
 				}
 			}
 		} catch (err: unknown) {
@@ -158,15 +154,6 @@
 
 <!-- Right-End Tool Ribbon -->
 <aside class="right-tool-ribbon w-12 h-full bg-[var(--surface-1)] border-l border-[var(--border)] flex flex-col justify-between items-center py-2.5 shrink-0 z-15 select-none max-sm:fixed max-sm:bottom-0 max-sm:inset-x-0 max-sm:w-full max-sm:h-[54px] max-sm:flex-row max-sm:border-l-0 max-sm:border-t max-sm:px-4 max-sm:z-50" aria-label="Quick Tools Ribbon">
-	<!-- Hidden File Input for Import -->
-	<input
-		type="file"
-		bind:this={fileInputRef}
-		accept=".xlsx, .xls, .csv, .tsv"
-		style="display: none;"
-		onchange={handleFileUpload}
-	/>
-
 	<!-- Hidden File Inputs for Modules -->
 	{#if moduleStore}
 		{#each moduleStore.enabledModules as mod (mod.id)}
@@ -181,13 +168,60 @@
 		{/each}
 	{/if}
 
+	<!-- Long-running module progress. Without this a 30s Gemini extraction shows nothing but
+	     a spinning glyph — the module store's progress messages went nowhere. -->
+	{#if moduleStore?.runningModuleId}
+		<div
+			class="module-progress-banner fixed bottom-6 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-2xl text-[12.5px] text-[var(--text-1)] max-w-[min(92vw,460px)]"
+			role="status"
+			aria-live="polite"
+		>
+			<Icon name="loader" size={14} class="animate-spin text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
+			<span class="truncate">{moduleStore.progressMessage || 'Working…'}</span>
+			<button
+				class="module-progress-cancel shrink-0 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[11.5px] font-semibold text-[var(--text-2)] hover:text-rose-400 hover:border-rose-500/40 cursor-pointer transition-colors"
+				onclick={() => moduleStore?.cancelRun()}
+			>
+				Cancel
+			</button>
+		</div>
+	{/if}
+
+	<!-- Consolidated import warnings, opened from the summary toast -->
+	{#if showWarnings && moduleWarnings.length > 0}
+		<div
+			class="module-warnings-panel fixed bottom-6 right-6 z-[950] w-[min(92vw,420px)] max-h-[46vh] flex flex-col rounded-xl bg-[var(--surface-1)] border border-amber-500/30 shadow-2xl overflow-hidden"
+			role="dialog"
+			aria-label="Import warnings"
+		>
+			<div class="flex items-center justify-between px-3.5 py-2.5 border-b border-[var(--border)] bg-[var(--surface-2)]">
+				<span class="text-[12.5px] font-bold text-[var(--text-1)]">
+					Rows needing review ({moduleWarnings.length})
+				</span>
+				<button
+					class="p-1 rounded text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] cursor-pointer transition-colors"
+					onclick={() => (showWarnings = false)}
+					aria-label="Close warnings"
+				>
+					<Icon name="x" size={13} aria-hidden="true" />
+				</button>
+			</div>
+			<ul class="flex-1 overflow-y-auto p-2 m-0 list-none flex flex-col gap-1">
+				{#each moduleWarnings as warning, i (i)}
+					<li class="text-[11.5px] leading-snug text-[var(--text-2)] px-2 py-1.5 rounded bg-[var(--surface-2)]">
+						{warning}
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
 	<!-- Top Group: Primary Tools -->
 	<div class="ribbon-group ribbon-top flex flex-col items-center gap-2 w-full max-sm:flex-row max-sm:gap-3 max-sm:w-auto">
 		<!-- AI Assistant Tool Button -->
 		<button
 			class="ribbon-btn btn-ai-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border flex items-center justify-center cursor-pointer transition-all {store.isAiOpen ? 'active !bg-[var(--accent-primary)] !text-white !border-[var(--accent-primary)] shadow-sm' : 'text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'}"
 			onclick={() => store.toggleAi()}
-			title="Toggle AI Assistant (Ctrl+/)"
 			aria-label="Toggle AI Assistant"
 			aria-expanded={store.isAiOpen}
 		>
@@ -208,7 +242,6 @@
 					class="ribbon-btn relative group/ribbon w-[34px] h-[34px] rounded-md bg-transparent border border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)] active:bg-[var(--surface-3)] flex items-center justify-center cursor-pointer transition-colors disabled:opacity-60"
 					onclick={() => handleModuleTrigger(mod)}
 					disabled={Boolean(moduleStore.runningModuleId)}
-					title={mod.ribbon.label}
 					aria-label={mod.ribbon.label}
 				>
 					{#if isRunning}
@@ -230,25 +263,11 @@
 				store.addRow();
 				onNotify('info', 'Added new row.');
 			}}
-			title="Add Row (Ctrl+N)"
 			aria-label="Add Row"
 		>
 			<Icon name="plus" size={17} aria-hidden="true" />
 			<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
 				Add Row <kbd class="tooltip-kbd font-mono text-[10px] bg-[var(--surface-1)] border border-[var(--border)] px-1 py-0.5 rounded text-[var(--text-2)]">⌘N</kbd>
-			</span>
-		</button>
-
-		<!-- Import Tool Button -->
-		<button
-			class="ribbon-btn relative group/ribbon w-[34px] h-[34px] rounded-md bg-transparent border border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)] active:bg-[var(--surface-3)] flex items-center justify-center cursor-pointer transition-colors"
-			onclick={() => fileInputRef?.click()}
-			title="Import Spreadsheet (.xlsx, .csv)"
-			aria-label="Import Spreadsheet"
-		>
-			<Icon name="upload" size={17} aria-hidden="true" />
-			<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
-				Import (.xlsx, .csv)
 			</span>
 		</button>
 
@@ -270,7 +289,6 @@
 						}
 					}
 				}}
-				title="Export Spreadsheet"
 				aria-label="Export Spreadsheet Options"
 				aria-haspopup="menu"
 				aria-expanded={showExportMenu}
@@ -326,7 +344,6 @@
 		<button
 			class="ribbon-btn theme-toggle-btn relative group/ribbon w-[34px] h-[34px] rounded-md bg-transparent border border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)] active:bg-[var(--surface-3)] flex items-center justify-center cursor-pointer transition-colors"
 			onclick={onToggleTheme}
-			title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
 			aria-label="Toggle Theme"
 		>
 			{#if theme === 'dark'}
@@ -343,7 +360,6 @@
 			<button
 				class="ribbon-btn settings-toggle-btn relative group/ribbon w-[34px] h-[34px] rounded-md bg-transparent border border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)] active:bg-[var(--surface-3)] flex items-center justify-center cursor-pointer transition-colors"
 				onclick={onOpenSettings}
-				title="Settings & API Key (Ctrl+,)"
 				aria-label="Open Settings"
 			>
 				<Icon name="settings" size={17} aria-hidden="true" />

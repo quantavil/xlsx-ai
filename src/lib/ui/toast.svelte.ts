@@ -1,5 +1,16 @@
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
 
+export interface ToastAction {
+	label: string;
+	onClick: () => void;
+}
+
+export type NotifyFn = (
+	type: ToastType,
+	message: string,
+	options?: { action?: ToastAction; durationMs?: number }
+) => void;
+
 export interface ToastItem {
 	id: string;
 	type: ToastType;

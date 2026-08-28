@@ -58,7 +58,7 @@ describe('ICEGrid Validation and Mapping', () => {
 		expect(result.blockingErrors.length).toBe(0);
 	});
 
-	it('flags blocking errors on missing mandatory invoice fields', () => {
+	it('flags missing required invoice fields as warnings and still returns the rows', () => {
 		const badReport: IcegridReport = {
 			reportVersion: 1,
 			sourceFiles: ['inv.pdf'],
@@ -74,8 +74,23 @@ describe('ICEGrid Validation and Mapping', () => {
 		};
 
 		const result = validateIcegridReport(badReport);
+		// Gaps are editable in the grid — they must not throw away the whole extraction.
+		expect(result.valid).toBe(true);
+		expect(result.blockingErrors.length).toBe(0);
+		expect(result.warnings.some((w) => w.includes('InvoiceNo'))).toBe(true);
+		expect(result.warnings.some((w) => w.includes('UnitPrice'))).toBe(true);
+		expect(result.warnings.some((w) => w.includes('Quantity (negative)'))).toBe(true);
+	});
+
+	it('blocks only when the report contains no rows at all', () => {
+		const result = validateIcegridReport({
+			reportVersion: 1,
+			sourceFiles: ['inv.pdf'],
+			rows: [],
+			warnings: []
+		});
 		expect(result.valid).toBe(false);
-		expect(result.blockingErrors.length).toBeGreaterThanOrEqual(2);
+		expect(result.blockingErrors[0]).toContain('no extracted data rows');
 	});
 
 	it('flags calculation discrepancies as non-blocking warnings', () => {

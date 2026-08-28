@@ -1,4 +1,4 @@
-import type { IcegridReport, IcegridRow } from './schema';
+import type { IcegridReport } from './schema';
 
 export interface ValidationResult {
 	valid: boolean;
@@ -29,24 +29,22 @@ export function validateIcegridReport(
 		const row = report.rows[i];
 		const rowNum = i + 1;
 
-		// 1. Mandatory Fields Check
-		if (!row.InvoiceNo || !row.InvoiceNo.trim()) {
-			blockingErrors.push(`Row ${rowNum}: Missing mandatory InvoiceNo.`);
-		}
-		if (!row.Description || !row.Description.trim()) {
-			blockingErrors.push(`Row ${rowNum}: Missing mandatory Description.`);
-		}
-		if (row.Quantity === null || row.Quantity === undefined || row.Quantity < 0) {
-			blockingErrors.push(`Row ${rowNum}: Missing or negative Quantity.`);
-		}
-		if (!row.QuantityUnit || !row.QuantityUnit.trim()) {
-			blockingErrors.push(`Row ${rowNum}: Missing mandatory QuantityUnit.`);
-		}
-		if (row.UnitPrice === null || row.UnitPrice === undefined || row.UnitPrice < 0) {
-			blockingErrors.push(`Row ${rowNum}: Missing or negative UnitPrice.`);
-		}
-		if (row.ProductAmount === null || row.ProductAmount === undefined || row.ProductAmount < 0) {
-			blockingErrors.push(`Row ${rowNum}: Missing or negative ProductAmount.`);
+		// 1. Required-field check. These are warnings, not blockers: a real packing list
+		// routinely omits unit price or UOM, and discarding a 40-row extraction over one
+		// blank cell is worse than handing the user an editable grid with the gaps flagged.
+		const missing: string[] = [];
+		if (!row.InvoiceNo || !row.InvoiceNo.trim()) missing.push('InvoiceNo');
+		if (!row.Description || !row.Description.trim()) missing.push('Description');
+		if (row.Quantity === null || row.Quantity === undefined) missing.push('Quantity');
+		else if (row.Quantity < 0) missing.push('Quantity (negative)');
+		if (!row.QuantityUnit || !row.QuantityUnit.trim()) missing.push('QuantityUnit');
+		if (row.UnitPrice === null || row.UnitPrice === undefined) missing.push('UnitPrice');
+		else if (row.UnitPrice < 0) missing.push('UnitPrice (negative)');
+		if (row.ProductAmount === null || row.ProductAmount === undefined) missing.push('ProductAmount');
+		else if (row.ProductAmount < 0) missing.push('ProductAmount (negative)');
+
+		if (missing.length > 0) {
+			warnings.push(`Row ${rowNum}: needs review — ${missing.join(', ')}.`);
 		}
 
 		// 2. Arithmetic Sanity Verification (Warning Level)

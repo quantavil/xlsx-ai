@@ -1,187 +1,149 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { createTableStore } from '$lib/table/store.svelte';
-	import { createModuleStore } from '$lib/modules/module-store.svelte';
-	import { sampleTables } from '$lib/data/index';
-	import { LS_THEME_KEY } from '$lib/constants';
+	import { goto } from '$app/navigation';
 	import Header from '$lib/components/Header.svelte';
 	import DataTable from '$lib/table/DataTable.svelte';
 	import AiDrawer from '$lib/components/AiDrawer.svelte';
 	import RightRibbon from '$lib/components/RightRibbon.svelte';
-	import SettingsModal from '$lib/components/SettingsModal.svelte';
-
-	import ToastHost from '$lib/ui/ToastHost.svelte';
-	import { createToastStore, type ToastType } from '$lib/ui/toast.svelte';
-
-	// Create reactive Table store with default SaaS sample
-	const store = createTableStore(sampleTables.saas);
-	const moduleStore = createModuleStore();
-	const toastStore = createToastStore();
+	import { importFileToTable } from '$lib/data/index';
+	import {
+		store,
+		documents,
+		moduleStore,
+		notify,
+		getTheme,
+		toggleTheme,
+		createFile,
+		newBlankFile,
+		openFile,
+		deleteFile
+	} from '$lib/workspace.svelte';
 
 	let headerRef = $state<{ focusSearch: () => void } | null>(null);
-	let theme = $state<'dark' | 'light'>('dark');
-	let showSettingsModal = $state<boolean>(false);
+	let importInputRef = $state<HTMLInputElement | null>(null);
 
-	function notify(
-		type: ToastType,
-		message: string,
-		options: { action?: { label: string; onClick: () => void } } = {}
-	) {
-		toastStore.notify(type, message, options);
+	// Inline title editing is the rename UI, so the Files list has to follow it.
+	$effect(() => {
+		documents.touch(store.title);
+	});
+
+	async function handleImportFile(e: Event) {
+		const target = e.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+		try {
+			const imported = await importFileToTable(file);
+			createFile(imported);
+			notify(
+				'success',
+				`Imported "${file.name}" (${imported.rows.length} rows, ${imported.columns.length} columns).`
+			);
+		} catch (err: unknown) {
+			notify('error', err instanceof Error ? err.message : 'Failed to import file.');
+		} finally {
+			target.value = '';
+		}
 	}
 
-	function toggleTheme() {
-		theme = theme === 'dark' ? 'light' : 'dark';
-		if (typeof document !== 'undefined') {
-			document.documentElement.setAttribute('data-theme', theme);
-		}
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem(LS_THEME_KEY, theme);
-		}
+	function openSettings() {
+		goto('/settings');
 	}
 
 	onMount(() => {
-		// Hydrate theme
-		if (typeof localStorage !== 'undefined') {
-			const savedTheme = (localStorage.getItem(LS_THEME_KEY) || localStorage.getItem('table-ai:theme') || document.documentElement.getAttribute('data-theme') || 'dark') as 'dark' | 'light';
-			if (savedTheme === 'dark' || savedTheme === 'light') {
-				theme = savedTheme;
-				document.documentElement.setAttribute('data-theme', theme);
-			}
-		}
-
-		// Hydrate table state
-		const hydrationResult = store.hydrate();
-
-		// Seed SaaS sample only when no persisted document was found
-		if (hydrationResult.status === 'missing') {
-			store.loadTable(sampleTables.saas);
-		}
-
-		// Global keyboard shortcuts
 		function handleGlobalKeyDown(e: KeyboardEvent) {
-			if (showSettingsModal) {
-				// #12 Allow toggle to close even when modal is open
-				if ((e.metaKey || e.ctrlKey) && (e.key === ',' || e.key === '<')) {
-					e.preventDefault();
-					showSettingsModal = false;
-					return;
-				}
-				// Suppress global table shortcuts when modal is active
-				return;
-			}
-
 			const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+			if (!isCmdOrCtrl) return;
+
 			const target = e.target as HTMLElement | null;
 			const isInputFocused =
 				target instanceof HTMLInputElement ||
 				target instanceof HTMLTextAreaElement ||
 				target instanceof HTMLSelectElement;
 
-			if (isCmdOrCtrl) {
-				if (e.key === 'k' || e.key === 'K') {
-					e.preventDefault();
-					headerRef?.focusSearch();
-					return;
-				}
-				if (e.key === '/' || e.key === '?') {
-					e.preventDefault();
-					store.toggleAi();
-					return;
-				}
-				if (e.key === ',' || e.key === '<') {
-					e.preventDefault();
-					showSettingsModal = !showSettingsModal;
-					return;
-				}
+			if (e.key === 'k' || e.key === 'K') {
+				e.preventDefault();
+				headerRef?.focusSearch();
+				return;
+			}
+			if (e.key === '/' || e.key === '?') {
+				e.preventDefault();
+				store.toggleAi();
+				return;
+			}
+			if (e.key === ',' || e.key === '<') {
+				e.preventDefault();
+				openSettings();
+				return;
+			}
+			// Never hijack native undo/redo/new while the user is typing in a field.
+			if (isInputFocused) return;
 
-				// If user is actively typing inside an input/textarea, do not hijack native undo/redo/new
-				if (isInputFocused) return;
-
-				if (e.key === 'n' || e.key === 'N') {
+			// Excel's alignment shortcuts, applied to whatever the grid has selected.
+			if (e.shiftKey && store.activeCell) {
+				const align = { l: 'left', e: 'center', r: 'right' }[e.key.toLowerCase()];
+				if (align) {
 					e.preventDefault();
-					store.addRow();
-					notify('info', 'Added new row.');
-				} else if (e.key === 'z' || e.key === 'Z') {
-					if (e.shiftKey) {
-						// Redo (Ctrl+Shift+Z)
-						e.preventDefault();
-						if (store.canRedo) store.redo();
-					} else {
-						// Undo (Ctrl+Z)
-						e.preventDefault();
-						if (store.canUndo) store.undo();
-					}
-				} else if (e.key === 'y' || e.key === 'Y') {
-					// Redo (Ctrl+Y)
-					e.preventDefault();
-					if (store.canRedo) store.redo();
+					store.alignSelection(align as 'left' | 'center' | 'right');
+					return;
 				}
 			}
-		}
 
-		function handleVisibilityChange() {
-			if (document.visibilityState === 'hidden') {
-				store.flushSave();
+
+			if (e.key === 'n' || e.key === 'N') {
+				e.preventDefault();
+				store.addRow();
+			} else if (e.key === 'z' || e.key === 'Z') {
+				e.preventDefault();
+				if (e.shiftKey) {
+					if (store.canRedo) store.redo();
+				} else if (store.canUndo) {
+					store.undo();
+				}
+			} else if (e.key === 'y' || e.key === 'Y') {
+				e.preventDefault();
+				if (store.canRedo) store.redo();
 			}
 		}
 
 		window.addEventListener('keydown', handleGlobalKeyDown);
-		window.addEventListener('visibilitychange', handleVisibilityChange);
-		window.addEventListener('beforeunload', store.flushSave);
-
-		return () => {
-			window.removeEventListener('keydown', handleGlobalKeyDown);
-			window.removeEventListener('visibilitychange', handleVisibilityChange);
-			window.removeEventListener('beforeunload', store.flushSave);
-		};
+		return () => window.removeEventListener('keydown', handleGlobalKeyDown);
 	});
 </script>
 
 <div class="workspace-layout flex flex-col w-screen h-screen bg-[var(--bg)] overflow-hidden relative">
-	<!-- Top Navigation Header -->
+	<input
+		type="file"
+		bind:this={importInputRef}
+		accept=".xlsx, .xls, .csv, .tsv"
+		style="display: none;"
+		onchange={handleImportFile}
+	/>
+
 	<Header
 		bind:this={headerRef}
 		{store}
-		onNotify={notify}
+		{documents}
+		onOpenFile={openFile}
+		onNewFile={newBlankFile}
+		onImportFile={() => importInputRef?.click()}
+		onDeleteFile={deleteFile}
 	/>
 
-	<!-- Body layout: Main table area + inline slide-in AI Panel + Right-End Tool Ribbon -->
 	<div class="workspace-body flex-1 flex overflow-hidden relative w-full min-h-0 max-sm:pb-[54px]">
 		<main class="table-main-area flex-1 min-w-0 flex overflow-hidden relative">
 			<DataTable {store} onNotify={notify} />
 		</main>
 
-		<!-- Slide-in AI Assistant Panel (no blocking overlay) -->
-		<AiDrawer
-			{store}
-			onOpenSettings={() => (showSettingsModal = true)}
-			onNotify={notify}
-		/>
+		<AiDrawer {store} onOpenSettings={openSettings} onNotify={notify} />
 
-		<!-- Right-End Tool Ribbon -->
 		<RightRibbon
 			{store}
 			{moduleStore}
-			{theme}
+			theme={getTheme()}
 			onToggleTheme={toggleTheme}
-			onOpenSettings={() => (showSettingsModal = true)}
+			onOpenSettings={openSettings}
 			onNotify={notify}
+			onCreateFile={createFile}
 		/>
 	</div>
-
-	<!-- Settings Modal -->
-	{#if showSettingsModal}
-		<SettingsModal
-			{store}
-			{moduleStore}
-			{theme}
-			onToggleTheme={toggleTheme}
-			onClose={() => (showSettingsModal = false)}
-			onNotify={notify}
-		/>
-	{/if}
-
-	<!-- Toast Notifications -->
-	<ToastHost toasts={toastStore.toasts} onDismiss={toastStore.remove} />
 </div>

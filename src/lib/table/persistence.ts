@@ -3,38 +3,29 @@ import type { PersistedTableDocumentV2 } from './schema';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-export interface PersistenceAdapter {
-	save(data: TableData): Promise<void>;
-	load(): string | null;
-	flush(): void;
-	getStatus(): SaveStatus;
-	getErrorMessage(): string | null;
-}
-
 export function createLocalStorageAdapter(
-	key: string,
+	// A getter, so the active file can change without rebuilding the adapter.
+	key: string | (() => string),
 	options: {
 		debounceMs?: number;
 		onStatusChange?: (status: SaveStatus, error?: string | null) => void;
 	} = {}
 ) {
 	const debounceMs = options.debounceMs ?? 300;
-	let status: SaveStatus = 'idle';
-	let errorMessage: string | null = null;
 	let timeoutId: ReturnType<typeof setTimeout> | null = null;
 	let pendingDoc: PersistedTableDocumentV2 | null = null;
 
 	function setStatus(next: SaveStatus, err: string | null = null) {
-		status = next;
-		errorMessage = err;
 		options.onStatusChange?.(next, err);
 	}
 
+	const resolveKey = () => (typeof key === 'function' ? key() : key);
+
 	function writeSync(doc: PersistedTableDocumentV2): boolean {
-		if (typeof window === 'undefined' || !window.localStorage) return false;
+		if (typeof localStorage === 'undefined') return false;
 		try {
 			const serialized = JSON.stringify(doc);
-			localStorage.setItem(key, serialized);
+			localStorage.setItem(resolveKey(), serialized);
 			setStatus('saved', null);
 			pendingDoc = null;
 			return true;
@@ -56,6 +47,7 @@ export function createLocalStorageAdapter(
 				width: c.width
 			})),
 			rows: data.rows,
+			cellAlign: data.cellAlign,
 			updatedAt: new Date().toISOString()
 		};
 
@@ -85,19 +77,13 @@ export function createLocalStorageAdapter(
 	}
 
 	function load(): string | null {
-		if (typeof window === 'undefined' || !window.localStorage) return null;
+		if (typeof localStorage === 'undefined') return null;
 		try {
-			return localStorage.getItem(key) || (key === 'xlsx-ai:v1' ? localStorage.getItem('table-ai:v1') : null);
+			return localStorage.getItem(resolveKey());
 		} catch {
 			return null;
 		}
 	}
 
-	return {
-		scheduleSave,
-		flush,
-		load,
-		getStatus: () => status,
-		getErrorMessage: () => errorMessage
-	};
+	return { scheduleSave, flush, load };
 }

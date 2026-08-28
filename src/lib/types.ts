@@ -11,10 +11,16 @@ export interface Column {
 
 export type Row = { id: string; [key: string]: CellValue };
 
+export type CellAlign = 'left' | 'center' | 'right';
+
+/** Per-cell horizontal alignment overrides, keyed `rowId::columnId`. */
+export type CellAlignMap = Record<string, CellAlign>;
+
 export interface TableData {
 	title: string;
 	columns: Column[];
 	rows: Row[];
+	cellAlign?: CellAlignMap;
 }
 
 export type SortDirection = 'asc' | 'desc';
@@ -33,23 +39,10 @@ export interface ColumnSummary {
 	max?: number;
 }
 
-export type AiOperationKind = 'fill_missing' | 'clean' | 'summarize' | 'qa';
-
-export interface AiTransformOperation {
-	kind: AiOperationKind;
-	targetColumnId?: string;
-	prompt?: string;
-}
-
 export interface HistoryEntry {
 	title: string;
 	columns: Column[];
 	rows: Row[];
+	cellAlign: CellAlignMap;
 }
 
-export interface ToastMessage {
-	id: string;
-	type: 'info' | 'success' | 'warning' | 'error';
-	message: string;
-	duration?: number;
-}

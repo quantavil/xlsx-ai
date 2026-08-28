@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ColumnType, Column, Row, TableData, CellValue } from '$lib/types';
+import type { ColumnType, Column, Row, TableData, CellValue, CellAlignMap } from '$lib/types';
 import { normalizeCellValue } from './cells';
 
 
@@ -14,11 +14,14 @@ export const PersistedColumnSchema = z.object({
 	width: z.number().min(60).max(800).optional()
 });
 
+export const CellAlignSchema = z.enum(['left', 'center', 'right']);
+
 export const PersistedTableDocumentV2Schema = z.object({
 	version: z.literal(2),
 	title: z.string().max(200),
 	columns: z.array(PersistedColumnSchema),
 	rows: z.array(z.record(z.string(), CellValueSchema)),
+	cellAlign: z.record(z.string(), CellAlignSchema).optional(),
 	updatedAt: z.string().optional()
 });
 
@@ -29,7 +32,12 @@ export type HydrationResult = {
 	document?: TableData;
 };
 
-export function sanitizeAndNormalizeTableData(title: string, columns: Column[], rows: Row[]): TableData {
+export function sanitizeAndNormalizeTableData(
+	title: string,
+	columns: Column[],
+	rows: Row[],
+	cellAlign?: CellAlignMap
+): TableData {
 	// Deduplicate column IDs
 	const seenColIds = new Set<string>();
 	const cleanColumns: Column[] = [];
@@ -70,10 +78,23 @@ export function sanitizeAndNormalizeTableData(title: string, columns: Column[], 
 		cleanRows.push(cleanRow);
 	}
 
+	// Alignment overrides outlive nothing: keys pointing at a deleted row or column are
+	// dropped here, so the map can never grow unbounded across saves.
+	let cleanAlign: CellAlignMap | undefined;
+	if (cellAlign) {
+		cleanAlign = {};
+		for (const [key, align] of Object.entries(cellAlign)) {
+			const [rowId, colId] = key.split('::');
+			if (!seenRowIds.has(rowId) || !seenColIds.has(colId)) continue;
+			if (align === 'left' || align === 'center' || align === 'right') cleanAlign[key] = align;
+		}
+	}
+
 	return {
 		title: title.trim() || 'Untitled Table',
 		columns: cleanColumns,
-		rows: cleanRows
+		rows: cleanRows,
+		cellAlign: cleanAlign
 	};
 }
 
@@ -102,7 +123,8 @@ export function parseAndMigrateTableDocument(raw: unknown): HydrationResult {
 			const sanitized = sanitizeAndNormalizeTableData(
 				parsed.data.title,
 				parsed.data.columns as Column[],
-				parsed.data.rows as Row[]
+				parsed.data.rows as Row[],
+				parsed.data.cellAlign
 			);
 			return { status: 'restored', document: sanitized };
 		}
@@ -115,7 +137,12 @@ export function parseAndMigrateTableDocument(raw: unknown): HydrationResult {
 		const title = typeof doc.title === 'string' ? doc.title : 'Untitled Table';
 
 		if (rawCols.length > 0) {
-			const sanitized = sanitizeAndNormalizeTableData(title, rawCols, rawRows);
+			const sanitized = sanitizeAndNormalizeTableData(
+				title,
+				rawCols,
+				rawRows,
+				doc.cellAlign as CellAlignMap | undefined
+			);
 			return { status: 'restored', document: sanitized };
 		}
 	}

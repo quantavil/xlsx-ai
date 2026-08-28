@@ -11,8 +11,7 @@
 		<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 		<script>
 			try {
-				const savedTheme = localStorage.getItem('xlsx-ai:theme') || localStorage.getItem('table-ai:theme');
-				const theme = savedTheme || 'dark';
+				const theme = localStorage.getItem('xlsx-ai:theme') || 'dark';
 				document.documentElement.setAttribute('data-theme', theme);
 			} catch (e) {}
 		</script>

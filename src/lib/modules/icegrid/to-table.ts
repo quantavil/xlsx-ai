@@ -1,6 +1,6 @@
 import type { TableData, Row, CellValue } from '$lib/types';
 import { ICEGRID_COLUMNS, buildIcegridTableColumns } from './columns';
-import type { IcegridReport, IcegridRow } from './schema';
+import type { IcegridReport } from './schema';
 
 export function mapReportToTableData(report: IcegridReport): TableData {
 	const columns = buildIcegridTableColumns();
@@ -15,13 +15,13 @@ export function mapReportToTableData(report: IcegridReport): TableData {
 
 		for (const col of ICEGRID_COLUMNS) {
 			const header = col.header;
-			const val = (rawRow as Record<string, any>)[header];
+			const val = (rawRow as Record<string, CellValue | undefined>)[header];
 
 			if (val === undefined || val === null || val === '') {
 				// Apply default value if defined
 				if (col.defaultValue !== undefined) {
 					rowObj[header] = col.defaultValue as CellValue;
-				} else if (header === 'ItemSNo' && !val) {
+				} else if (header === 'ItemSNo') {
 					rowObj[header] = idx + 1;
 				} else {
 					rowObj[header] = null;

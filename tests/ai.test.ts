@@ -192,14 +192,14 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect((await response.json()).error).toContain('Unsupported Gemini model');
 	});
 
-	it('returns 413 before parsing request bodies larger than 1 MiB', async () => {
+	it('returns 413 before parsing request bodies larger than 4 MiB', async () => {
 		const request = new Request('http://localhost:5173/api/ai', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
 				'x-ai-api-key': 'AIzaSyFakeKeyValidLengthForAuthTest12345'
 			},
-			body: JSON.stringify({ padding: 'x'.repeat(1024 * 1024 + 1) })
+			body: JSON.stringify({ padding: 'x'.repeat(4 * 1024 * 1024 + 1) })
 		});
 
 		const response = await POST({ request } as any);

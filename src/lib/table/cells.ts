@@ -1,4 +1,4 @@
-import type { CellValue, ColumnType } from '$lib/types';
+import type { CellAlign, CellValue, ColumnType } from '$lib/types';
 
 
 const NUMERIC_TYPES = new Set<ColumnType>(['number', 'currency', 'percent']);
@@ -30,4 +30,9 @@ export function normalizeCellValue(type: ColumnType, value: CellValue | undefine
 	if (NUMERIC_TYPES.has(type)) return numericCellValue(type, value);
 	if (typeof value === 'string') return value.trim();
 	return value;
+}
+
+/** Excel's own default: numbers hug the right so digits line up, everything else left. */
+export function defaultAlignForType(type: ColumnType): CellAlign {
+	return NUMERIC_TYPES.has(type) ? 'right' : 'left';
 }

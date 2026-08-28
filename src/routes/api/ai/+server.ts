@@ -4,16 +4,15 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject, streamText } from 'ai';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
 import { getModuleAiHandler } from '$lib/server/modules/registry';
+import { isSupportedModelId } from '$lib/server/models';
 
-const MAX_REQUEST_BYTES = 1024 * 1024;
+// A module payload is capped at MAX_COMBINED_BYTES (750 KB) of *extracted text*; JSON
+// escaping of tab/newline-dense TSV plus multi-byte glyphs can roughly double that on the
+// wire, so the transport ceiling has to sit well above the content ceiling.
+const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const _CellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
-export function _isSupportedModelId(modelId: string): boolean {
-	if (!/^gemini-[a-z0-9][a-z0-9._-]{2,80}$/i.test(modelId)) return false;
-	if (/(?:image|imagen|embedding|audio|speech|tts|live|robotics|aqa)/i.test(modelId)) return false;
-	if (/(?:gemini-2\.0)/i.test(modelId)) return false;
-	return true;
-}
+export { isSupportedModelId as _isSupportedModelId };
 
 export const _ModuleOperationRequestSchema = z.object({
 	operation: z.object({
@@ -87,7 +86,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const rawBody = await request.text();
 		if (new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
-			return json({ error: 'Request payload exceeds the 1 MiB limit.' }, { status: 413 });
+			return json({ error: 'Request payload exceeds the 4 MiB limit.' }, { status: 413 });
 		}
 		body = JSON.parse(rawBody);
 	} catch {
@@ -106,7 +105,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const targetModel = request.headers.get('x-ai-model-id')?.trim() || DEFAULT_AI_MODEL;
-	if (!_isSupportedModelId(targetModel)) {
+	if (!isSupportedModelId(targetModel)) {
 		return json({ error: 'Unsupported Gemini model id.' }, { status: 400 });
 	}
 
@@ -191,7 +190,8 @@ INSTRUCTIONS:
 				model,
 				system: systemPrompt,
 				prompt,
-				schema: _CleanFillSchema
+				schema: _CleanFillSchema,
+				abortSignal: request.signal
 			});
 
 			return json({
@@ -229,16 +229,40 @@ INSTRUCTIONS:
 		return result.toTextStreamResponse();
 	} catch (err: unknown) {
 		console.error('AI SDK Generation Error:', err);
+		const e = (err ?? {}) as Record<string, unknown>;
+		// The AI SDK reports the provider's HTTP status as `statusCode`, not `status`.
 		const providerStatus =
-			typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number'
-				? err.status
-				: 500;
+			typeof e.statusCode === 'number' ? e.statusCode : typeof e.status === 'number' ? e.status : 500;
+
 		if (providerStatus === 401 || providerStatus === 403) {
 			return json({ error: 'Gemini rejected the API key or model access.' }, { status: 401 });
 		}
 		if (providerStatus === 429) {
 			return json({ error: 'Gemini rate limit reached. Try again shortly.' }, { status: 429 });
 		}
-		return json({ error: 'Gemini could not complete the request.' }, { status: 502 });
+		if (providerStatus === 404) {
+			return json(
+				{ error: `Gemini has no model "${targetModel}". Pick another in Settings → AI & Models.` },
+				{ status: 404 }
+			);
+		}
+		// Anything else is a bug in our request (bad schema, oversized prompt) or a provider
+		// fault. Swallowing the detail here is what made import failures undebuggable.
+		return json({ error: `Gemini request failed: ${describeProviderError(err)}` }, { status: 502 });
 	}
 };
+
+function describeProviderError(err: unknown): string {
+	const e = (err ?? {}) as Record<string, unknown>;
+	const body = typeof e.responseBody === 'string' ? e.responseBody : '';
+	if (body) {
+		try {
+			const parsed = JSON.parse(body) as { error?: { message?: string } };
+			if (parsed.error?.message) return parsed.error.message.slice(0, 400);
+		} catch {
+			return body.slice(0, 400);
+		}
+	}
+	if (err instanceof Error && err.message) return err.message.slice(0, 400);
+	return 'unknown provider error';
+}

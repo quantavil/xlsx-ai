@@ -207,7 +207,7 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		store.setApiKey('');
 		expect(store.apiKey).toBe('');
 
-		expect(store.aiModel).toBe('gemini-3.5-flash-lite');
+		expect(store.aiModel).toBe('gemini-3.7-flash');
 		store.setAiModel('gemini-3.1-pro');
 		expect(store.aiModel).toBe('gemini-3.1-pro');
 
@@ -276,3 +276,41 @@ describe('Table Store (Svelte 5 Runes)', () => {
 	});
 });
 
+
+describe('Document replacement is recoverable', () => {
+	const doc: TableData = {
+		title: 'Working Doc',
+		columns: [{ id: 'c1', name: 'Name', type: 'text' }],
+		rows: [{ id: 'r1', c1: 'keep me' }]
+	};
+
+	it('makes loadTable undoable so a sample/import never silently destroys work', () => {
+		const store = createTableStore(doc, { persist: false });
+		store.loadTable({ title: 'Other', columns: [{ id: 'x', name: 'X', type: 'text' }], rows: [] });
+		expect(store.title).toBe('Other');
+		expect(store.canUndo).toBe(true);
+
+		store.undo();
+		expect(store.title).toBe('Working Doc');
+		expect(store.rows[0].c1).toBe('keep me');
+	});
+
+	it('newSheet produces an editable blank grid and is undoable', () => {
+		const store = createTableStore(doc, { persist: false });
+		store.newSheet();
+		expect(store.title).toBe('Untitled Table');
+		expect(store.columns.length).toBe(5);
+		expect(store.columns[0].name).toBe('A');
+		expect(store.rows.length).toBe(20);
+		expect(store.rows.every((r) => r.c1 === null)).toBe(true);
+
+		store.undo();
+		expect(store.title).toBe('Working Doc');
+	});
+
+	it('does not push history when replacing an empty document', () => {
+		const store = createTableStore(undefined, { persist: false });
+		store.loadTable(doc);
+		expect(store.canUndo).toBe(false);
+	});
+});

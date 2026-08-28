@@ -1,91 +1,62 @@
-<div class="settings-section shortcuts-section flex flex-col gap-5">
+<script lang="ts">
+	// Data-driven so a new shortcut is one line, not eighteen of duplicated kbd markup.
+	const GROUPS: Array<{ title: string; items: Array<[string, string[]]> }> = [
+		{
+			title: 'Navigate',
+			items: [
+				['Move active cell', ['↑', '↓', '←', '→']],
+				['Extend selection', ['Shift', '↑ ↓ ← →']],
+				['Extend selection to a cell', ['Shift', 'Click']],
+				['Move and edit next cell', ['Tab']],
+				['Search rows', ['Ctrl', 'K']],
+				['Toggle AI assistant', ['Ctrl', '/']],
+				['Settings', ['Ctrl', ',']]
+			]
+		},
+		{
+			title: 'Edit',
+			items: [
+				['Edit cell', ['Enter']],
+				['Copy selection', ['Ctrl', 'C']],
+				['Clear selection', ['Del']],
+				['Align left / center / right', ['Ctrl', 'Shift', 'L / E / R']],
+				['Rename column', ['Double-click header']],
+				['Add row', ['Ctrl', 'N']],
+				['Undo / Redo', ['Ctrl', 'Z']],
+				['Close panel or menu', ['Esc']]
+			]
+		}
+	];
+</script>
+
+<section class="settings-section shortcuts-section flex flex-col gap-4">
 	<div class="section-header">
-		<h3 class="text-base font-bold text-[var(--text-1)] m-0 mb-1">Keyboard Shortcuts</h3>
-		<p class="section-subtitle text-[13px] text-[var(--text-3)] m-0">
-			Navigate and manipulate your data with Excel-style speed and precision.
+		<h3 class="text-[15px] font-bold text-[var(--text-1)] m-0 mb-1">Keyboard shortcuts</h3>
+		<p class="section-subtitle text-[12.5px] text-[var(--text-3)] m-0">
+			The grid follows Excel conventions.
 		</p>
 	</div>
 
-	<div class="shortcuts-grid grid grid-cols-1 sm:grid-cols-2 gap-4">
-		<div class="shortcut-group bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 flex flex-col gap-3">
-			<h4 class="text-[13px] font-bold text-[var(--text-1)] m-0 uppercase tracking-wider">Navigation & Focus</h4>
-			<div class="shortcut-list flex flex-col gap-2">
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Move active cell</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">↑</kbd>
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">↓</kbd>
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">←</kbd>
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">→</kbd>
+	<div class="shortcuts-grid grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+		{#each GROUPS as group (group.title)}
+			<div class="shortcut-group flex flex-col gap-1.5">
+				<h4 class="text-[10.5px] font-bold text-[var(--text-3)] m-0 uppercase tracking-wider">
+					{group.title}
+				</h4>
+				{#each group.items as [label, keys] (label)}
+					<div class="shortcut-row flex justify-between items-center gap-3 py-1 text-[12.5px]">
+						<span class="text-[var(--text-2)]">{label}</span>
+						<span class="flex gap-1 items-center shrink-0">
+							{#each keys as key (key)}
+								<kbd
+									class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-[var(--text-2)]"
+									>{key}</kbd
+								>
+							{/each}
+						</span>
 					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Move and edit next cell</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Tab</kbd> / <kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Shift+Tab</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Focus Global Search</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Ctrl</kbd>+<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">K</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Toggle AI Assistant</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Ctrl</kbd>+<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">/</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Open Settings</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Ctrl</kbd>+<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">,</kbd>
-					</div>
-				</div>
+				{/each}
 			</div>
-		</div>
-
-		<div class="shortcut-group bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 flex flex-col gap-3">
-			<h4 class="text-[13px] font-bold text-[var(--text-1)] m-0 uppercase tracking-wider">Editing & Table Operations</h4>
-			<div class="shortcut-list flex flex-col gap-2">
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Start editing cell</span>
-					<div class="kbd-group flex gap-1 items-center text-[11.5px] text-[var(--text-3)]">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Enter</kbd> or <kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">F2</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Commit cell edit & down</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Enter</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Cancel edit</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Esc</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Add new row</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Ctrl</kbd>+<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">N</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Undo mutation</span>
-					<div class="kbd-group flex gap-1 items-center">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Ctrl</kbd>+<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Z</kbd>
-					</div>
-				</div>
-				<div class="shortcut-row flex justify-between items-center py-1 text-[12.5px]">
-					<span class="shortcut-desc text-[var(--text-2)]">Redo mutation</span>
-					<div class="kbd-group flex gap-1 items-center text-[11.5px] text-[var(--text-3)]">
-						<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Ctrl</kbd>+<kbd class="bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-sm rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--text-1)]">Y</kbd>
-					</div>
-				</div>
-			</div>
-		</div>
+		{/each}
 	</div>
-</div>
+</section>

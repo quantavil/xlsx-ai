@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
+import { isSupportedModelId } from '$lib/server/models';
 
 const GoogleModelItemSchema = z.object({
 	name: z.string(),
@@ -82,66 +83,33 @@ export const GET: RequestHandler = async ({ request }) => {
 			pageToken = parsed.data.nextPageToken;
 		} while (pageToken && allRawModels.length < 500);
 
-		// Filter for Gemini LLM text generation models
+		// Only list models the generation endpoint will actually accept.
 		const eligibleModels = allRawModels.filter((m) => {
-			const id = (m.name || '').replace(/^models\//, '').toLowerCase();
-			const displayName = (m.displayName || '').toLowerCase();
+			const id = (m.name || '').replace(/^models\//, '');
 			const methods: string[] = m.supportedGenerationMethods || [];
-
-			if (!id.startsWith('gemini')) return false;
-
-			// Exclude non-text/specialized models
-			if (
-				id.includes('imagen') ||
-				id.includes('image') ||
-				id.includes('transcribe') ||
-				id.includes('audio') ||
-				id.includes('speech') ||
-				id.includes('tts') ||
-				id.includes('embedding') ||
-				id.includes('aqa') ||
-				id.includes('robotics') ||
-				displayName.includes('image') ||
-				displayName.includes('transcribe') ||
-				displayName.includes('embedding')
-			) {
-				return false;
-			}
-
+			if (!isSupportedModelId(id)) return false;
 			return methods.length === 0 || methods.includes('generateContent');
 		});
-
-		// Compute catalog-level facts BEFORE mapping to eliminate TDZ issues
-		const hasDefaultModel = eligibleModels.some(
-			(m) => m.name.replace(/^models\//, '') === DEFAULT_AI_MODEL
-		);
 
 		const formattedModels = eligibleModels.map((m) => {
 			const id = m.name.replace(/^models\//, '');
 			const inputLimit = m.inputTokenLimit;
 			let contextWindow = '1M tokens';
 			if (inputLimit) {
-				if (inputLimit >= 2_000_000) contextWindow = `${Math.round(inputLimit / 1_000_000)}M tokens`;
-				else if (inputLimit >= 1_000_000) contextWindow = `${Math.round(inputLimit / 1_000_000)}M tokens`;
+				if (inputLimit >= 1_000_000) contextWindow = `${Math.round(inputLimit / 1_000_000)}M tokens`;
 				else if (inputLimit >= 1_000) contextWindow = `${Math.round(inputLimit / 1_000)}k tokens`;
 				else contextWindow = `${inputLimit} tokens`;
 			}
 
 			let speed: 'Ultra-Fast' | 'Fast' | 'Balanced' = 'Fast';
-			if (id.includes('flash-lite') || id.includes('8b')) speed = 'Ultra-Fast';
+			if (id.includes('flash-lite')) speed = 'Ultra-Fast';
 			else if (id.includes('pro') || id.includes('thinking')) speed = 'Balanced';
 			else if (id.includes('flash')) speed = 'Ultra-Fast';
 
 			let badge: string | undefined = undefined;
-			if (id === DEFAULT_AI_MODEL) {
-				badge = 'Default';
-			} else if (id === 'gemini-3.7-flash' && !hasDefaultModel) {
-				badge = 'Default';
-			} else if (id.includes('pro')) {
-				badge = 'Pro';
-			} else if (id.includes('exp') || id.includes('thinking')) {
-				badge = 'Experimental';
-			}
+			if (id === DEFAULT_AI_MODEL) badge = 'Default';
+			else if (id.includes('pro')) badge = 'Pro';
+			else if (id.includes('exp') || id.includes('preview')) badge = 'Preview';
 
 			return {
 				id,
@@ -153,17 +121,12 @@ export const GET: RequestHandler = async ({ request }) => {
 			};
 		});
 
-		// Sort models: Default first, then 3.7-flash, then 3.1-pro, then alphabetical
+		// Default first, then newest-looking ids, then alphabetical.
 		formattedModels.sort((a, b) => {
 			if (a.id === DEFAULT_AI_MODEL) return -1;
 			if (b.id === DEFAULT_AI_MODEL) return 1;
-			if (a.id === 'gemini-3.7-flash') return -1;
-			if (b.id === 'gemini-3.7-flash') return 1;
-			if (a.id === 'gemini-3.1-pro') return -1;
-			if (b.id === 'gemini-3.1-pro') return 1;
-			return a.name.localeCompare(b.name);
+			return b.id.localeCompare(a.id, undefined, { numeric: true });
 		});
-
 
 		return json({
 			success: true,

@@ -40,12 +40,20 @@ export const IcegridRowSchema = z.object({
 	RoDTEPQty: z.number().nullable().describe('RoDTEP eligible quantity')
 });
 
-export const IcegridReportSchema = z.object({
-	reportVersion: z.literal(1).describe('Schema report version 1'),
-	sourceFiles: z.array(z.string()).min(1).max(20).describe('List of analyzed source filenames'),
+// What the model is actually asked to generate. Deliberately excludes reportVersion and
+// sourceFiles: Gemini's responseSchema rejects non-string `enum` (z.literal(1) emits
+// {type:"number",enum:[1]} -> HTTP 400), and re-typing filenames it was handed is pure
+// hallucination surface. Both are stamped by the server from data it already has.
+export const IcegridExtractionSchema = z.object({
 	rows: z.array(IcegridRowSchema).min(1).max(500).describe('Extracted ICEGATE 37-column invoice rows'),
 	warnings: z.array(z.string()).max(100).describe('Extraction notes, ambiguities, or warnings')
 });
 
+export const IcegridReportSchema = IcegridExtractionSchema.extend({
+	reportVersion: z.literal(1).describe('Schema report version 1'),
+	sourceFiles: z.array(z.string()).min(1).max(20).describe('List of analyzed source filenames')
+});
+
 export type IcegridRow = z.infer<typeof IcegridRowSchema>;
+export type IcegridExtraction = z.infer<typeof IcegridExtractionSchema>;
 export type IcegridReport = z.infer<typeof IcegridReportSchema>;

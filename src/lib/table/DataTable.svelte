@@ -2,7 +2,7 @@
 	import Icon from '$lib/components/Icons.svelte';
 	import DropdownCellEditor from './DropdownCellEditor.svelte';
 	import type { createTableStore } from './store.svelte';
-	import type { ColumnType, CellValue } from '$lib/types';
+	import type { CellAlign, Column, ColumnType, CellValue, Row } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
 	import { computeFloatingPosition } from '$lib/ui/position';
 
@@ -14,31 +14,31 @@
 		onNotify: (type: 'info' | 'success' | 'warning' | 'error', msg: string) => void;
 	} = $props();
 
-	// Local UI states
-	let activeCell = $state<{ rowId: string; columnId: string; rowIndex: number; colIndex: number } | null>(null);
+	// Selection lives in the store so the header's alignment control acts on the same range.
+	let activeCell = $derived(store.activeCell);
 
-	// #2 Clamp activeCell when filteredRows shrinks (search/sort) to avoid OOB TypeError
+	// #2 Clamp the selection when filteredRows shrinks (search/sort) to avoid OOB TypeError
 	$effect(() => {
 		const rows = store.filteredRows;
 		const cols = store.columns;
-		if (!activeCell) return;
-		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-		rows.length; cols.length;
-		if (rows.length === 0) {
-			activeCell = null;
+		const cell = store.activeCell;
+		if (!cell) return;
+		if (rows.length === 0 || cols.length === 0) {
+			store.setSelection(null);
 			return;
 		}
-		if (activeCell.rowIndex >= rows.length || !rows.some((r) => r.id === activeCell!.rowId)) {
-			const clampRow = Math.min(activeCell.rowIndex, rows.length - 1);
-			const row = rows[clampRow];
-			activeCell = { rowId: row.id, columnId: activeCell.columnId, rowIndex: clampRow, colIndex: Math.min(activeCell.colIndex, cols.length - 1) };
+		let next = cell;
+		if (next.rowIndex >= rows.length || !rows.some((r) => r.id === next.rowId)) {
+			const clampRow = Math.min(next.rowIndex, rows.length - 1);
+			next = { ...next, rowId: rows[clampRow].id, rowIndex: clampRow };
 		}
-		if (activeCell.colIndex >= cols.length) {
-			activeCell = { ...activeCell, colIndex: cols.length - 1, columnId: cols[cols.length - 1].id };
+		if (next.colIndex >= cols.length) {
+			next = { ...next, colIndex: cols.length - 1, columnId: cols[cols.length - 1].id };
 		}
-		if (!cols.some((c) => c.id === activeCell!.columnId)) {
-			activeCell = { ...activeCell, columnId: cols[activeCell.colIndex]?.id ?? cols[0].id };
+		if (!cols.some((c) => c.id === next.columnId)) {
+			next = { ...next, columnId: cols[next.colIndex]?.id ?? cols[0].id };
 		}
+		if (next !== cell) store.setSelection(next);
 	});
 	let editingCell = $state<{ rowId: string; columnId: string } | null>(null);
 	let cellNodes = new Map<string, HTMLElement>();
@@ -196,11 +196,17 @@
 		return Array.from(set);
 	}
 
-	function selectCell(rowId: string, columnId: string, rowIndex: number, colIndex: number) {
+	function selectCell(
+		rowId: string,
+		columnId: string,
+		rowIndex: number,
+		colIndex: number,
+		extend = false
+	) {
 		if (editingCell && (editingCell.rowId !== rowId || editingCell.columnId !== columnId)) {
 			commitEdit();
 		}
-		activeCell = { rowId, columnId, rowIndex, colIndex };
+		store.setSelection({ rowId, columnId, rowIndex, colIndex }, extend);
 		const key = `${rowId}-${columnId}`;
 		const el = cellNodes.get(key);
 		if (el && document.activeElement !== el && !editingCell) {
@@ -209,12 +215,12 @@
 	}
 
 	function startEditing(rowId: string, columnId: string, initialVal: unknown) {
-		activeCell = {
+		store.setSelection({
 			rowId,
 			columnId,
 			rowIndex: store.filteredRows.findIndex((r) => r.id === rowId),
 			colIndex: store.columns.findIndex((c) => c.id === columnId)
-		};
+		});
 		editingCell = { rowId, columnId };
 		editValue = initialVal !== null && initialVal !== undefined ? String(initialVal) : '';
 	}
@@ -234,6 +240,58 @@
 			const key = `${activeCell.rowId}-${activeCell.columnId}`;
 			cellNodes.get(key)?.focus();
 		}
+	}
+
+	const ALIGN_CLASS: Record<CellAlign, string> = {
+		left: 'text-left',
+		center: 'text-center',
+		right: 'text-right'
+	};
+
+	// focus fires between mousedown and click, so without this the focus handler would
+	// reset the anchor and a shift-click would collapse the range to a single cell.
+	let pointerExtend = false;
+
+	function isInSelection(rowIndex: number, colIndex: number): boolean {
+		const rect = store.selectionRect;
+		if (!rect) return false;
+		if (rect.r0 === rect.r1 && rect.c0 === rect.c1) return false;
+		return (
+			rowIndex >= rect.r0 && rowIndex <= rect.r1 && colIndex >= rect.c0 && colIndex <= rect.c1
+		);
+	}
+
+	/** Every (row, column) pair inside the current selection rectangle, in reading order. */
+	function selectedCells(): Array<{ row: Row; col: Column }> {
+		const rect = store.selectionRect;
+		if (!rect) return [];
+		const out: Array<{ row: Row; col: Column }> = [];
+		for (let r = rect.r0; r <= rect.r1; r++) {
+			const row = store.filteredRows[r];
+			if (!row) continue;
+			for (let c = rect.c0; c <= rect.c1; c++) {
+				const col = store.columns[c];
+				if (col) out.push({ row, col });
+			}
+		}
+		return out;
+	}
+
+	function selectionAsTsv(): string {
+		const rect = store.selectionRect;
+		if (!rect) return '';
+		const lines: string[] = [];
+		for (let r = rect.r0; r <= rect.r1; r++) {
+			const row = store.filteredRows[r];
+			if (!row) continue;
+			const cells: string[] = [];
+			for (let c = rect.c0; c <= rect.c1; c++) {
+				const col = store.columns[c];
+				if (col) cells.push(formatCellValue(col.type, row[col.id]));
+			}
+			lines.push(cells.join('\t'));
+		}
+		return lines.join('\n');
 	}
 
 	function handleTableKeyDown(e: KeyboardEvent) {
@@ -260,25 +318,25 @@
 			e.preventDefault();
 			if (colIndex < totalCols - 1) {
 				const nextCol = store.columns[colIndex + 1];
-				selectCell(currentRow.id, nextCol.id, rowIndex, colIndex + 1);
+				selectCell(currentRow.id, nextCol.id, rowIndex, colIndex + 1, e.shiftKey);
 			}
 		} else if (e.key === 'ArrowLeft') {
 			e.preventDefault();
 			if (colIndex > 0) {
 				const prevCol = store.columns[colIndex - 1];
-				selectCell(currentRow.id, prevCol.id, rowIndex, colIndex - 1);
+				selectCell(currentRow.id, prevCol.id, rowIndex, colIndex - 1, e.shiftKey);
 			}
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			if (rowIndex < totalRows - 1) {
 				const nextRow = store.filteredRows[rowIndex + 1];
-				if (nextRow) selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + 1, colIndex);
+				if (nextRow) selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + 1, colIndex, e.shiftKey);
 			}
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
 			if (rowIndex > 0) {
 				const prevRow = store.filteredRows[rowIndex - 1];
-				if (prevRow) selectCell(prevRow.id, store.columns[colIndex].id, rowIndex - 1, colIndex);
+				if (prevRow) selectCell(prevRow.id, store.columns[colIndex].id, rowIndex - 1, colIndex, e.shiftKey);
 			}
 		} else if (e.key === 'Tab') {
 			e.preventDefault();
@@ -311,8 +369,14 @@
 			if (col) startEditing(currentRow.id, col.id, currentRow[col.id]);
 		} else if (e.key === 'Delete' || e.key === 'Backspace') {
 			e.preventDefault();
-			const col = store.columns[colIndex];
-			if (col) store.setCell(currentRow.id, col.id, null);
+			store.applyCellPatches(
+				selectedCells().map(({ row, col }) => ({ rowId: row.id, columnId: col.id, newValue: null }))
+			);
+		} else if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+			// The grid is select-none, so without this there is no way to get values out
+			// short of exporting the whole file. TSV so it pastes back into Excel as a range.
+			e.preventDefault();
+			navigator.clipboard?.writeText(selectionAsTsv());
 		} else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
 			const col = store.columns[colIndex];
 			if (col) {
@@ -423,11 +487,17 @@
 				<Icon name="table" size={24} />
 			</div>
 			<h3 class="empty-title text-base font-bold text-[var(--text-1)] m-0">Spreadsheet is empty</h3>
-			<p class="empty-subtitle text-[13px] text-[var(--text-3)] max-w-sm m-0">Add a column or load a sample dataset to begin editing your tabular data.</p>
-			<button class="btn-tactile btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white cursor-pointer shadow-sm mt-2" onclick={() => store.addColumn('Column 1', 'text')}>
-				<Icon name="plus" size={14} />
-				<span>Add First Column</span>
-			</button>
+			<p class="empty-subtitle text-[13px] text-[var(--text-3)] max-w-sm m-0">Start a blank sheet, import a file, or load a sample dataset.</p>
+			<div class="empty-actions flex items-center gap-2 mt-2">
+				<button class="btn-tactile btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white cursor-pointer shadow-sm" onclick={() => store.newSheet()}>
+					<Icon name="file-spreadsheet" size={14} />
+					<span>New Blank Sheet</span>
+				</button>
+				<button class="btn-tactile inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-1)] hover:bg-[var(--surface-3)] cursor-pointer" onclick={() => store.addColumn('Column 1', 'text')}>
+					<Icon name="plus" size={14} />
+					<span>Add One Column</span>
+				</button>
+			</div>
 		</div>
 	{:else}
 		<!-- Scrollable Grid Table -->
@@ -444,12 +514,12 @@
 			onscroll={onTableScroll}
 			onkeydown={handleTableKeyDown}
 		>
-			<table class="grid-table border-separate border-spacing-0 w-full min-w-max text-[13.5px] table-fixed">
+			<table class="grid-table border-separate border-spacing-0 w-full min-w-max h-full text-[13.5px] table-fixed">
 				<!-- Column Header Row -->
 				<thead>
 					<tr>
 						<!-- Index / Row number column -->
-						<th class="th-index sticky top-0 z-10 w-12 min-w-12 text-center bg-[var(--surface-2)] border-b-2 border-[var(--border-strong)] border-r border-[var(--border)] p-0 select-none" scope="col">
+						<th class="th-index sticky top-0 z-10 w-10 min-w-10 text-center bg-[var(--surface-2)] border-b border-[var(--border-strong)] border-r border-[var(--border)] p-0 select-none" scope="col">
 							<span class="index-hdr-label font-mono text-[10.5px] font-bold text-[var(--text-3)] tracking-wider">#</span>
 						</th>
 
@@ -460,47 +530,58 @@
 							{@const sortDir = isSorted ? store.sortConfig?.direction : null}
 
 							<th
-								class="th-column sticky top-0 z-10 bg-[var(--surface-1)] border-b-2 border-[var(--border-strong)] border-r border-[var(--table-grid-line)] p-0 select-none text-[var(--text-1)] group/col"
+								class="th-column sticky top-0 z-10 bg-[var(--surface-1)] border-b border-[var(--border-strong)] border-r border-[var(--table-grid-line)] p-0 select-none text-[var(--text-1)] group/col"
 								style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px;"
 								scope="col"
 								role="columnheader"
 								aria-sort={sortDir === 'asc' ? 'ascending' : sortDir === 'desc' ? 'descending' : 'none'}
 							>
-								<div class="th-content flex items-center px-2.5 h-[42px] gap-2">
-									<!-- Column Type Icon -->
-									<div class="th-type-icon flex items-center justify-center w-5 h-5 rounded bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] shrink-0" title="Type: {colConfig?.label || 'Text'}" aria-hidden="true">
-										<Icon name={colConfig?.icon || 'type'} size={13} />
-									</div>
+								<div class="th-content flex items-center px-2 h-8 gap-1.5">
+									<!-- Type glyph: unboxed, muted. It labels the column, it isn't a control. -->
+									<span class="th-type-icon flex text-[var(--text-3)] shrink-0" aria-hidden="true">
+										<Icon name={colConfig?.icon || 'type'} size={12} />
+									</span>
 
-									<!-- Editable or Static Column Name -->
+									<!-- Click sorts, double-click renames in place. -->
 									{#if renamingColId === col.id}
 										<input
 											type="text"
-											class="th-rename-input bg-[var(--surface-2)] border-2 border-[var(--border-focus)] rounded px-1.5 py-0.5 text-[12.8px] font-semibold text-[var(--text-1)] outline-none w-full"
-											aria-label="Column Name"
+											class="th-rename-input bg-[var(--surface-2)] border border-[var(--border-focus)] rounded px-1.5 py-0.5 text-[12.5px] font-semibold text-[var(--text-1)] outline-none w-full min-w-0"
+											aria-label="Column name"
 											bind:value={renamingColValue}
 											use:autoFocus
 											onblur={commitRenameColumn}
 											onkeydown={(e) => {
+												e.stopPropagation();
 												if (e.key === 'Enter') commitRenameColumn();
 												if (e.key === 'Escape') renamingColId = null;
 											}}
 										/>
 									{:else}
 										<button
-											class="th-title-btn flex items-center justify-between flex-1 bg-transparent border-none cursor-pointer text-[var(--text-1)] font-semibold text-[12.8px] tracking-tight p-0 hover:text-[var(--accent-primary)] transition-colors min-w-0"
+											class="th-title-btn flex items-center justify-between flex-1 bg-transparent border-none cursor-pointer text-[var(--text-1)] font-semibold text-[12.5px] tracking-tight p-0 hover:text-[var(--accent-primary)] transition-colors min-w-0"
 											onclick={() => store.setSort(col.id)}
-											title="Click to sort by {col.name}"
-											aria-label="Sort by {col.name}"
+											ondblclick={(e) => {
+												e.stopPropagation();
+												startRenameColumn(col.id, col.name);
+											}}
+											aria-label="Sort by {col.name} (double-click to rename)"
 										>
-											<span class="th-title-text truncate max-w-[130px]">{col.name}</span>
-											<span class="th-sort-icon flex transition-opacity {isSorted ? 'active opacity-100 text-[var(--accent-primary)]' : 'opacity-35'}" aria-hidden="true">
-												{#if sortDir === 'asc'}
-													<Icon name="chevron-up" size={13} />
-												{:else if sortDir === 'desc'}
-													<Icon name="chevron-down" size={13} />
+											<span class="th-title-text truncate">{col.name}</span>
+											<!-- Only shown when it means something, or on hover. Six idle
+											     chevrons per screen is noise, not affordance. -->
+											<span
+												class="th-sort-icon flex shrink-0 ml-1 transition-opacity {isSorted
+													? 'active opacity-100 text-[var(--accent-primary)]'
+													: 'opacity-0 group-hover/col:opacity-40'}"
+												aria-hidden="true"
+											>
+												{#if sortDir === 'desc'}
+													<Icon name="chevron-down" size={12} />
+												{:else if sortDir === 'asc'}
+													<Icon name="chevron-up" size={12} />
 												{:else}
-													<Icon name="chevrons-up-down" size={12} />
+													<Icon name="chevrons-up-down" size={11} />
 												{/if}
 											</span>
 										</button>
@@ -509,7 +590,10 @@
 									<!-- Column Options Menu Trigger -->
 									<div class="column-menu-wrapper relative flex items-center">
 										<button
-											class="th-menu-trigger flex items-center justify-center w-6 h-6 rounded bg-transparent hover:bg-[var(--surface-2)] border-none text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer transition-colors"
+											class="th-menu-trigger flex items-center justify-center w-5 h-5 rounded bg-transparent hover:bg-[var(--surface-2)] border-none text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer transition-opacity focus-visible:opacity-100 {activeColMenu ===
+										col.id
+											? 'opacity-100'
+											: 'opacity-0 group-hover/col:opacity-100'}"
 											onclick={(e) => {
 												e.stopPropagation();
 												const el = e.currentTarget as HTMLElement;
@@ -517,7 +601,6 @@
 												activeColMenu = activeColMenu === col.id ? null : col.id;
 												if (activeColMenu) requestAnimationFrame(syncColMenuPos);
 											}}
-											title="Column options"
 											aria-label="Column options for {col.name}"
 											aria-haspopup="menu"
 											aria-expanded={activeColMenu === col.id}
@@ -527,18 +610,20 @@
 
 										{#if activeColMenu === col.id}
 											<div class="column-popover bezel-card fixed z-50 w-48 p-1.5 bg-[var(--surface-1)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl shadow-2xl origin-top-right animate-[menuPop_120ms_cubic-bezier(0.16,1,0.3,1)]" style={colMenuStyle} role="menu">
-												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Rename / Manage</div>
 												<button
 													class="popover-item flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
 													role="menuitem"
-													onclick={() => startRenameColumn(col.id, col.name)}
+													onclick={() => {
+														activeColMenu = null;
+														autoFitColumn(col.id);
+													}}
 												>
-													<Icon name="edit" size={13} aria-hidden="true" />
-													<span>Rename Column</span>
+													<Icon name="chevrons-up-down" size={13} class="rotate-90" aria-hidden="true" />
+													<span>Fit to content</span>
 												</button>
 
 												<div class="popover-divider h-px bg-[var(--border)] my-1"></div>
-												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Column Type</div>
+												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Column type</div>
 
 												{#each Object.entries(COLUMN_TYPE_CONFIG) as [typeKey, typeCfg]}
 													{@const isActiveType = col.type === typeKey}
@@ -587,15 +672,14 @@
 						{/each}
 
 						<!-- Add New Column Header Button — pony: one-click, default Text, no modal -->
-						<th class="th-add-col sticky top-0 z-10 w-32 min-w-32 bg-[var(--surface-1)] border-b-2 border-[var(--border-strong)] p-0" scope="col">
+						<th class="th-add-col sticky top-0 z-10 w-20 min-w-20 bg-[var(--surface-1)] border-b border-[var(--border-strong)] p-0" scope="col">
 							<button
-								class="add-col-btn flex items-center justify-center gap-1.5 w-full h-[42px] bg-transparent border-none text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] text-[12px] font-medium cursor-pointer transition-colors"
+								class="add-col-btn flex items-center justify-center gap-1.5 w-full h-8 bg-transparent border-none text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] text-[12px] font-medium cursor-pointer transition-colors"
 								onclick={handleAddColumn}
-								title="Add column (Text) — change type via ···"
-								aria-label="Add Column"
+								aria-label="Add column"
 							>
-								<Icon name="plus" size={14} aria-hidden="true" />
-								<span>Add Column</span>
+								<Icon name="plus" size={13} aria-hidden="true" />
+								<span>Add</span>
 							</button>
 						</th>
 					</tr>
@@ -616,7 +700,7 @@
 						{#each renderedRows as { row, idx: rowIndex } (row.id)}
 							<tr class="data-row table-data-row h-9 border-b border-[var(--table-grid-line)] hover:bg-[var(--table-row-hover)] transition-colors group/row odd:bg-transparent even:bg-[var(--table-row-even)]" aria-rowindex={rowIndex + 1}>
 								<!-- Row Index & Hover Actions -->
-								<td class="td-index w-12 min-w-12 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[11px] text-[var(--text-3)] select-none p-0" role="gridcell">
+								<td class="td-index w-10 min-w-10 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[10.5px] text-[var(--text-3)] select-none p-0" role="gridcell">
 									<span class="row-num block group-hover/row:hidden" aria-hidden="true">{rowIndex + 1}</span>
 									<div class="row-actions-hover hidden group-hover/row:flex items-center justify-center gap-0.5 absolute inset-0 bg-[var(--surface-2)]">
 										<button
@@ -650,19 +734,24 @@
 									{@const dropdownStyle = isDropdown && hasVal ? getDropdownStyle(String(cellVal)) : null}
 
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
+									{@const inRange = !isActive && isInSelection(rowIndex, colIndex)}
+									{@const align = store.alignFor(row.id, col.id, colType)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] shadow-[inset_0_0_0_2px_var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] shadow-[inset_0_0_0_2px_var(--border-focus)]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {isDropdown && hasVal ? `background: ${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
+										aria-selected={isActive || inRange}
 										tabindex={isRovingActive ? 0 : -1}
 										use:registerCellNode={`${row.id}-${col.id}`}
+										onmousedown={(e) => (pointerExtend = e.shiftKey)}
 										onfocus={() => {
 											if (!isActive) {
-												selectCell(row.id, col.id, rowIndex, colIndex);
+												selectCell(row.id, col.id, rowIndex, colIndex, pointerExtend);
 											}
 										}}
-										onclick={() => {
-											selectCell(row.id, col.id, rowIndex, colIndex);
+										onclick={(e) => {
+											selectCell(row.id, col.id, rowIndex, colIndex, e.shiftKey);
+											pointerExtend = false;
 											if (isDropdown && typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
 												startEditing(row.id, col.id, cellVal);
 											}
@@ -676,14 +765,14 @@
 														<span class="truncate">{cellVal}</span>
 													</span>
 												{:else}
-													<span class="status-cell-text empty-placeholder text-[var(--text-3)] opacity-40 text-[12px]">—</span>
+													<span class="status-cell-text" aria-hidden="true"></span>
 												{/if}
 												{#if isEditing}
 													<span class="dropdown-cell-arrow text-[10px] shrink-0" style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'}; opacity: 0.6;" aria-hidden="true">▾</span>
 												{:else}
 													<button
 														type="button"
-														class="dropdown-cell-arrow text-[10px] cursor-pointer px-1 bg-transparent border-none shrink-0 opacity-50 group-hover/row:opacity-100 hover:opacity-100"
+														class="dropdown-cell-arrow text-[10px] cursor-pointer px-1 bg-transparent border-none shrink-0 opacity-0 group-hover/row:opacity-60 hover:!opacity-100 focus-visible:opacity-100 transition-opacity"
 														style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'};"
 														aria-label="Open dropdown options"
 														onclick={(e) => {
@@ -725,7 +814,7 @@
 											{:else}
 												<input
 													type="text"
-													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0 {isNumeric ? 'numeric-input text-right font-mono tabular-nums' : ''}"
+													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0 {ALIGN_CLASS[align]} {isNumeric ? 'numeric-input font-mono tabular-nums' : ''}"
 													aria-label="Edit Cell Value"
 													bind:value={editValue}
 													onclick={(e) => e.stopPropagation()}
@@ -735,8 +824,8 @@
 												/>
 											{/if}
 										{:else}
-											<span class="cell-text-display truncate {cellVal === null || cellVal === undefined || cellVal === '' ? 'empty-placeholder opacity-50' : ''}">
-												{formatCellValue(colType, cellVal) || '—'}
+											<span class="cell-text-display block w-full truncate">
+												{formatCellValue(colType, cellVal)}
 											</span>
 										{/if}
 
@@ -754,13 +843,17 @@
 							<tr class="virtual-spacer" aria-hidden="true"><td colspan={store.columns.length + 2} style="height: {bottomPadH}px; padding:0; border:none"></td></tr>
 						{/if}
 					{/if}
+					<!-- Absorbs leftover height so the summary row sits on the floor, not mid-page. -->
+					<tr class="grid-filler h-full" aria-hidden="true">
+						<td colspan={store.columns.length + 2} style="padding:0; border:none"></td>
+					</tr>
 				</tbody>
 
 				<!-- Sticky Footer Summary — pony: slightly grey, visually separate -->
 				<tfoot>
 					<tr class="summary-row tfoot-summary-row sticky bottom-0 z-10 bg-[var(--surface-3)] border-t border-[var(--border-strong)] h-11 shadow-[0_-2px_8px_rgba(0,0,0,0.12)]">
-						<td class="tf-index w-12 min-w-12 text-center border-r border-[var(--border)] font-mono text-[10px] font-bold text-[var(--text-3)] uppercase tracking-wider p-0 align-middle" role="gridcell">
-							<span class="tf-label flex items-center justify-center h-full">Summary</span>
+						<td class="tf-index w-10 min-w-10 text-center border-r border-[var(--border)] font-mono text-[9.5px] font-bold text-[var(--text-3)] uppercase tracking-wider p-0 align-middle" role="gridcell">
+							<span class="tf-label flex items-center justify-center h-full">Σ</span>
 						</td>
 
 						{#each store.columns as col (col.id)}

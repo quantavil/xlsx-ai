@@ -1,9 +1,7 @@
-export { sampleTables } from './samples';
 export {
 	parseSpreadsheetBuffer,
 	importFileToTable,
-	inferColumnTypeFromSamples,
-	inferColumnTypeFromSamples as detectColumnType
+	inferColumnTypeFromSamples
 } from './import';
 export {
 	sanitizeFilename,
