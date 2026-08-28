@@ -2,7 +2,7 @@
 	import Icon from './Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import { sampleTables } from '$lib/data/index';
-	import { trapFocus } from '$lib/ui/focus';
+	import { handleMenuKeydown } from '$lib/ui/menu';
 
 	let {
 		store,
@@ -17,7 +17,6 @@
 	let showSampleMenu = $state(false);
 	let searchInputRef = $state<HTMLInputElement | null>(null);
 	let sampleBtnRef = $state<HTMLButtonElement | null>(null);
-	let pendingSampleKey = $state<'saas' | 'sales' | 'inventory' | null>(null);
 	let sampleMenuItemsRef = $state<HTMLButtonElement[]>([]);
 
 	function startEditTitle() {
@@ -39,16 +38,8 @@
 
 	function requestLoadSample(key: 'saas' | 'sales' | 'inventory') {
 		showSampleMenu = false;
-		if (store.isDirty) {
-			pendingSampleKey = key;
-		} else {
-			executeLoadSample(key);
-		}
-	}
-
-	function executeLoadSample(key: 'saas' | 'sales' | 'inventory') {
+		// Pony: no confirmation modal — instant load, undo via Ctrl+Z
 		store.loadTable(sampleTables[key]);
-		pendingSampleKey = null;
 		onNotify('success', `Loaded "${sampleTables[key].title}" sample dataset.`);
 	}
 
@@ -66,28 +57,17 @@
 
 	function handleSampleMenuKeyDown(e: KeyboardEvent) {
 		const items = sampleMenuItemsRef.filter(Boolean);
-		if (items.length === 0) return;
 		const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
-
-		if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			const next = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
-			items[next]?.focus();
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			const prev = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
-			items[prev]?.focus();
-		} else if (e.key === 'Home') {
-			e.preventDefault();
-			items[0]?.focus();
-		} else if (e.key === 'End') {
-			e.preventDefault();
-			items[items.length - 1]?.focus();
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			showSampleMenu = false;
-			sampleBtnRef?.focus();
-		}
+		handleMenuKeydown(e, {
+			itemCount: items.length,
+			activeIndex: currentIndex,
+			onHighlight: (idx) => items[idx]?.focus(),
+			onSelect: (idx) => items[idx]?.click(),
+			onClose: () => {
+				showSampleMenu = false;
+				sampleBtnRef?.focus();
+			}
+		});
 	}
 </script>
 
@@ -222,42 +202,6 @@
 			{/if}
 		</div>
 	</div>
-
-	<!-- Sample Dataset Replacement Confirmation Modal -->
-	{#if pendingSampleKey}
-		<div class="confirm-backdrop fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-[confirmFadeIn_120ms_cubic-bezier(0.4,0,0.2,1)]" role="presentation">
-			<div
-				class="confirm-dialog bezel-card bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl p-5 max-w-[400px] w-full flex flex-col gap-2.5 shadow-2xl animate-[confirmPop_140ms_cubic-bezier(0.16,1,0.3,1)]"
-				role="dialog"
-				tabindex="-1"
-				aria-modal="true"
-				aria-labelledby="confirm-sample-heading"
-				use:trapFocus
-				onkeydown={(e) => {
-					if (e.key === 'Escape') pendingSampleKey = null;
-				}}
-			>
-				<h4 id="confirm-sample-heading" class="confirm-title text-[15px] font-bold text-[var(--text-1)] tracking-tight">Replace Current Table?</h4>
-				<p class="confirm-desc text-[13px] text-[var(--text-2)] leading-relaxed">
-					You have edits in the current table. Loading "{sampleTables[pendingSampleKey].title}" will replace your modifications.
-				</p>
-				<div class="confirm-actions flex justify-end gap-2 mt-2">
-					<button class="btn-tactile btn-cancel inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium rounded-md bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text-1)] cursor-pointer transition-colors" onclick={() => (pendingSampleKey = null)}>
-						Cancel
-					</button>
-					<button
-						class="btn-tactile btn-danger inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium rounded-md bg-rose-600 hover:bg-rose-500 text-white cursor-pointer transition-colors shadow-sm"
-						onclick={() => {
-							const key = pendingSampleKey;
-							if (key) executeLoadSample(key);
-						}}
-					>
-						Replace Table
-					</button>
-				</div>
-			</div>
-		</div>
-	{/if}
 
 	<!-- Right: Undo/Redo & Live Metrics -->
 	<div class="header-right flex items-center gap-3 shrink-0 max-sm:order-2 max-sm:ml-auto">

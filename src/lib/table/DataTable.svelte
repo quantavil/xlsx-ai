@@ -4,7 +4,6 @@
 	import type { createTableStore } from './store.svelte';
 	import type { ColumnType, CellValue } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
-	import { trapFocus } from '$lib/ui/focus';
 
 	let {
 		store,
@@ -21,12 +20,8 @@
 
 	let editValue = $state<string>('');
 	let activeColMenu = $state<string | null>(null);
-	let newColumnName = $state<string>('');
-	let newColumnType = $state<ColumnType>('text');
-	let showAddColumnModal = $state(false);
 	let renamingColId = $state<string | null>(null);
 	let renamingColValue = $state<string>('');
-	let confirmingDeleteCol = $state<{ id: string; name: string } | null>(null);
 
 	// Column Resizing state
 	let resizingColId = $state<string | null>(null);
@@ -246,12 +241,25 @@
 	}
 
 	function handleAddColumn() {
-		const name = newColumnName.trim() || 'New Column';
-		store.addColumn(name, newColumnType);
-		newColumnName = '';
-		newColumnType = 'text';
-		showAddColumnModal = false;
-		onNotify('success', `Added column "${name}".`);
+		// Pony: default to text, no popup. User can change type via column menu afterwards.
+		const existing = new Set(store.columns.map((c) => c.name));
+		let n = store.columns.length + 1;
+		let name = `Column ${n}`;
+		while (existing.has(name)) {
+			n += 1;
+			name = `Column ${n}`;
+		}
+		store.addColumn(name, 'text');
+		activeColMenu = null;
+		onNotify('success', `Added column "${name}" (Text). Change type via ··· menu.`);
+		// auto-focus rename for power users? start rename next tick
+		requestAnimationFrame(() => {
+			const newCol = store.columns[store.columns.length - 1];
+			if (newCol) {
+				renamingColId = newCol.id;
+				renamingColValue = newCol.name;
+			}
+		});
 	}
 
 	function startRenameColumn(colId: string, currentName: string) {
@@ -279,22 +287,14 @@
 			onNotify('warning', 'Table must have at least one column.');
 			return;
 		}
-		confirmingDeleteCol = { id: colId, name: colName };
-	}
-
-	function handleDeleteColumn(colId: string, colName: string) {
 		store.deleteColumn(colId);
-		confirmingDeleteCol = null;
-		onNotify('info', `Deleted column "${colName}".`);
+		onNotify('info', `Deleted column "${colName}" — Undo with Ctrl+Z.`);
 	}
 
 	function handleDocumentClick(e: MouseEvent) {
 		const target = e.target as HTMLElement | null;
 		if (!target?.closest('.column-menu-wrapper')) {
 			activeColMenu = null;
-		}
-		if (!target?.closest('.add-col-wrapper')) {
-			showAddColumnModal = false;
 		}
 	}
 </script>
@@ -321,7 +321,7 @@
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="table-scroll-wrap flex-1 overflow-auto outline-none relative [scrollbar-gutter:stable]"
+			class="table-scroll-wrap flex-1 overflow-auto outline-none relative [scrollbar-gutter:stable] isolate bg-[var(--surface-1)]"
 			tabindex="0"
 			role="grid"
 			aria-label="Spreadsheet grid"
@@ -422,9 +422,11 @@
 												<div class="popover-divider h-px bg-[var(--border)] my-1"></div>
 												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Column Type</div>
 
-												{#each Object.entries(COLUMN_TYPE_CONFIG) as [typeKey, typeCfg]}
+												{#each Object.entries(COLUMN_TYPE_CONFIG).filter(([k]) => k !== 'status') as [typeKey, typeCfg]}
+													{@const normalizedColType = col.type === 'status' ? 'dropdown' : col.type}
+													{@const isActiveType = normalizedColType === typeKey}
 													<button
-														class="popover-item flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors {col.type === typeKey ? 'active !text-[var(--accent-primary)] !bg-emerald-500/10 font-semibold' : ''}"
+														class="popover-item flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors {isActiveType ? 'active !text-[var(--accent-primary)] !bg-emerald-500/10 font-semibold' : ''}"
 														role="menuitem"
 														onclick={() => handleUpdateColumnType(col.id, typeKey as ColumnType)}
 													>
@@ -432,7 +434,7 @@
 															<Icon name={typeCfg.icon} size={13} aria-hidden="true" />
 															<span>{typeCfg.label}</span>
 														</div>
-														{#if col.type === typeKey}
+														{#if isActiveType}
 															<span class="check-icon text-emerald-500 font-bold text-[12px]"><Icon name="check" size={12} aria-hidden="true" /></span>
 														{/if}
 													</button>
@@ -467,67 +469,17 @@
 							</th>
 						{/each}
 
-						<!-- Add New Column Header Button -->
+						<!-- Add New Column Header Button — pony: one-click, default Text, no modal -->
 						<th class="th-add-col w-32 min-w-32 bg-[var(--surface-1)] border-b-2 border-[var(--border-strong)] p-0" scope="col">
-							<div class="add-col-wrapper relative flex items-center h-full">
-								<button
-									class="add-col-btn flex items-center justify-center gap-1.5 w-full h-[42px] bg-transparent border-none text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] text-[12px] font-medium cursor-pointer transition-colors"
-									onclick={(e) => {
-										e.stopPropagation();
-										showAddColumnModal = !showAddColumnModal;
-									}}
-									title="Add new column"
-									aria-label="Add Column"
-									aria-haspopup="dialog"
-									aria-expanded={showAddColumnModal}
-								>
-									<Icon name="plus" size={14} aria-hidden="true" />
-									<span>Add Column</span>
-								</button>
-
-								{#if showAddColumnModal}
-									<div
-										class="add-column-popover bezel-card absolute top-[calc(100%+6px)] left-0 z-50 w-56 p-3 bg-[var(--surface-1)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl shadow-2xl flex flex-col gap-2 origin-top-left animate-[menuPop_120ms_cubic-bezier(0.16,1,0.3,1)]"
-										role="dialog"
-										tabindex="-1"
-										aria-label="Add New Column"
-										use:trapFocus
-									>
-										<div class="popover-section-label text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">New Column</div>
-										<input
-											type="text"
-											class="add-col-input bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[12.5px] text-[var(--text-1)] outline-none focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-emerald-500/20"
-											placeholder="Column Name..."
-											aria-label="Column Name"
-											bind:value={newColumnName}
-											use:autoFocus
-											onkeydown={(e) => {
-												if (e.key === 'Enter') handleAddColumn();
-												if (e.key === 'Escape') showAddColumnModal = false;
-											}}
-										/>
-
-										<div class="popover-section-label text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)] mt-1">Type</div>
-										<select class="add-col-select bg-[var(--surface-2)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-[12.5px] text-[var(--text-1)] outline-none focus:border-[var(--accent-primary)]" bind:value={newColumnType} aria-label="Select Column Type">
-											{#each Object.entries(COLUMN_TYPE_CONFIG) as [typeKey, typeCfg]}
-												<option value={typeKey}>{typeCfg.label}</option>
-											{/each}
-										</select>
-
-										<div class="popover-actions flex justify-end gap-2 mt-2">
-											<button
-												class="btn-tactile btn-cancel inline-flex items-center justify-center px-2.5 py-1 text-[12px] font-medium rounded-md bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text-1)] cursor-pointer transition-colors"
-												onclick={() => (showAddColumnModal = false)}
-											>
-												Cancel
-											</button>
-											<button class="btn-tactile btn-primary-cta inline-flex items-center justify-center px-3 py-1 text-[12px] font-medium rounded-md bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white cursor-pointer transition-colors shadow-sm" onclick={handleAddColumn}>
-												Create
-											</button>
-										</div>
-									</div>
-								{/if}
-							</div>
+							<button
+								class="add-col-btn flex items-center justify-center gap-1.5 w-full h-[42px] bg-transparent border-none text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] text-[12px] font-medium cursor-pointer transition-colors"
+								onclick={handleAddColumn}
+								title="Add column (Text) — change type via ···"
+								aria-label="Add Column"
+							>
+								<Icon name="plus" size={14} aria-hidden="true" />
+								<span>Add Column</span>
+							</button>
 						</th>
 					</tr>
 				</thead>
@@ -579,7 +531,7 @@
 
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default truncate text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell ring-2 ring-inset ring-[var(--border-focus)] bg-[var(--table-cell-active)] z-2' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default truncate text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell bg-[var(--table-cell-active)] z-[2] outline outline-2 outline-[var(--border-focus)] -outline-offset-2' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px;"
 										role="gridcell"
 										tabindex={isRovingActive ? 0 : -1}
@@ -628,12 +580,12 @@
 												/>
 											{:else if colType === 'date'}
 												<input
-													type="date"
-													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0"
+													type="text"
+													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0 placeholder:text-[var(--text-3)]"
 													aria-label="Edit Date Value"
-													value={typeof editValue === 'string' && editValue.includes('T') ? editValue.split('T')[0] : editValue}
+													placeholder="e.g. 2025-03-01 or 03/15/2025"
+													bind:value={editValue}
 													onclick={(e) => e.stopPropagation()}
-													oninput={(e) => (editValue = (e.target as HTMLInputElement).value)}
 													use:autoFocus
 													onblur={commitEdit}
 													onkeydown={(e) => handleEditorKeyDown(e, rowIndex, colIndex)}
@@ -693,9 +645,9 @@
 					{/if}
 				</tbody>
 
-				<!-- Sticky Footer Summary -->
+				<!-- Sticky Footer Summary — pony: slightly grey, visually separate -->
 				<tfoot>
-					<tr class="summary-row tfoot-summary-row sticky bottom-0 z-10 bg-[var(--surface-2)] border-t-2 border-[var(--border-strong)] h-11">
+					<tr class="summary-row tfoot-summary-row sticky bottom-0 z-10 bg-[var(--surface-3)] border-t border-[var(--border-strong)] h-11 shadow-[0_-2px_8px_rgba(0,0,0,0.12)]">
 						<td class="tf-index w-12 min-w-12 text-center border-r border-[var(--border)] font-mono text-[10px] font-bold text-[var(--text-3)] uppercase tracking-wider p-0 align-middle" role="gridcell">
 							<span class="tf-label flex items-center justify-center h-full">Summary</span>
 						</td>
@@ -744,40 +696,5 @@
 			</table>
 		</div>
 
-		<!-- Column Deletion Confirmation Modal -->
-		{#if confirmingDeleteCol}
-			<div class="confirm-backdrop fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 animate-[confirmFadeIn_120ms_cubic-bezier(0.4,0,0.2,1)]" role="presentation">
-				<div
-					class="confirm-dialog bezel-card bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl p-5 max-w-[400px] w-full flex flex-col gap-2.5 shadow-2xl animate-[confirmPop_140ms_cubic-bezier(0.16,1,0.3,1)]"
-					role="dialog"
-					tabindex="-1"
-					aria-modal="true"
-					aria-labelledby="confirm-delete-heading"
-					use:trapFocus
-					onkeydown={(e) => {
-						if (e.key === 'Escape') confirmingDeleteCol = null;
-					}}
-				>
-					<h4 id="confirm-delete-heading" class="confirm-title text-[15px] font-bold text-[var(--text-1)] tracking-tight">Delete Column "{confirmingDeleteCol.name}"?</h4>
-					<p class="confirm-desc text-[13px] text-[var(--text-2)] leading-relaxed m-0">
-						All data in this column will be permanently removed. You can undo this action with Ctrl+Z.
-					</p>
-					<div class="confirm-actions flex justify-end gap-2 mt-2">
-						<button class="btn-tactile btn-cancel inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium rounded-md bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text-1)] cursor-pointer transition-colors" onclick={() => (confirmingDeleteCol = null)}>
-							Cancel
-						</button>
-						<button
-							class="btn-tactile btn-danger inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium rounded-md bg-rose-600 hover:bg-rose-500 text-white cursor-pointer transition-colors shadow-sm"
-							onclick={() => {
-								const col = confirmingDeleteCol;
-								if (col) handleDeleteColumn(col.id, col.name);
-							}}
-						>
-							Delete Column
-						</button>
-					</div>
-				</div>
-			</div>
-		{/if}
 	{/if}
 </div>

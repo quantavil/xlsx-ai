@@ -2,6 +2,7 @@
 	import Icon from './Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import { importFileToTable, exportTableToExcel, exportTableToCsv } from '$lib/data/index';
+	import { handleMenuKeydown } from '$lib/ui/menu';
 
 	let {
 		store,
@@ -91,28 +92,17 @@
 
 	function handleExportMenuKeyDown(e: KeyboardEvent) {
 		const items = exportMenuItemsRef.filter(Boolean);
-		if (items.length === 0) return;
 		const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
-
-		if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			const next = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
-			items[next]?.focus();
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			const prev = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
-			items[prev]?.focus();
-		} else if (e.key === 'Home') {
-			e.preventDefault();
-			items[0]?.focus();
-		} else if (e.key === 'End') {
-			e.preventDefault();
-			items[items.length - 1]?.focus();
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			showExportMenu = false;
-			exportBtnRef?.focus();
-		}
+		handleMenuKeydown(e, {
+			itemCount: items.length,
+			activeIndex: currentIndex,
+			onHighlight: (idx) => items[idx]?.focus(),
+			onSelect: (idx) => items[idx]?.click(),
+			onClose: () => {
+				showExportMenu = false;
+				exportBtnRef?.focus();
+			}
+		});
 	}
 </script>
 

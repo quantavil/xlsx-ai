@@ -33,11 +33,7 @@ export interface TableStoreOptions {
 }
 
 function cloneState<T>(data: T): T {
-	try {
-		return JSON.parse(JSON.stringify($state.snapshot(data)));
-	} catch {
-		return structuredClone(data);
-	}
+	return structuredClone($state.snapshot(data) as T);
 }
 
 function computeDocumentHash(title: string, columns: Column[], rows: Row[]): string {
@@ -117,7 +113,6 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		}
 		history = nextHistory;
 		future = [];
-		triggerSave();
 	}
 
 	// Derived: Filtered & Sorted Rows

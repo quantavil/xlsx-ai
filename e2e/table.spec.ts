@@ -203,32 +203,28 @@ test.describe('Table AI E2E Workflow', () => {
 		}
 	});
 
-	test('requires confirmation before replacing modified table with sample dataset or deleting a column', async ({ page }) => {
-		// Modify table by adding a row
+	test('performs instant sample switch and column delete with undo (no confirmation modal)', async ({ page }) => {
+		// Modify table by adding a row — makes table dirty
 		await page.locator('.right-tool-ribbon button[aria-label="Add Row"]').click();
 		await expect(page.locator('tbody tr.data-row')).toHaveCount(26);
 
-		// Try loading sample - confirmation dialog must appear
+		// Pony: sample switch is instant, no confirm dialog even when dirty
 		await page.locator('.sample-btn').click();
 		await page.locator('.sample-menu button:has-text("Sales Pipeline")').click();
+		await expect(page.locator('.title-text')).toContainText('B2B Sales Pipeline');
+		await expect(page.locator('tbody tr.data-row')).toHaveCount(25);
+		await expect(page.locator('.confirm-dialog')).toHaveCount(0);
 
-		const confirmDialog = page.locator('.confirm-dialog');
-		await expect(confirmDialog).toBeVisible();
-		await expect(confirmDialog).toContainText('Replace Current Table?');
-
-		// Cancel confirmation
-		await confirmDialog.locator('button:has-text("Cancel")').click();
-		await expect(confirmDialog).not.toBeVisible();
-		await expect(page.locator('tbody tr.data-row')).toHaveCount(26);
-
-		// Column delete confirmation
-		const tierHeader = page.locator('thead th:has-text("Tier")');
-		await tierHeader.locator('button.th-menu-trigger').click();
+		// Pony: column delete is instant, no confirm dialog — undo via toast/history
+		const stageHeader = page.locator('thead th:has-text("Stage")');
+		await stageHeader.locator('button.th-menu-trigger').click();
 		await page.locator('.column-popover button.popover-delete').click();
-		await expect(confirmDialog).toContainText('Delete Column "Tier"?');
+		await expect(page.locator('thead th:has-text("Stage")')).toHaveCount(0);
+		await expect(page.locator('.confirm-dialog')).toHaveCount(0);
 
-		await confirmDialog.locator('button.btn-danger').click();
-		await expect(page.locator('thead th:has-text("Tier")')).toHaveCount(0);
+		// Undo restores column
+		await page.locator('.header-right button[aria-label="Undo"]').click();
+		await expect(page.locator('thead th:has-text("Stage")')).toHaveCount(1);
 	});
 
 	test('responsive mobile workspace keeps commands, search, and navigation usable', async ({ page }) => {

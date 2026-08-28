@@ -33,7 +33,6 @@
 	let availableModels = $state<AiModelConfig[]>(AI_MODELS);
 	let isLoadingModels = $state<boolean>(false);
 	let modelsFetchError = $state<string>('');
-	let pendingSampleKey = $state<'saas' | 'sales' | 'inventory' | null>(null);
 
 	let fetchRequestId = 0;
 	let activeFetchController: AbortController | null = null;
@@ -102,13 +101,8 @@
 
 		function handleKeyDown(e: KeyboardEvent) {
 			if (e.key === 'Escape') {
-				if (pendingSampleKey) {
-					pendingSampleKey = null;
-					e.stopPropagation();
-				} else {
-					e.preventDefault();
-					onClose();
-				}
+				e.preventDefault();
+				onClose();
 			}
 		}
 
@@ -146,16 +140,8 @@
 	}
 
 	function handleLoadSample(key: 'saas' | 'sales' | 'inventory') {
-		if (store.isDirty) {
-			pendingSampleKey = key;
-		} else {
-			executeLoadSample(key);
-		}
-	}
-
-	function executeLoadSample(key: 'saas' | 'sales' | 'inventory') {
+		// Pony: instant load, no confirmation modal
 		store.loadTable(sampleTables[key]);
-		pendingSampleKey = null;
 		onNotify('success', `Loaded ${sampleTables[key].title}.`);
 		onClose();
 	}
@@ -269,35 +255,4 @@
 	</div>
 </div>
 
-<!-- Dirty State Replacement Confirmation Modal -->
-{#if pendingSampleKey}
-	<div class="confirm-dialog-overlay fixed inset-0 bg-black/65 backdrop-blur-sm z-[150] flex items-center justify-center p-4" role="presentation">
-		<div class="confirm-dialog bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl p-5 max-w-[420px] w-full flex flex-col gap-3 shadow-2xl animate-[confirmPop_140ms_cubic-bezier(0.16,1,0.3,1)]" role="alertdialog" aria-labelledby="confirm-replace-title">
-			<div class="confirm-header flex items-center gap-2 text-[var(--text-1)] text-amber-400 font-bold text-[15px]">
-				<Icon name="sparkles" size={18} />
-				<h3 id="confirm-replace-title">Replace Current Table?</h3>
-			</div>
-			<p class="confirm-body text-[13px] text-[var(--text-2)] leading-relaxed m-0">
-				You have unsaved changes in your table. Loading
-				<strong>"{sampleTables[pendingSampleKey].title}"</strong>
-				will replace your current workspace.
-			</p>
-			<div class="confirm-actions flex justify-end gap-2 mt-1">
-				<button
-					type="button"
-					class="btn-tactile btn-ghost inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium rounded-md bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[var(--text-1)] cursor-pointer transition-colors"
-					onclick={() => (pendingSampleKey = null)}
-				>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="btn-tactile btn-danger inline-flex items-center justify-center px-3.5 py-1.5 text-[13px] font-medium rounded-md bg-rose-600 hover:bg-rose-500 text-white cursor-pointer transition-colors shadow-sm"
-					onclick={() => pendingSampleKey && executeLoadSample(pendingSampleKey)}
-				>
-					Replace Table
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+

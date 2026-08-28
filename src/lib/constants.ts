@@ -94,18 +94,8 @@ export function formatCellValue(type: ColumnType | string | undefined, value: Ce
 	}
 
 	if (safeType === 'date') {
-		try {
-			const d = new Date(value as string | number);
-			if (!isNaN(d.getTime())) {
-				return d.toLocaleDateString('en-US', {
-					year: 'numeric',
-					month: 'short',
-					day: 'numeric'
-				});
-			}
-		} catch {
-			// fallback
-		}
+		// Show exactly as stored — dates can have many user formats (MM/DD/YYYY, DD-MM-YYYY, ISO, etc.)
+		// Don't reformat via Date parsing; preserve raw string so export/import stays lossless.
 		return String(value);
 	}
 
@@ -165,16 +155,6 @@ export const COLUMN_TYPE_CONFIG: Record<
 	}
 };
 
-export const COLUMN_TYPE_ICON_MAP: Record<ColumnType, IconName> = {
-	text: 'type',
-	number: 'hash',
-	currency: 'dollar-sign',
-	percent: 'percent',
-	dropdown: 'chevron-down',
-	status: 'chevron-down',
-	date: 'calendar'
-};
-
 const DROPDOWN_PALETTES = [
 	{ bg: 'rgba(16, 185, 129, 0.12)', text: '#10b981', border: 'rgba(16, 185, 129, 0.25)' },
 	{ bg: 'rgba(14, 165, 233, 0.12)', text: '#0ea5e9', border: 'rgba(14, 165, 233, 0.25)' },
@@ -187,9 +167,28 @@ const DROPDOWN_PALETTES = [
 	{ bg: 'rgba(100, 116, 139, 0.12)', text: '#94a3b8', border: 'rgba(100, 116, 139, 0.22)' }
 ];
 
+// Semantic overrides — known statuses/products get intentional colors, everything else hashes.
+const SEMANTIC_DROPDOWN_MAP: Record<string, { bg: string; text: string; border: string }> = {
+	'closed won': { bg: 'rgba(16, 185, 129, 0.16)', text: '#10b981', border: 'rgba(16, 185, 129, 0.32)' },
+	'closed lost': { bg: 'rgba(244, 63, 94, 0.14)', text: '#fb7185', border: 'rgba(244, 63, 94, 0.28)' },
+	won: { bg: 'rgba(16, 185, 129, 0.14)', text: '#10b981', border: 'rgba(16, 185, 129, 0.25)' },
+	lost: { bg: 'rgba(244, 63, 94, 0.14)', text: '#f43f5e', border: 'rgba(244, 63, 94, 0.25)' },
+	negotiation: { bg: 'rgba(245, 158, 11, 0.14)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.28)' },
+	proposal: { bg: 'rgba(14, 165, 233, 0.14)', text: '#0ea5e9', border: 'rgba(14, 165, 233, 0.25)' },
+	discovery: { bg: 'rgba(139, 92, 246, 0.14)', text: '#a78bfa', border: 'rgba(139, 92, 246, 0.28)' },
+	active: { bg: 'rgba(16, 185, 129, 0.14)', text: '#10b981', border: 'rgba(16, 185, 129, 0.25)' },
+	trial: { bg: 'rgba(14, 165, 233, 0.14)', text: '#38bdf8', border: 'rgba(14, 165, 233, 0.25)' },
+	pending: { bg: 'rgba(245, 158, 11, 0.14)', text: '#fbbf24', border: 'rgba(245, 158, 11, 0.25)' },
+	churned: { bg: 'rgba(100, 116, 139, 0.16)', text: '#94a3b8', border: 'rgba(100, 116, 139, 0.28)' },
+	'in stock': { bg: 'rgba(16, 185, 129, 0.14)', text: '#10b981', border: 'rgba(16, 185, 129, 0.25)' },
+	'low stock': { bg: 'rgba(245, 158, 11, 0.14)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.28)' },
+	'out of stock': { bg: 'rgba(244, 63, 94, 0.14)', text: '#f43f5e', border: 'rgba(244, 63, 94, 0.25)' }
+};
+
 export function getDropdownStyle(value: string): { bg: string; text: string; border: string } {
 	const key = String(value || '').trim().toLowerCase();
 	if (!key) return { bg: 'transparent', text: 'var(--text-3)', border: 'transparent' };
+	if (SEMANTIC_DROPDOWN_MAP[key]) return SEMANTIC_DROPDOWN_MAP[key];
 
 	let hash = 0;
 	for (let i = 0; i < key.length; i++) {
@@ -200,4 +199,5 @@ export function getDropdownStyle(value: string): { bg: string; text: string; bor
 	return DROPDOWN_PALETTES[index];
 }
 
+// single alias, no duplicate function
 export const getStatusStyle = getDropdownStyle;
