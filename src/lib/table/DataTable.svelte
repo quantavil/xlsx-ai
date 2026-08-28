@@ -422,9 +422,8 @@
 												<div class="popover-divider h-px bg-[var(--border)] my-1"></div>
 												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Column Type</div>
 
-												{#each Object.entries(COLUMN_TYPE_CONFIG).filter(([k]) => k !== 'status') as [typeKey, typeCfg]}
-													{@const normalizedColType = col.type === 'status' ? 'dropdown' : col.type}
-													{@const isActiveType = normalizedColType === typeKey}
+												{#each Object.entries(COLUMN_TYPE_CONFIG) as [typeKey, typeCfg]}
+													{@const isActiveType = col.type === typeKey}
 													<button
 														class="popover-item flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors {isActiveType ? 'active !text-[var(--accent-primary)] !bg-emerald-500/10 font-semibold' : ''}"
 														role="menuitem"
@@ -521,7 +520,7 @@
 								<!-- Cells -->
 								{#each store.columns as col, colIndex (col.id)}
 									{@const colType = col.type || 'text'}
-									{@const isDropdown = colType === 'dropdown' || colType === 'status'}
+									{@const isDropdown = colType === 'dropdown'}
 									{@const cellVal = row ? row[col.id] : null}
 									{@const isEditing = editingCell?.rowId === row?.id && editingCell?.columnId === col.id}
 									{@const isActive = activeCell?.rowId === row?.id && activeCell?.columnId === col.id}
@@ -531,7 +530,7 @@
 
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default truncate text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] outline outline-2 outline-[var(--border-focus)] -outline-offset-2' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] shadow-[inset_0_0_0_2px_var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {isDropdown && hasVal ? `background: ${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										tabindex={isRovingActive ? 0 : -1}
@@ -549,19 +548,33 @@
 										}}
 										ondblclick={() => startEditing(row.id, col.id, cellVal)}
 									>
-										{#if isEditing}
-											{#if isDropdown}
-												{@const cellKey = `${row.id}-${col.id}`}
-												<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
-													{#if hasVal && dropdownStyle}
-														<span class="status-cell-text status-val font-medium text-[12.5px] truncate" style="color: {dropdownStyle.text};">
-															<span class="truncate">{cellVal}</span>
-														</span>
-													{:else}
-														<span class="status-cell-text empty-placeholder text-[var(--text-3)] opacity-40 text-[12px]">—</span>
-													{/if}
+										{#if isDropdown}
+											<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
+												{#if hasVal && dropdownStyle}
+													<span class="status-cell-text status-val font-medium text-[12.5px] truncate" style="color: {dropdownStyle.text};">
+														<span class="truncate">{cellVal}</span>
+													</span>
+												{:else}
+													<span class="status-cell-text empty-placeholder text-[var(--text-3)] opacity-40 text-[12px]">—</span>
+												{/if}
+												{#if isEditing}
 													<span class="dropdown-cell-arrow text-[10px] shrink-0" style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'}; opacity: 0.6;" aria-hidden="true">▾</span>
-												</div>
+												{:else}
+													<button
+														type="button"
+														class="dropdown-cell-arrow text-[10px] cursor-pointer px-1 bg-transparent border-none shrink-0 opacity-50 group-hover/row:opacity-100 hover:opacity-100"
+														style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'};"
+														aria-label="Open dropdown options"
+														onclick={(e) => {
+															e.stopPropagation();
+															selectCell(row.id, col.id, rowIndex, colIndex);
+															startEditing(row.id, col.id, cellVal);
+														}}
+													>▾</button>
+												{/if}
+											</div>
+											{#if isEditing}
+												{@const cellKey = `${row.id}-${col.id}`}
 												<DropdownCellEditor
 													value={editValue}
 													options={getColumnUniqueValues(col.id)}
@@ -574,7 +587,9 @@
 														cancelEdit();
 													}}
 												/>
-											{:else if colType === 'date'}
+											{/if}
+										{:else if isEditing}
+											{#if colType === 'date'}
 												<input
 													type="text"
 													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0 placeholder:text-[var(--text-3)]"
@@ -598,29 +613,8 @@
 													onkeydown={(e) => handleEditorKeyDown(e, rowIndex, colIndex)}
 												/>
 											{/if}
-										{:else if isDropdown}
-											<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
-												{#if hasVal && dropdownStyle}
-													<span class="status-cell-text status-val font-medium text-[12.5px] truncate" style="color: {dropdownStyle.text};">
-														<span class="truncate">{cellVal}</span>
-													</span>
-												{:else}
-													<span class="status-cell-text empty-placeholder text-[var(--text-3)] opacity-40 text-[12px]">—</span>
-												{/if}
-												<button
-													type="button"
-													class="dropdown-cell-arrow text-[10px] cursor-pointer px-1 bg-transparent border-none shrink-0 opacity-50 group-hover/row:opacity-100 hover:opacity-100"
-													style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'};"
-													aria-label="Open dropdown options"
-													onclick={(e) => {
-														e.stopPropagation();
-														selectCell(row.id, col.id, rowIndex, colIndex);
-														startEditing(row.id, col.id, cellVal);
-													}}
-												>▾</button>
-											</div>
 										{:else}
-											<span class="cell-text-display {cellVal === null || cellVal === undefined || cellVal === '' ? 'empty-placeholder opacity-50' : ''}">
+											<span class="cell-text-display truncate {cellVal === null || cellVal === undefined || cellVal === '' ? 'empty-placeholder opacity-50' : ''}">
 												{formatCellValue(colType, cellVal) || '—'}
 											</span>
 										{/if}

@@ -184,7 +184,7 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		const { validatePatchProposals } = await import('../src/lib/ai/patches');
 		const table = {
 			title: 'Live Table',
-			columns: [{ id: 'c1', name: 'Status', type: 'status' as const }],
+			columns: [{ id: 'c1', name: 'Status', type: 'dropdown' as const }],
 			rows: [{ id: 'r1', c1: 'Active' }]
 		};
 

@@ -163,14 +163,10 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 					else if (numB === null) comparison = -1;
 					else comparison = numA - numB;
 				} else if (isDate) {
-					const dateA = new Date(valA as string | number).getTime();
-					const dateB = new Date(valB as string | number).getTime();
-					const invalidA = isNaN(dateA);
-					const invalidB = isNaN(dateB);
-					if (invalidA && invalidB) comparison = 0;
-					else if (invalidA) comparison = 1;
-					else if (invalidB) comparison = -1;
-					else comparison = dateA - dateB;
+					comparison = String(valA).localeCompare(String(valB), undefined, {
+						numeric: true,
+						sensitivity: 'base'
+					});
 				} else {
 					comparison = String(valA).localeCompare(String(valB), undefined, {
 						numeric: true,

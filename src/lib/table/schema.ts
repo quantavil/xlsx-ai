@@ -5,7 +5,7 @@ import { normalizeCellValue } from './cells';
 
 export const CellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
-export const ColumnTypeSchema = z.enum(['text', 'number', 'currency', 'percent', 'dropdown', 'status', 'date']);
+export const ColumnTypeSchema = z.enum(['text', 'number', 'currency', 'percent', 'dropdown', 'date']);
 
 export const PersistedColumnSchema = z.object({
 	id: z.string().min(1).max(100),

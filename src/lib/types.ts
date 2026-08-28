@@ -1,4 +1,4 @@
-export type ColumnType = 'text' | 'number' | 'currency' | 'percent' | 'dropdown' | 'status' | 'date';
+export type ColumnType = 'text' | 'number' | 'currency' | 'percent' | 'dropdown' | 'date';
 
 export type CellValue = string | number | boolean | null;
 

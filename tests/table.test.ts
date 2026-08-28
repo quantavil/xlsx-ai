@@ -11,7 +11,7 @@ describe('Table Store (Svelte 5 Runes)', () => {
 			{ id: 'c2', name: 'Units', type: 'number' },
 			{ id: 'c3', name: 'Price', type: 'currency' },
 			{ id: 'c4', name: 'Margin', type: 'percent' },
-			{ id: 'c5', name: 'Status', type: 'status' },
+			{ id: 'c5', name: 'Status', type: 'dropdown' },
 			{ id: 'c6', name: 'Date', type: 'date' }
 		],
 		rows: [
@@ -113,8 +113,8 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		store.renameColumn(newCol.id, 'Internal Notes');
 		expect(store.columns[6].name).toBe('Internal Notes');
 
-		store.updateColumnType(newCol.id, 'status');
-		expect(store.columns[6].type).toBe('status');
+		store.updateColumnType(newCol.id, 'dropdown');
+		expect(store.columns[6].type).toBe('dropdown');
 
 		store.deleteColumn(newCol.id);
 		expect(store.columns.length).toBe(6);
@@ -234,7 +234,7 @@ describe('Table Store (Svelte 5 Runes)', () => {
 				title: 'Empty Header Table',
 				columns: [
 					{ id: 'c1', name: 'Task', type: 'text' },
-					{ id: 'c2', name: 'Status', type: 'status' }
+					{ id: 'c2', name: 'Status', type: 'dropdown' }
 				],
 				rows: []
 			},

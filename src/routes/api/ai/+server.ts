@@ -31,7 +31,7 @@ export const _RequestSchema = z.object({
 			z.object({
 				id: z.string().min(1).max(100),
 				name: z.string().min(1).max(200),
-				type: z.enum(['text', 'number', 'currency', 'percent', 'status', 'date']),
+				type: z.enum(['text', 'number', 'currency', 'percent', 'dropdown', 'date']),
 				width: z.number().optional()
 			})
 		).max(200),
