@@ -489,13 +489,13 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			}
 
 			// Hydrate API Key from localStorage
-			const savedApiKey = localStorage.getItem(LS_API_KEY);
+			const savedApiKey = localStorage.getItem(LS_API_KEY) || localStorage.getItem('table-ai:gemini-key');
 			if (savedApiKey) {
 				apiKey = savedApiKey;
 			}
 
 			// Hydrate AI Model from localStorage (migrate obsolete/shut-down models)
-			const savedModel = localStorage.getItem(LS_AI_MODEL);
+			const savedModel = localStorage.getItem(LS_AI_MODEL) || localStorage.getItem('table-ai:gemini-model');
 			if (savedModel && !savedModel.includes('gemini-2.0') && !savedModel.includes('undefined')) {
 				aiModel = savedModel;
 			} else {

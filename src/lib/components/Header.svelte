@@ -98,7 +98,7 @@
 			<div class="brand-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--accent-primary)] text-white shrink-0 shadow-sm" aria-hidden="true">
 				<Icon name="table" size={16} strokeWidth={2.2} />
 			</div>
-			<span class="brand-name font-bold text-[14.5px] tracking-tight text-[var(--text-1)] whitespace-nowrap">Table AI</span>
+			<span class="brand-name font-bold text-[14.5px] tracking-tight text-[var(--text-1)] whitespace-nowrap">xlsx-ai</span>
 		</div>
 
 		<div class="divider-v w-px h-5 bg-[var(--border)] shrink-0" aria-hidden="true"></div>

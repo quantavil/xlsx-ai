@@ -87,7 +87,7 @@ export function createLocalStorageAdapter(
 	function load(): string | null {
 		if (typeof window === 'undefined' || !window.localStorage) return null;
 		try {
-			return localStorage.getItem(key);
+			return localStorage.getItem(key) || (key === 'xlsx-ai:v1' ? localStorage.getItem('table-ai:v1') : null);
 		} catch {
 			return null;
 		}

@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Table AI E2E Workflow', () => {
+test.describe('xlsx-ai E2E Workflow', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 	});
 
 	test('renders initial SaaS dataset with sticky headers and footer summaries', async ({ page }) => {
-		await expect(page.locator('.brand-name')).toHaveText('Table AI');
+		await expect(page.locator('.brand-name')).toHaveText('xlsx-ai');
 		await expect(page.locator('.title-text')).toContainText('SaaS Revenue');
 
 		const headers = page.locator('thead th');

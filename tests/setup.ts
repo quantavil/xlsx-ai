@@ -1,11 +1,11 @@
-import { plugin } from 'bun';
+import { plugin, type PluginBuilder } from 'bun';
 import { compileModule } from 'svelte/compiler';
 
 const transpiler = new Bun.Transpiler({ loader: 'ts' });
 
 plugin({
 	name: 'svelte-module-loader',
-	setup(build) {
+	setup(build: PluginBuilder) {
 		build.onLoad({ filter: /\.svelte\.ts$/ }, async (args) => {
 			const text = await Bun.file(args.path).text();
 			const jsCode = transpiler.transformSync(text);

@@ -21,6 +21,7 @@
 - Binding `bind:this` on Svelte 5 template elements to arrow functions errors during `svelte-check`. Fixed by using custom Svelte action `use:registerCellNode`.
 - Empty or 0-row tables were discarded on reload because `store.rows.length === 0` fallback in `+page.svelte` replaced them with SaaS sample. Fixed by returning explicit hydration status `{ status: 'restored' | 'missing' | 'invalid' }`.
 - Exporting tables with duplicate column names dropped data when mapped directly to object keys. Fixed by disambiguating headers with `buildUniqueExportHeaders()`.
+- Missing `@types/bun` in devDependencies caused `svelte-check` to fail in CI on `tests/setup.ts`. Fixed by installing `@types/bun` and adding explicit `PluginBuilder` typing.
 
 ## Notes & Discoveries
 - Excel-Style Roving Tabindex: Active cell receives `tabindex="0"` while all other cells are `tabindex="-1"`. Arrow keys navigate cells without entering edit mode, updating focus immediately.

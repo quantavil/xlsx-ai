@@ -41,7 +41,7 @@
 	onMount(() => {
 		// Hydrate theme
 		if (typeof localStorage !== 'undefined') {
-			const savedTheme = (localStorage.getItem(LS_THEME_KEY) || document.documentElement.getAttribute('data-theme') || 'dark') as 'dark' | 'light';
+			const savedTheme = (localStorage.getItem(LS_THEME_KEY) || localStorage.getItem('table-ai:theme') || document.documentElement.getAttribute('data-theme') || 'dark') as 'dark' | 'light';
 			if (savedTheme === 'dark' || savedTheme === 'light') {
 				theme = savedTheme;
 				document.documentElement.setAttribute('data-theme', theme);

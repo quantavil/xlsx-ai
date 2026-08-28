@@ -1,6 +1,6 @@
-# Table AI — Fast, Modern AI Data Table
+# xlsx-ai — Fast, Modern AI Spreadsheet Workspace
 
-**Table AI** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, and official **Google Gemini** generative models (`gemini-3.5-flash-lite` default, `gemini-3.7-flash`, `gemini-3.1-pro`).
+**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, and official **Google Gemini** generative models (`gemini-3.5-flash-lite` default, `gemini-3.7-flash`, `gemini-3.1-pro`).
 
 ---
 

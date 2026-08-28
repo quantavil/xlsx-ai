@@ -100,7 +100,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const truncatedRows = tableContext.rows.slice(0, 40);
 	const columnSchemas = tableContext.columns.map((c) => `${c.name} (id: "${c.id}", type: ${c.type})`).join(', ');
 
-	const systemPrompt = `You are Table AI, an elite agency data engineering and analysis assistant.
+	const systemPrompt = `You are xlsx-ai, an elite agency data engineering and analysis assistant.
 You are operating directly on a live tabular dataset.
 
 TABLE METADATA:

@@ -7,10 +7,10 @@ import { numericCellValue } from './table/cells';
 
 export const DEFAULT_TABLE_TITLE = 'Untitled Table';
 export const MAX_HISTORY = 30;
-export const LS_KEY = 'table-ai:v1';
-export const LS_THEME_KEY = 'table-ai:theme';
-export const LS_API_KEY = 'table-ai:gemini-key';
-export const LS_AI_MODEL = 'table-ai:gemini-model';
+export const LS_KEY = 'xlsx-ai:v1';
+export const LS_THEME_KEY = 'xlsx-ai:theme';
+export const LS_API_KEY = 'xlsx-ai:gemini-key';
+export const LS_AI_MODEL = 'xlsx-ai:gemini-model';
 
 export const DEFAULT_AI_MODEL = 'gemini-3.5-flash-lite';
 
