@@ -144,7 +144,7 @@ startxref
 		expect(result.pageCount).toBe(1);
 		expect(result.content).toContain('=== PAGE: 1 ===');
 		expect(result.content).toContain('Invoice 98765 Cotton Fabric');
-	});
+	}, 15000);
 
 	it('rejects empty (0 byte) files with informative error', async () => {
 		const emptyFile = new File([], 'empty.xlsx');

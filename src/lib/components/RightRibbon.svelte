@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icons.svelte';
+	import { preloadData } from '$app/navigation';
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import type { createModuleStore } from '$lib/modules/module-store.svelte';
 	import type { WorkspaceModule } from '$lib/modules/types';
@@ -360,6 +361,7 @@
 			<button
 				class="ribbon-btn settings-toggle-btn relative group/ribbon w-[34px] h-[34px] rounded-md bg-transparent border border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)] active:bg-[var(--surface-3)] flex items-center justify-center cursor-pointer transition-colors"
 				onclick={onOpenSettings}
+				onmouseenter={() => preloadData('/settings')}
 				aria-label="Open Settings"
 			>
 				<Icon name="settings" size={17} aria-hidden="true" />

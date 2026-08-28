@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto, preloadData } from '$app/navigation';
 	import Icon from '$lib/components/Icons.svelte';
 	import { LS_API_KEY, AI_MODELS, type AiModelConfig } from '$lib/constants';
 	import { store, moduleStore, notify } from '$lib/workspace.svelte';
@@ -123,50 +123,76 @@
 
 <svelte:head><title>Settings — xlsx-ai</title></svelte:head>
 
-<div class="settings-page flex flex-col w-screen h-screen bg-[var(--bg)] overflow-hidden">
-	<header
-		class="settings-topbar flex items-center h-12 px-3 border-b border-[var(--border)] bg-[var(--surface-1)] shrink-0 gap-2"
+<div class="settings-page flex w-screen h-screen bg-[var(--bg)] overflow-hidden">
+	<!-- Left Sidebar Column -->
+	<aside
+		class="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--surface-1)] flex flex-col overflow-hidden max-sm:w-14"
 	>
+		<!-- Left Topbar (Brand/Title) -->
 		<div
-			class="brand-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--accent-primary)] text-white shrink-0 shadow-sm"
-			aria-hidden="true"
+			class="flex items-center h-12 px-4 border-b border-[var(--border)] gap-2.5 shrink-0 max-sm:justify-center max-sm:px-0"
 		>
-			<Icon name="settings" size={15} strokeWidth={2.2} />
+			<div
+				class="brand-icon flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-white shrink-0 shadow-xs"
+				aria-hidden="true"
+			>
+				<Icon name="settings" size={15} strokeWidth={2.2} />
+			</div>
+			<span class="text-[13.5px] font-bold text-[var(--text-1)] tracking-tight max-sm:hidden">Settings</span>
 		</div>
-		<h1 class="text-[14px] font-bold m-0 text-[var(--text-1)]">Settings</h1>
 
-		<a
-			href="/"
-			class="settings-close-btn ml-auto inline-flex items-center justify-center w-8 h-8 rounded-md text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] transition-colors"
-			aria-label="Close settings (Escape)"
-		>
-			<Icon name="x" size={16} aria-hidden="true" />
-		</a>
-	</header>
-
-	<div class="settings-body flex flex-1 min-h-0 overflow-hidden">
-		<!-- Section rail: three sections are easier to scan as a list than as one long scroll. -->
-		<nav
-			class="settings-sidebar w-48 shrink-0 border-r border-[var(--border)] bg-[var(--surface-1)] p-2 flex flex-col gap-0.5 overflow-y-auto max-sm:w-12 max-sm:p-1.5"
-			aria-label="Settings sections"
-		>
+		<!-- Nav items -->
+		<nav class="settings-sidebar flex-1 p-2.5 flex flex-col gap-1 overflow-y-auto" aria-label="Settings sections">
 			{#each SECTIONS as section (section.id)}
 				<button
-					class="settings-nav-item flex items-center gap-2.5 h-9 px-2.5 rounded-md text-[13px] font-medium text-left cursor-pointer border transition-colors max-sm:justify-center max-sm:px-0 {activeSection ===
+					class="settings-nav-item flex items-center gap-2.5 h-9 px-3 rounded-lg text-[13px] font-medium text-left cursor-pointer border transition-all max-sm:justify-center max-sm:px-0 {activeSection ===
 					section.id
-						? 'bg-[var(--surface-3)] border-[var(--border-strong)] text-[var(--text-1)]'
+						? 'bg-[var(--surface-3)] border-[var(--border-strong)] text-[var(--text-1)] shadow-2xs font-semibold'
 						: 'bg-transparent border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)]'}"
 					aria-current={activeSection === section.id ? 'page' : undefined}
 					onclick={() => (activeSection = section.id)}
 				>
-					<Icon name={section.icon} size={15} aria-hidden="true" />
-					<span class="max-sm:hidden">{section.label}</span>
+					<Icon name={section.icon} size={15} class={activeSection === section.id ? 'text-[var(--accent-primary)]' : 'text-[var(--text-3)]'} aria-hidden="true" />
+					<span class="max-sm:hidden flex-1">{section.label}</span>
+					{#if activeSection === section.id}
+						<span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] shrink-0 max-sm:hidden"></span>
+					{/if}
 				</button>
 			{/each}
 		</nav>
+	</aside>
 
-		<main class="settings-content flex-1 overflow-y-auto px-6 py-7 min-h-0">
-			<div class="settings-content-inner max-w-2xl mx-auto">
+	<!-- Right Main Pane -->
+	<div class="flex-1 flex flex-col min-w-0 bg-[var(--bg)] overflow-hidden">
+		<!-- Right Header -->
+		<header
+			class="settings-topbar flex items-center justify-between h-12 px-6 border-b border-[var(--border)] bg-[var(--surface-1)] shrink-0"
+		>
+			<div class="flex items-center gap-2">
+				<h1 class="text-[13px] font-semibold text-[var(--text-1)] m-0">
+					{SECTIONS.find((s) => s.id === activeSection)?.label}
+				</h1>
+			</div>
+
+			<a
+				href="/"
+				data-sveltekit-preload-data="hover"
+				class="settings-close-btn inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-3)] hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/30 active:bg-rose-500/20 transition-colors duration-75 shadow-2xs cursor-pointer"
+				aria-label="Close settings (Escape)"
+				title="Close (Esc)"
+				onmouseenter={() => preloadData('/')}
+				onclick={(e) => {
+					e.preventDefault();
+					goto('/');
+				}}
+			>
+				<Icon name="x" size={14} aria-hidden="true" />
+			</a>
+		</header>
+
+		<!-- Content -->
+		<main class="settings-content flex-1 overflow-y-auto px-6 py-6 min-h-0">
+			<div class="settings-content-inner max-w-xl mx-auto">
 				{#if activeSection === 'ai'}
 					<AiSection
 						{store}
