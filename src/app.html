@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Table AI — Spreadsheet & AI Data Workspace</title>
+		<meta name="description" content="Fast, reliable spreadsheet workspace with typed columns, inline editing, SheetJS Excel/CSV support, and Google Gemini AI." />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+		<script>
+			try {
+				const savedTheme = localStorage.getItem('table-ai:theme');
+				const theme = savedTheme || 'dark';
+				document.documentElement.setAttribute('data-theme', theme);
+			} catch (e) {}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
