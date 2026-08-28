@@ -32,8 +32,8 @@ export function inferColumnTypeFromSamples(values: CellValue[]): ColumnType {
 		const str = String(val).trim();
 		distinctValues.add(str.toLowerCase());
 
-		// Check currency ($1,200.00, €50, £99)
-		if (/^[$€£¥]\s*-?[0-9,]+(?:\.[0-9]+)?$/.test(str) || /^-?[0-9,]+(?:\.[0-9]+)?\s*[$€£¥]$/.test(str)) {
+		// Check currency ($1,200.00, €50, £99, ₹) — #18 add ₹
+		if (/^[$€£¥₹]\s*-?[0-9,]+(?:\.[0-9]+)?$/.test(str) || /^-?[0-9,]+(?:\.[0-9]+)?\s*[$€£¥₹]$/.test(str)) {
 			currCount++;
 			continue;
 		}
@@ -113,7 +113,9 @@ export async function parseSpreadsheetBuffer(
 	}
 
 	const firstRow = nonEmptyMatrix[0];
-	const colCount = Math.min(MAX_IMPORT_COLS, firstRow.length);
+	// #8 Compute max width across sampled rows to avoid dropping jagged tail columns
+	const maxWidth = Math.max(...nonEmptyMatrix.slice(0, 50).map((r) => r?.length ?? 0), firstRow.length);
+	const colCount = Math.min(MAX_IMPORT_COLS, maxWidth);
 
 	// Check if first row looks like headers (mostly non-empty strings)
 	const stringCount = firstRow.filter((c) => typeof c === 'string' && isNaN(Number(c))).length;

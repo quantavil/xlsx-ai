@@ -170,7 +170,7 @@
 			<div class="model-hero-left flex flex-col gap-1">
 				<div class="model-hero-title-row flex items-center gap-2">
 					<span class="model-hero-name font-bold text-[14px] text-[var(--text-1)]">{activeModelConfig.name}</span>
-					{#if 'isDefault' in activeModelConfig && activeModelConfig.isDefault}
+					{#if activeModelConfig.badge === 'Default'}
 						<span class="badge badge-accent inline-flex text-[10.5px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Recommended</span>
 					{/if}
 					<span class="badge badge-neutral inline-flex text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[var(--surface-3)] text-[var(--text-2)]">{activeModelConfig.speed || 'Standard'}</span>
@@ -220,7 +220,7 @@
 						<div class="model-card-top flex items-center justify-between gap-1">
 							<span class="model-card-name font-semibold text-[13px] text-[var(--text-1)]">{model.name}</span>
 							<div class="model-card-badges flex items-center gap-1">
-								{#if 'isDefault' in model && model.isDefault}
+								{#if model.badge === 'Default'}
 									<span class="badge badge-accent-subtle text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">Default</span>
 								{/if}
 								{#if isSelected}

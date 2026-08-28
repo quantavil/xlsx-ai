@@ -90,6 +90,8 @@
 		activeDiffPreview = null;
 
 		try {
+			// #1 Slice to 40 rows to stay under 1MiB / 2000-row cap; server truncates anyway
+			const truncatedRows = store.rows.slice(0, 40);
 			const res = await fetch('/api/ai', {
 				method: 'POST',
 				headers: {
@@ -101,7 +103,7 @@
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
-						rows: store.rows
+						rows: truncatedRows
 					},
 					operation: {
 						kind
@@ -217,6 +219,12 @@
 		const controller = beginRequest();
 
 		try {
+			// #1 + #5 Keep payload under 1MiB/2000 cap and honor server max(50)/8000 limits
+			const truncatedRows = store.rows.slice(0, 40);
+			const recentMessages = messages
+				.filter((m) => !m.isStreaming)
+				.slice(-10)
+				.map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }));
 			const res = await fetch('/api/ai', {
 				method: 'POST',
 				headers: {
@@ -228,11 +236,9 @@
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
-						rows: store.rows
+						rows: truncatedRows
 					},
-					messages: messages
-						.filter((m) => !m.isStreaming)
-						.map((m) => ({ role: m.role, content: m.content }))
+					messages: recentMessages
 				}),
 				signal: controller.signal
 			});

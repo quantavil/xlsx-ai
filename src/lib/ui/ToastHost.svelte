@@ -24,7 +24,7 @@
 					{:else if toast.type === 'error'}
 						<Icon name="x" size={14} />
 					{:else if toast.type === 'warning'}
-						<Icon name="sparkles" size={14} />
+						<Icon name="alert-triangle" size={14} />
 					{:else}
 						<Icon name="database" size={14} />
 					{/if}

@@ -9,12 +9,6 @@ export interface ComboboxOptions<T> {
 	onCancel: () => void;
 }
 
-export function filterComboboxItems<T>(items: T[], query: string, getLabel: (item: T) => string): T[] {
-	const clean = query.trim().toLowerCase();
-	if (!clean) return items;
-	return items.filter((item) => getLabel(item).toLowerCase().includes(clean));
-}
-
 export function handleComboboxKeydown<T>(e: KeyboardEvent, options: ComboboxOptions<T>): void {
 	const { items, highlightIndex, onHighlight, onSelect, onCreate, onCancel } = options;
 	const total = items.length;

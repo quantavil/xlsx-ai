@@ -59,6 +59,12 @@
 		// Global keyboard shortcuts
 		function handleGlobalKeyDown(e: KeyboardEvent) {
 			if (showSettingsModal) {
+				// #12 Allow toggle to close even when modal is open
+				if ((e.metaKey || e.ctrlKey) && (e.key === ',' || e.key === '<')) {
+					e.preventDefault();
+					showSettingsModal = false;
+					return;
+				}
 				// Suppress global table shortcuts when modal is active
 				return;
 			}
@@ -139,7 +145,7 @@
 	/>
 
 	<!-- Body layout: Main table area + inline slide-in AI Panel + Right-End Tool Ribbon -->
-	<div class="workspace-body flex-1 flex overflow-hidden relative w-full h-[calc(100vh-56px)] max-sm:h-[calc(100vh-90px)] max-sm:pb-[54px]">
+	<div class="workspace-body flex-1 flex overflow-hidden relative w-full min-h-0 max-sm:pb-[54px]">
 		<main class="table-main-area flex-1 min-w-0 flex overflow-hidden relative">
 			<DataTable {store} onNotify={notify} />
 		</main>

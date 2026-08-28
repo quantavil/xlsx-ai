@@ -163,10 +163,13 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 					else if (numB === null) comparison = -1;
 					else comparison = numA - numB;
 				} else if (isDate) {
-					comparison = String(valA).localeCompare(String(valB), undefined, {
-						numeric: true,
-						sensitivity: 'base'
-					});
+					// #16 Parse to epoch; supports MM/DD/YYYY, DD-MM-YYYY, ISO — fallback to string compare
+					const tA = Date.parse(String(valA));
+					const tB = Date.parse(String(valB));
+					if (!isNaN(tA) && !isNaN(tB)) comparison = tA - tB;
+					else if (!isNaN(tA)) comparison = -1;
+					else if (!isNaN(tB)) comparison = 1;
+					else comparison = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
 				} else {
 					comparison = String(valA).localeCompare(String(valB), undefined, {
 						numeric: true,
@@ -335,17 +338,18 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		triggerSave();
 	}
 
-	function updateColumnType(columnId: string, newType: ColumnType) {
+	function updateColumnType(columnId: string, newType: ColumnType): { changedCount: number; invalidCount: number } {
 		const col = columns.find((c) => c.id === columnId);
-		if (!col || col.type === newType) return;
+		if (!col || col.type === newType) return { changedCount: 0, invalidCount: 0 };
 
 		pushHistory();
 		col.type = newType;
 		columns = [...columns];
 
-		const { updatedRows } = convertColumnTypeAtomic(rows, columnId, newType);
+		const { updatedRows, changedCount, invalidCount } = convertColumnTypeAtomic(rows, columnId, newType);
 		rows = updatedRows;
 		triggerSave();
+		return { changedCount, invalidCount };
 	}
 
 	function deleteColumn(columnId: string) {

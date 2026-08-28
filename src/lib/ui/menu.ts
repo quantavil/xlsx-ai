@@ -69,22 +69,4 @@ export function handleMenuKeydown(e: KeyboardEvent, options: MenuKeyboardOptions
 	}
 }
 
-export function createFocusRestorer() {
-	let triggerElement: HTMLElement | null = null;
 
-	return {
-		capture(el?: HTMLElement | null) {
-			triggerElement = el || (document.activeElement as HTMLElement | null);
-		},
-		restore() {
-			if (triggerElement && typeof triggerElement.focus === 'function') {
-				// Restore focus on next animation frame to prevent race condition with teardown
-				requestAnimationFrame(() => {
-					if (document.body.contains(triggerElement)) {
-						triggerElement?.focus();
-					}
-				});
-			}
-		}
-	};
-}

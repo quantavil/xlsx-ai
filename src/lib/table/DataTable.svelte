@@ -4,6 +4,7 @@
 	import type { createTableStore } from './store.svelte';
 	import type { ColumnType, CellValue } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
+	import { computeFloatingPosition } from '$lib/ui/position';
 
 	let {
 		store,
@@ -15,6 +16,30 @@
 
 	// Local UI states
 	let activeCell = $state<{ rowId: string; columnId: string; rowIndex: number; colIndex: number } | null>(null);
+
+	// #2 Clamp activeCell when filteredRows shrinks (search/sort) to avoid OOB TypeError
+	$effect(() => {
+		const rows = store.filteredRows;
+		const cols = store.columns;
+		if (!activeCell) return;
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+		rows.length; cols.length;
+		if (rows.length === 0) {
+			activeCell = null;
+			return;
+		}
+		if (activeCell.rowIndex >= rows.length || !rows.some((r) => r.id === activeCell!.rowId)) {
+			const clampRow = Math.min(activeCell.rowIndex, rows.length - 1);
+			const row = rows[clampRow];
+			activeCell = { rowId: row.id, columnId: activeCell.columnId, rowIndex: clampRow, colIndex: Math.min(activeCell.colIndex, cols.length - 1) };
+		}
+		if (activeCell.colIndex >= cols.length) {
+			activeCell = { ...activeCell, colIndex: cols.length - 1, columnId: cols[cols.length - 1].id };
+		}
+		if (!cols.some((c) => c.id === activeCell!.columnId)) {
+			activeCell = { ...activeCell, columnId: cols[activeCell.colIndex]?.id ?? cols[0].id };
+		}
+	});
 	let editingCell = $state<{ rowId: string; columnId: string } | null>(null);
 	let cellNodes = new Map<string, HTMLElement>();
 
@@ -22,12 +47,79 @@
 	let activeColMenu = $state<string | null>(null);
 	let renamingColId = $state<string | null>(null);
 	let renamingColValue = $state<string>('');
+	// #17 column menu fixed positioning to escape scroll clipping
+	let colMenuTriggerEls = new Map<string, HTMLElement>();
+	let colMenuStyle = $state<string>('');
+	function syncColMenuPos() {
+		if (!activeColMenu) { colMenuStyle=''; return; }
+		const trigger = colMenuTriggerEls.get(activeColMenu);
+		if (!trigger) return;
+		const tr = trigger.getBoundingClientRect();
+		const layer = { width: 192, height: 280 };
+		const viewport = { width: window.innerWidth, height: window.innerHeight };
+		const pos = computeFloatingPosition(
+			{ top: tr.top, bottom: tr.bottom, left: tr.left, right: tr.right, width: tr.width, height: tr.height },
+			layer,
+			viewport,
+			{ offset: 6, margin: 8, preferPlacement: 'bottom', align: 'end' }
+		);
+		colMenuStyle = `top:${pos.top}px; left:${pos.left}px;`;
+	}
+	$effect(() => {
+		// track active menu change + viewport resize
+		if (activeColMenu) {
+			// next tick ensures DOM exists
+			requestAnimationFrame(syncColMenuPos);
+		}
+	});
 
 	// Column Resizing state
 	let resizingColId = $state<string | null>(null);
 	let resizeStartX = $state<number>(0);
 	let resizeStartWidth = $state<number>(0);
 	let isResizing = $state<boolean>(false);
+
+	// #9 Row virtualization — cap DOM at ~60 rows even for 10k import
+	const ROW_H = 36;
+	let tableScrollEl = $state<HTMLDivElement | null>(null);
+	let scrollTop = $state(0);
+	let viewportH = $state(600);
+	function onTableScroll(e: Event) {
+		scrollTop = (e.target as HTMLElement).scrollTop;
+	}
+	let visibleStart = $derived(Math.max(0, Math.min(store.filteredRows.length - 1, Math.floor(scrollTop / ROW_H))));
+	let viewportCount = $derived(Math.ceil(viewportH / ROW_H) + 14);
+	let renderedRows = $derived.by(() => {
+		const rows = store.filteredRows;
+		if (rows.length <= 80) return rows.map((r, i) => ({ row: r, idx: i }));
+		const end = Math.min(rows.length, visibleStart + viewportCount);
+		const slice: Array<{ row: (typeof rows)[number]; idx: number }> = [];
+		for (let i = visibleStart; i < end; i++) slice.push({ row: rows[i], idx: i });
+		return slice;
+	});
+	let topPadH = $derived(store.filteredRows.length <= 80 ? 0 : visibleStart * ROW_H);
+	let bottomPadH = $derived.by(() => {
+		if (store.filteredRows.length <= 80) return 0;
+		const remaining = store.filteredRows.length - (visibleStart + viewportCount);
+		return remaining > 0 ? remaining * ROW_H : 0;
+	});
+	$effect(() => {
+		if (!tableScrollEl) return;
+		viewportH = tableScrollEl.clientHeight || 600;
+		const ro = new ResizeObserver(() => {
+			if (tableScrollEl) viewportH = tableScrollEl.clientHeight;
+		});
+		ro.observe(tableScrollEl);
+		return () => ro.disconnect();
+	});
+	// Keep active cell visible inside virtual window
+	$effect(() => {
+		if (!activeCell || !tableScrollEl || store.filteredRows.length <= 80) return;
+		const idx = activeCell.rowIndex;
+		if (idx < visibleStart) tableScrollEl.scrollTop = idx * ROW_H;
+		else if (idx >= visibleStart + viewportCount - 4)
+			tableScrollEl.scrollTop = (idx - viewportCount + 6) * ROW_H;
+	});
 
 	// Svelte Action for autofocus
 	function autoFocus(node: HTMLElement) {
@@ -53,15 +145,24 @@
 		resizeStartX = e.clientX;
 		resizeStartWidth = currentWidth;
 		isResizing = true;
+		let pendingWidth = currentWidth;
+		let rafId: number | null = null;
 
 		function onMouseMove(moveEvent: MouseEvent) {
 			if (!resizingColId) return;
 			const delta = moveEvent.clientX - resizeStartX;
-			const newWidth = Math.max(60, resizeStartWidth + delta);
-			store.updateColumnWidth(resizingColId, newWidth);
+			pendingWidth = Math.max(60, resizeStartWidth + delta);
+			// #15 throttle per frame — store clone + save each pixel is thrash
+			if (rafId !== null) return;
+			rafId = requestAnimationFrame(() => {
+				rafId = null;
+				if (resizingColId) store.updateColumnWidth(resizingColId, pendingWidth);
+			});
 		}
 
 		function onMouseUp() {
+			if (rafId !== null) cancelAnimationFrame(rafId);
+			if (resizingColId) store.updateColumnWidth(resizingColId, pendingWidth);
 			isResizing = false;
 			resizingColId = null;
 			window.removeEventListener('mousemove', onMouseMove);
@@ -146,70 +247,78 @@
 		}
 
 		if (!activeCell) return;
-		const { rowIndex, colIndex } = activeCell;
+		let { rowIndex, colIndex } = activeCell;
 		const totalRows = store.filteredRows.length;
 		const totalCols = store.columns.length;
+		// #2 Guard stale indexes after filter/sort shrinks the list
+		if (totalRows === 0 || totalCols === 0) return;
+		if (rowIndex >= totalRows || colIndex >= totalCols || rowIndex < 0 || colIndex < 0) return;
+		const currentRow = store.filteredRows[rowIndex];
+		if (!currentRow) return;
 
 		if (e.key === 'ArrowRight') {
 			e.preventDefault();
 			if (colIndex < totalCols - 1) {
 				const nextCol = store.columns[colIndex + 1];
-				selectCell(store.filteredRows[rowIndex].id, nextCol.id, rowIndex, colIndex + 1);
+				selectCell(currentRow.id, nextCol.id, rowIndex, colIndex + 1);
 			}
 		} else if (e.key === 'ArrowLeft') {
 			e.preventDefault();
 			if (colIndex > 0) {
 				const prevCol = store.columns[colIndex - 1];
-				selectCell(store.filteredRows[rowIndex].id, prevCol.id, rowIndex, colIndex - 1);
+				selectCell(currentRow.id, prevCol.id, rowIndex, colIndex - 1);
 			}
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			if (rowIndex < totalRows - 1) {
 				const nextRow = store.filteredRows[rowIndex + 1];
-				selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + 1, colIndex);
+				if (nextRow) selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + 1, colIndex);
 			}
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
 			if (rowIndex > 0) {
 				const prevRow = store.filteredRows[rowIndex - 1];
-				selectCell(prevRow.id, store.columns[colIndex].id, rowIndex - 1, colIndex);
+				if (prevRow) selectCell(prevRow.id, store.columns[colIndex].id, rowIndex - 1, colIndex);
 			}
 		} else if (e.key === 'Tab') {
 			e.preventDefault();
 			if (e.shiftKey) {
 				if (colIndex > 0) {
 					const prevCol = store.columns[colIndex - 1];
-					selectCell(store.filteredRows[rowIndex].id, prevCol.id, rowIndex, colIndex - 1);
+					selectCell(currentRow.id, prevCol.id, rowIndex, colIndex - 1);
 				} else if (rowIndex > 0) {
 					const prevRow = store.filteredRows[rowIndex - 1];
-					const lastCol = store.columns[totalCols - 1];
-					selectCell(prevRow.id, lastCol.id, rowIndex - 1, totalCols - 1);
+					if (prevRow) {
+						const lastCol = store.columns[totalCols - 1];
+						selectCell(prevRow.id, lastCol.id, rowIndex - 1, totalCols - 1);
+					}
 				}
 			} else {
 				if (colIndex < totalCols - 1) {
 					const nextCol = store.columns[colIndex + 1];
-					selectCell(store.filteredRows[rowIndex].id, nextCol.id, rowIndex, colIndex + 1);
+					selectCell(currentRow.id, nextCol.id, rowIndex, colIndex + 1);
 				} else if (rowIndex < totalRows - 1) {
 					const nextRow = store.filteredRows[rowIndex + 1];
-					const firstCol = store.columns[0];
-					selectCell(nextRow.id, firstCol.id, rowIndex + 1, 0);
+					if (nextRow) {
+						const firstCol = store.columns[0];
+						selectCell(nextRow.id, firstCol.id, rowIndex + 1, 0);
+					}
 				}
 			}
 		} else if (e.key === 'Enter' || e.key === 'F2') {
 			e.preventDefault();
-			const row = store.filteredRows[rowIndex];
 			const col = store.columns[colIndex];
-			startEditing(row.id, col.id, row[col.id]);
+			if (col) startEditing(currentRow.id, col.id, currentRow[col.id]);
 		} else if (e.key === 'Delete' || e.key === 'Backspace') {
 			e.preventDefault();
-			const row = store.filteredRows[rowIndex];
 			const col = store.columns[colIndex];
-			store.setCell(row.id, col.id, null);
+			if (col) store.setCell(currentRow.id, col.id, null);
 		} else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-			const row = store.filteredRows[rowIndex];
 			const col = store.columns[colIndex];
-			startEditing(row.id, col.id, '');
-			editValue = e.key;
+			if (col) {
+				startEditing(currentRow.id, col.id, '');
+				editValue = e.key;
+			}
 		}
 	}
 
@@ -277,8 +386,12 @@
 
 	function handleUpdateColumnType(colId: string, newType: ColumnType) {
 		activeColMenu = null;
-		store.updateColumnType(colId, newType);
-		onNotify('info', `Changed column type to ${COLUMN_TYPE_CONFIG[newType]?.label || newType}.`);
+		const { invalidCount } = store.updateColumnType(colId, newType);
+		if (invalidCount > 0) {
+			onNotify('warning', `Changed to ${COLUMN_TYPE_CONFIG[newType]?.label || newType} — ${invalidCount} value(s) cleared as invalid. Undo with Ctrl+Z.`);
+		} else {
+			onNotify('info', `Changed column type to ${COLUMN_TYPE_CONFIG[newType]?.label || newType}.`);
+		}
 	}
 
 	function requestDeleteColumn(colId: string, colName: string) {
@@ -293,7 +406,7 @@
 
 	function handleDocumentClick(e: MouseEvent) {
 		const target = e.target as HTMLElement | null;
-		if (!target?.closest('.column-menu-wrapper')) {
+		if (!target?.closest('.column-menu-wrapper') && !target?.closest('.column-popover')) {
 			activeColMenu = null;
 		}
 	}
@@ -321,12 +434,14 @@
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
+			bind:this={tableScrollEl}
 			class="table-scroll-wrap flex-1 overflow-auto outline-none relative [scrollbar-gutter:stable] isolate bg-[var(--surface-1)]"
 			tabindex="0"
 			role="grid"
 			aria-label="Spreadsheet grid"
 			aria-rowcount={store.filteredRows.length}
 			aria-colcount={store.columns.length}
+			onscroll={onTableScroll}
 			onkeydown={handleTableKeyDown}
 		>
 			<table class="grid-table border-separate border-spacing-0 w-full min-w-max text-[13.5px] table-fixed">
@@ -397,7 +512,10 @@
 											class="th-menu-trigger flex items-center justify-center w-6 h-6 rounded bg-transparent hover:bg-[var(--surface-2)] border-none text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer transition-colors"
 											onclick={(e) => {
 												e.stopPropagation();
+												const el = e.currentTarget as HTMLElement;
+												colMenuTriggerEls.set(col.id, el);
 												activeColMenu = activeColMenu === col.id ? null : col.id;
+												if (activeColMenu) requestAnimationFrame(syncColMenuPos);
 											}}
 											title="Column options"
 											aria-label="Column options for {col.name}"
@@ -408,7 +526,7 @@
 										</button>
 
 										{#if activeColMenu === col.id}
-											<div class="column-popover bezel-card absolute top-[calc(100%+6px)] right-0 z-50 w-48 p-1.5 bg-[var(--surface-1)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl shadow-2xl origin-top-right animate-[menuPop_120ms_cubic-bezier(0.16,1,0.3,1)]" role="menu">
+											<div class="column-popover bezel-card fixed z-50 w-48 p-1.5 bg-[var(--surface-1)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl shadow-2xl origin-top-right animate-[menuPop_120ms_cubic-bezier(0.16,1,0.3,1)]" style={colMenuStyle} role="menu">
 												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Rename / Manage</div>
 												<button
 													class="popover-item flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
@@ -483,7 +601,7 @@
 					</tr>
 				</thead>
 
-				<!-- Table Rows -->
+				<!-- Table Rows (#9 virtualized) -->
 				<tbody>
 					{#if store.filteredRows.length === 0}
 						<tr>
@@ -492,7 +610,10 @@
 							</td>
 						</tr>
 					{:else}
-						{#each store.filteredRows as row, rowIndex (row.id)}
+						{#if topPadH > 0}
+							<tr class="virtual-spacer" aria-hidden="true"><td colspan={store.columns.length + 2} style="height: {topPadH}px; padding:0; border:none"></td></tr>
+						{/if}
+						{#each renderedRows as { row, idx: rowIndex } (row.id)}
 							<tr class="data-row table-data-row h-9 border-b border-[var(--table-grid-line)] hover:bg-[var(--table-row-hover)] transition-colors group/row odd:bg-transparent even:bg-[var(--table-row-even)]" aria-rowindex={rowIndex + 1}>
 								<!-- Row Index & Hover Actions -->
 								<td class="td-index w-12 min-w-12 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[11px] text-[var(--text-3)] select-none p-0" role="gridcell">
@@ -629,6 +750,9 @@
 								<td class="td-blank bg-transparent" role="gridcell"></td>
 							</tr>
 						{/each}
+						{#if bottomPadH > 0}
+							<tr class="virtual-spacer" aria-hidden="true"><td colspan={store.columns.length + 2} style="height: {bottomPadH}px; padding:0; border:none"></td></tr>
+						{/if}
 					{/if}
 				</tbody>
 

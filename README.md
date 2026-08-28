@@ -10,7 +10,7 @@
 - **Excel-Grade Active Cell Navigation**: Roving tabindex (`tabindex="0"` on active cell, `-1` on others) with arrow-key hopping (`↑`, `↓`, `←`, `→`), `Tab` column cycling, `Delete` clearing, and direct typing/`F2` inline edit activation.
 - **Interactive Column Resizing & Auto-Fit**: Draggable right-edge resize handles (`.th-resize-handle`) on every column header with double-click content auto-fit.
 - **Accessible Floating Status Dropdowns**: Boundary-colliding, viewport-flipping status combobox with search, custom status creation, and single-click chevron trigger outside scroll overflow.
-- **Typed Column System**: First-class support for `text`, `number`, `currency`, `percent`, `status` badge pills, and `date` with type-aware inline cell editors and centralized normalization (`src/lib/cells.ts`).
+- **Typed Column System**: First-class support for `text`, `number`, `currency`, `percent`, `dropdown`, and `date` with type-aware inline cell editors and centralized normalization (`src/lib/cells.ts`).
 - **Live Summary Calculations**: Pinned footer calculates real-time `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` metrics using plain JavaScript `reduce` directly on `filteredRows`.
 - **SheetJS Client File I/O & Dynamic Chunking**:
   - **Import**: Drag & drop or upload `.xlsx`, `.xls`, `.csv`, and `.tsv` files with automatic column header deduplication, size limits (10 MB / 10k rows / 100 cols), and type inference heuristics.
@@ -25,9 +25,9 @@
   - **Streaming Data Q&A**: Real-time natural language answers, dataset trends, and executive summaries.
 - **Zen-Brutalist Design System & Accessibility**:
   - Clean borders, tight radius tokens (0–8px), subtle elevation, and responsive layouts across desktop, tablet, and mobile.
-  - Accessible focus management (`src/lib/focus.ts` `trapFocus` action), keyboard navigation (`ArrowUp`/`ArrowDown`, `Home`/`End`, `Escape`), and destructive safety confirmations for column deletion and edited table replacement.
+  - Accessible focus management (`src/lib/focus.ts` `trapFocus` action), keyboard navigation (`ArrowUp`/`ArrowDown`, `Home`/`End`, `Escape`), and instant actions for column deletion and sample replacement with undo (`Ctrl+Z`) — no confirmation modals.
   - Seamless **Dark** & **Light** themes with FOUC prevention and explicit `color-scheme` support.
-  - 30-entry undo/redo history stack (`Ctrl+Z` / `Ctrl+Y`) and robust debounced auto-saving to `localStorage` with save status indicator and unload flush.
+  - 30-entry undo/redo history stack (`Ctrl+Z` / `Ctrl+Y`) and robust debounced auto-saving to `localStorage` with unload flush.
 
 ---
 
@@ -76,8 +76,8 @@ Runs 42 unit tests across `tests/table.test.ts`, `tests/data.test.ts`, and `test
 ```bash
 bun run test:e2e
 ```
-Runs 19 end-to-end user workflows in headless Chromium:
-1. SaaS dataset rendering with sticky headers and summary footers.
+Runs 12 end-to-end user workflows in headless Chromium:
+1. SaaS dataset rendering with sticky headers and footer summaries.
 2. Sample dataset switching (SaaS, Sales, Inventory).
 3. Search filtering across all cells and filter clearing.
 4. Ascending/descending column sorting with nulls placed last.
@@ -87,15 +87,8 @@ Runs 19 end-to-end user workflows in headless Chromium:
 8. AI Assistant Drawer toggle and Gemini API key management.
 9. Settings modal, API key management, and appearance theme switching.
 10. Dark and light mode toggling via right ribbon.
-11. Responsive workspace across mobile and tablet viewports.
-12. Focus trapping inside modals with Escape key dismissal.
-13. Destructive safety confirmation on column deletion.
-14. Safety confirmation before replacing edited table data with a sample dataset.
-15. One-click status combobox opening without clipping.
-16. Viewport collision detection and upward flipping on bottom table rows.
-17. Samples dropdown keyboard navigation and focus return on Escape.
-18. Focus trap inside SettingsModal and focus restoration to trigger button.
-19. Roving tabindex navigation across table cells.
+11. Status dropdown opening without clipping and viewport flipping.
+12. Instant column deletion and sample switching with undo (no confirmation modal) + responsive mobile workspace.
 
 ### Type Check & Build
 ```bash
@@ -125,7 +118,7 @@ src/
     ├── constants.ts          # Official Gemini models, column configs, and status palettes
     ├── table/                # Complete Spreadsheet Engine
     │   ├── DataTable.svelte     # Semantic <table> with inline editing, keyboard nav, & sticky footer
-    │   ├── StatusCellEditor.svelte # Viewport-safe floating status/dropdown editor
+    │   ├── DropdownCellEditor.svelte # Viewport-safe floating dropdown editor
     │   ├── store.svelte.ts      # Svelte 5 runes table store (CRUD, search, sort, summaries)
     │   ├── cells.ts             # Typed cell parsing and normalization
     │   ├── commands.ts          # Reversible atomic mutations for undo/redo
@@ -143,9 +136,7 @@ src/
     │   ├── export.ts            # CSV/XLSX export & formula injection mitigation
     │   └── samples.ts           # 3 curated sample datasets (25 rows each)
     ├── ai/                   # Gemini AI Pipeline
-    │   ├── client.ts            # Client-side AI API caller
-    │   ├── patches.ts           # Patch conflict verification
-    │   └── chat-session.svelte.ts # Chat lifecycle & streaming state
+    │   └── patches.ts           # Patch conflict verification
     └── ui/                   # Feedback & Headless UI
         ├── position.ts          # Floating popover positioning engine
         ├── combobox.ts          # Combobox keyboard navigation

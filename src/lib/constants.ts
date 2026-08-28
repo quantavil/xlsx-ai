@@ -60,6 +60,12 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 	currency: 'USD',
 	maximumFractionDigits: 2
 });
+// #18 INR fallback when value contains ₹
+const inrFormatter = new Intl.NumberFormat('en-IN', {
+	style: 'currency',
+	currency: 'INR',
+	maximumFractionDigits: 2
+});
 
 const percentFormatter = new Intl.NumberFormat('en-US', {
 	style: 'percent',
@@ -85,7 +91,10 @@ export function formatCellValue(type: ColumnType | string | undefined, value: Ce
 
 	if (safeType === 'currency') {
 		const num = numericCellValue('currency', value);
-		return num === null ? String(value) : currencyFormatter.format(num);
+		if (num === null) return String(value);
+		// #18 honor ₹ if present in raw string
+		if (typeof value === 'string' && value.includes('₹')) return inrFormatter.format(num);
+		return currencyFormatter.format(num);
 	}
 
 	if (safeType === 'percent') {

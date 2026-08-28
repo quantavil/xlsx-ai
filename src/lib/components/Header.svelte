@@ -18,6 +18,7 @@
 	let searchInputRef = $state<HTMLInputElement | null>(null);
 	let sampleBtnRef = $state<HTMLButtonElement | null>(null);
 	let sampleMenuItemsRef = $state<HTMLButtonElement[]>([]);
+	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 	function startEditTitle() {
 		titleInputValue = store.title;
@@ -68,6 +69,18 @@
 				sampleBtnRef?.focus();
 			}
 		});
+	}
+
+	function handleSearchInput(e: Event) {
+		const val = (e.target as HTMLInputElement).value;
+		if (searchDebounce) clearTimeout(searchDebounce);
+		// #7 Debounce heavy filteredRows scan (10k×100)
+		searchDebounce = setTimeout(() => store.setSearchQuery(val), 200);
+		// allow instant clear without delay
+		if (!val) {
+			if (searchDebounce) clearTimeout(searchDebounce);
+			store.setSearchQuery('');
+		}
 	}
 </script>
 
@@ -128,7 +141,7 @@
 				class="bg-transparent border-none outline-none text-[var(--text-1)] text-[13px] ml-2 w-full placeholder:text-[var(--text-3)] font-normal"
 				bind:this={searchInputRef}
 				value={store.searchQuery}
-				oninput={(e) => store.setSearchQuery((e.target as HTMLInputElement).value)}
+				oninput={handleSearchInput}
 			/>
 			{#if store.searchQuery}
 				<button class="search-clear bg-[var(--surface-3)] border-none text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--border-strong)] cursor-pointer text-[11px] w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors" onclick={() => store.setSearchQuery('')} aria-label="Clear search">✕</button>

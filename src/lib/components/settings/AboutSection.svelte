@@ -17,7 +17,7 @@
 			</div>
 			<div>
 				<h4 class="about-title text-base font-bold text-[var(--text-1)] m-0 mb-0.5">xlsx-ai Workspace</h4>
-				<span class="about-version text-[12px] text-[var(--text-3)]">Version 2.0 (Gemini 2.5 / 3.5 Ready)</span>
+				<span class="about-version text-[12px] text-[var(--text-3)]">Version 2.0 (Gemini 3.5 / 3.7 / 3.1 Ready)</span>
 			</div>
 		</div>
 
