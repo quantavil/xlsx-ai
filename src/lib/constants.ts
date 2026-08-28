@@ -149,7 +149,8 @@ export const COLUMN_TYPE_CONFIG: Record<
 	}
 };
 
-// No hardcoded palettes — deterministic hash → HSL, zero semantic map.
+// No hardcoded palettes — deterministic hash → curated HSL, zero semantic map.
+const _CURATED_HUES = [12, 25, 38, 145, 162, 199, 217, 262, 280, 330, 350, 190];
 const _dropdownStyleCache = new Map<string, { bg: string; text: string; border: string }>();
 
 export function getDropdownStyle(value: string): { bg: string; text: string; border: string } {
@@ -161,10 +162,11 @@ export function getDropdownStyle(value: string): { bg: string; text: string; bor
 	for (let i = 0; i < key.length; i++) {
 		hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
 	}
-	const hue = hash % 360;
-	const bg = `hsla(${hue} 72% 45% / 0.18)`;
-	const text = `hsl(${hue} 72% 58%)`;
-	const border = `hsla(${hue} 72% 45% / 0.30)`;
+	const hue = _CURATED_HUES[hash % _CURATED_HUES.length];
+	// Balanced for both themes: translucent bg blends to surface, text 48% is crisp on light and still visible on dark
+	const bg = `hsla(${hue} 80% 55% / 0.16)`;
+	const text = `hsl(${hue} 72% 42%)`;
+	const border = `hsla(${hue} 80% 55% / 0.28)`;
 	const style = { bg, text, border };
 	_dropdownStyleCache.set(key, style);
 	return style;
