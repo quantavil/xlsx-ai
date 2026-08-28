@@ -3,14 +3,14 @@
 ## Structure
 - SvelteKit 2 + Svelte 5 runes (`$state`, `$derived`, `$props`) running on Bun 1.4+. `src/routes/+page.ts` owns `export const ssr = false`.
 - Core Modules:
-  - `src/lib/table/`: `DataTable.svelte`, `StatusCellEditor.svelte`, `store.svelte.ts`, `cells.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
+  - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `StatusCellEditor.svelte`, `store.svelte.ts`, `cells.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
   - `src/lib/components/`: `Header.svelte`, `RightRibbon.svelte`, `AiDrawer.svelte`, `SettingsModal.svelte`, `Icons.svelte`, `settings/` (`AiSection.svelte`, `AppearanceSection.svelte`, `DatasetsSection.svelte`, `ShortcutsSection.svelte`, `AboutSection.svelte`).
   - `src/lib/data/`: `import.ts`, `export.ts`, `samples.ts`, `index.ts`.
   - `src/lib/ai/`: `client.ts`, `patches.ts`, `chat-session.svelte.ts`.
   - `src/lib/ui/`: `position.ts`, `combobox.ts`, `menu.ts`, `focus.ts`, `ToastHost.svelte`, `toast.svelte.ts`.
   - Root: `src/lib/constants.ts`, `src/lib/types.ts`.
 - Routes: `src/routes/+layout.svelte`, `src/routes/+page.svelte`, `src/routes/api/ai/+server.ts`, `src/routes/api/ai/models/+server.ts`.
-- Styling: Tailwind CSS v4 (`@tailwindcss/vite`) in `src/app.css` providing utility classes and design tokens across dark/light themes.
+- Styling: Tailwind CSS v4 (`@tailwindcss/vite`) in `src/app.css` providing utility classes, non-black ultra-thin scrollbars, and design tokens across dark/light themes.
 - Tests: `tests/table.test.ts`, `tests/data.test.ts`, `tests/ai.test.ts` (42 unit tests run via `bun test`), `e2e/table.spec.ts` (12 Playwright E2E tests run via `bun run test:e2e`).
 
 
