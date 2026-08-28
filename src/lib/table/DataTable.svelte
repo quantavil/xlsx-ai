@@ -587,7 +587,7 @@
 						{/each}
 
 						<!-- Add New Column Header Button — pony: one-click, default Text, no modal -->
-						<th class="th-add-col w-32 min-w-32 bg-[var(--surface-1)] border-b-2 border-[var(--border-strong)] p-0" scope="col">
+						<th class="th-add-col sticky top-0 z-10 w-32 min-w-32 bg-[var(--surface-1)] border-b-2 border-[var(--border-strong)] p-0" scope="col">
 							<button
 								class="add-col-btn flex items-center justify-center gap-1.5 w-full h-[42px] bg-transparent border-none text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] text-[12px] font-medium cursor-pointer transition-colors"
 								onclick={handleAddColumn}
