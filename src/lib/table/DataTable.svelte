@@ -531,8 +531,8 @@
 
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default truncate text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell bg-[var(--table-cell-active)] z-[2] outline outline-2 outline-[var(--border-focus)] -outline-offset-2' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''}"
-										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px;"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default truncate text-[13px] text-[var(--text-1)] select-none {isNumeric ? 'numeric-cell text-right font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] outline outline-2 outline-[var(--border-focus)] -outline-offset-2' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {isDropdown && hasVal ? `background: ${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										tabindex={isRovingActive ? 0 : -1}
 										use:registerCellNode={`${row.id}-${col.id}`}
@@ -554,17 +554,13 @@
 												{@const cellKey = `${row.id}-${col.id}`}
 												<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
 													{#if hasVal && dropdownStyle}
-														<span
-															class="status-cell-text status-val inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] font-medium tracking-tight truncate border"
-															style="background: {dropdownStyle.bg}; color: {dropdownStyle.text}; border-color: {dropdownStyle.border};"
-														>
-															<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: {dropdownStyle.text};" aria-hidden="true"></span>
+														<span class="status-cell-text status-val font-medium text-[12.5px] truncate" style="color: {dropdownStyle.text};">
 															<span class="truncate">{cellVal}</span>
 														</span>
 													{:else}
 														<span class="status-cell-text empty-placeholder text-[var(--text-3)] opacity-40 text-[12px]">—</span>
 													{/if}
-													<span class="dropdown-cell-arrow text-[10px] text-[var(--text-3)] opacity-60" aria-hidden="true">▾</span>
+													<span class="dropdown-cell-arrow text-[10px] shrink-0" style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'}; opacity: 0.6;" aria-hidden="true">▾</span>
 												</div>
 												<DropdownCellEditor
 													value={editValue}
@@ -605,11 +601,7 @@
 										{:else if isDropdown}
 											<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
 												{#if hasVal && dropdownStyle}
-													<span
-														class="status-cell-text status-val inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] font-medium tracking-tight truncate border"
-														style="background: {dropdownStyle.bg}; color: {dropdownStyle.text}; border-color: {dropdownStyle.border};"
-													>
-														<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: {dropdownStyle.text};" aria-hidden="true"></span>
+													<span class="status-cell-text status-val font-medium text-[12.5px] truncate" style="color: {dropdownStyle.text};">
 														<span class="truncate">{cellVal}</span>
 													</span>
 												{:else}
@@ -617,7 +609,8 @@
 												{/if}
 												<button
 													type="button"
-													class="dropdown-cell-arrow text-[10px] text-[var(--text-3)] opacity-40 group-hover/row:opacity-100 hover:text-[var(--text-1)] cursor-pointer px-1 bg-transparent border-none shrink-0"
+													class="dropdown-cell-arrow text-[10px] cursor-pointer px-1 bg-transparent border-none shrink-0 opacity-50 group-hover/row:opacity-100 hover:opacity-100"
+													style="color: {hasVal && dropdownStyle ? dropdownStyle.text : 'var(--text-3)'};"
 													aria-label="Open dropdown options"
 													onclick={(e) => {
 														e.stopPropagation();

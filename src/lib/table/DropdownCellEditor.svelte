@@ -149,7 +149,7 @@
 	</div>
 
 	<!-- Options List (Full Width) -->
-	<div class="status-options-list max-h-48 overflow-y-auto p-0.5 flex flex-col bg-[var(--surface-1)]" role="listbox" aria-label="Dropdown options">
+	<div class="status-options-list max-h-48 overflow-y-auto p-1 flex flex-col gap-1 bg-[var(--surface-1)]" role="listbox" aria-label="Dropdown options">
 		<!-- Clear Option -->
 		<button
 			type="button"
@@ -169,21 +169,16 @@
 
 			<button
 				type="button"
-				class="dropdown-opt-btn flex items-center justify-between px-2.5 py-1.5 border-none bg-transparent cursor-pointer text-left w-full text-[13px] hover:bg-[var(--surface-hover)] transition-colors {isHighlighted ? 'highlighted bg-[var(--surface-hover)]' : ''} {isSelected ? 'active bg-[var(--surface-hover)]' : ''}"
+				class="dropdown-opt-btn flex items-center justify-between px-2.5 py-1.5 border cursor-pointer text-left w-full text-[12.5px] font-medium rounded transition-colors {isHighlighted ? 'highlighted brightness-110' : ''} {isSelected ? 'active' : ''}"
+				style="background: {style.bg}; color: {style.text}; border-color: {style.border};"
 				role="option"
 				aria-selected={isSelected}
 				onclick={() => onCommit(opt)}
 				onmouseenter={() => (highlightIndex = idx)}
 			>
-				<span
-					class="status-pill-badge inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[12px] font-medium tracking-tight truncate border"
-					style="background: {style.bg}; color: {style.text}; border-color: {style.border};"
-				>
-					<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: {style.text};" aria-hidden="true"></span>
-					<span class="truncate">{opt}</span>
-				</span>
+				<span class="truncate">{opt}</span>
 				{#if isSelected}
-					<span class="check-icon text-emerald-500 font-bold text-[12px] ml-1 shrink-0" aria-hidden="true">✓</span>
+					<span class="check-icon font-bold text-[12px] ml-1 shrink-0" style="color: {style.text};" aria-hidden="true">✓</span>
 				{/if}
 			</button>
 		{/each}
@@ -192,20 +187,15 @@
 			{@const newStyle = getDropdownStyle(search.trim())}
 			<button
 				type="button"
-				class="dropdown-opt-btn create-btn flex items-center justify-between px-2.5 py-1.5 border-t border-[var(--border)] bg-transparent cursor-pointer text-left w-full text-[12.5px] hover:bg-[var(--surface-hover)] transition-colors {highlightIndex === filteredOptions.length ? 'highlighted bg-[var(--surface-hover)]' : ''}"
+				class="dropdown-opt-btn create-btn flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-[var(--border)] cursor-pointer text-left w-full text-[12.5px] font-medium rounded transition-colors {highlightIndex === filteredOptions.length ? 'highlighted brightness-110' : ''}"
+				style="background: {newStyle.bg}; color: {newStyle.text}; border-color: {newStyle.border};"
 				role="option"
 				aria-selected={false}
 				onclick={() => onCommit(search.trim())}
 				onmouseenter={() => (highlightIndex = filteredOptions.length)}
 			>
-				<span class="create-label text-[11px] font-bold text-[var(--accent-primary)] shrink-0">+ Add</span>
-				<span
-					class="status-pill-badge inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11.5px] font-medium border truncate"
-					style="background: {newStyle.bg}; color: {newStyle.text}; border-color: {newStyle.border};"
-				>
-					<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: {newStyle.text};" aria-hidden="true"></span>
-					<span class="truncate">{search.trim()}</span>
-				</span>
+				<span class="create-label text-[11px] font-bold shrink-0" style="color: {newStyle.text};">+ Add</span>
+				<span class="truncate">{search.trim()}</span>
 			</button>
 		{/if}
 	</div>
