@@ -158,7 +158,7 @@
 			aria-selected={value === '' || value === null}
 			onclick={() => onCommit('')}
 		>
-			<span class="dropdown-opt-text empty-text">Clear (empty)</span>
+			<span class="dropdown-opt-text empty-text">Clear</span>
 			<span class="clear-icon text-[11px] opacity-40" aria-hidden="true">✕</span>
 		</button>
 
