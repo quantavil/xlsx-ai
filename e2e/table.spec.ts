@@ -168,6 +168,40 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 	});
 
+	test('renders module ribbon metadata and persists module enablement', async ({ page }) => {
+		const moduleButton = page.locator(
+			'.right-tool-ribbon button[aria-label="ICEGrid Documents"]'
+		);
+		await expect(moduleButton).toBeVisible();
+
+		const moduleInput = page.locator(
+			'.right-tool-ribbon input[type="file"][accept=".pdf,.xls,.xlsx"]'
+		);
+		await expect(moduleInput).toHaveAttribute('multiple', '');
+
+		await page.locator('.right-tool-ribbon button.settings-toggle-btn').click();
+		const settingsDialog = page.locator('.settings-dialog');
+		await settingsDialog.locator('nav.settings-sidebar button:has-text("Modules")').click();
+		const moduleSwitch = settingsDialog.locator(
+			'button[role="switch"][aria-label="Toggle ICEGrid Importer"]'
+		);
+		await expect(moduleSwitch).toHaveAttribute('aria-checked', 'true');
+		await moduleSwitch.click();
+		await expect(moduleButton).toHaveCount(0);
+		await page.keyboard.press('Escape');
+
+		await page.reload();
+		await expect(moduleButton).toHaveCount(0);
+		await page.locator('.right-tool-ribbon button.settings-toggle-btn').click();
+		await page
+			.locator('.settings-dialog nav.settings-sidebar button:has-text("Modules")')
+			.click();
+		await page
+			.locator('.settings-dialog button[role="switch"][aria-label="Toggle ICEGrid Importer"]')
+			.click();
+		await expect(moduleButton).toBeVisible();
+	});
+
 	test('opens status dropdown on chevron click, adapts in light mode, and avoids footer clipping', async ({ page }) => {
 		// Toggle light mode first to verify light mode styling
 		await page.locator('.right-tool-ribbon button.theme-toggle-btn').click();

@@ -1,8 +1,9 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText, generateObject } from 'ai';
+import { generateObject, streamText } from 'ai';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
+import { getModuleAiHandler } from '$lib/server/modules/registry';
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const _CellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -14,8 +15,16 @@ export function _isSupportedModelId(modelId: string): boolean {
 	return true;
 }
 
+export const _ModuleOperationRequestSchema = z.object({
+	operation: z.object({
+		kind: z.literal('module'),
+		moduleId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+		action: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
+	}),
+	input: z.unknown()
+});
 
-export const _RequestSchema = z.object({
+export const _TableOperationRequestSchema = z.object({
 	messages: z
 		.array(
 			z.object({
@@ -40,11 +49,13 @@ export const _RequestSchema = z.object({
 	operation: z
 		.object({
 			kind: z.enum(['fill_missing', 'clean', 'summarize', 'qa']),
-				targetColumnId: z.string().max(100).optional(),
-				prompt: z.string().max(8_000).optional()
+			targetColumnId: z.string().max(100).optional(),
+			prompt: z.string().max(8_000).optional()
 		})
 		.optional()
 });
+
+export const _RequestSchema = z.union([_ModuleOperationRequestSchema, _TableOperationRequestSchema]);
 
 export const _CleanFillSchema = z.object({
 	explanation: z.string().describe('Brief explanation of what was filled or cleaned'),
@@ -94,13 +105,65 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 
-	const { tableContext, operation, messages = [] } = parsed.data;
+	const targetModel = request.headers.get('x-ai-model-id')?.trim() || DEFAULT_AI_MODEL;
+	if (!_isSupportedModelId(targetModel)) {
+		return json({ error: 'Unsupported Gemini model id.' }, { status: 400 });
+	}
 
-	// 3. Grounding Context Preparation (Truncated to 40 rows)
-	const truncatedRows = tableContext.rows.slice(0, 40);
-	const columnSchemas = tableContext.columns.map((c) => `${c.name} (id: "${c.id}", type: ${c.type})`).join(', ');
+	let moduleHandler: ReturnType<typeof getModuleAiHandler>;
+	let moduleInput: unknown;
+	if ('input' in parsed.data && parsed.data.operation.kind === 'module') {
+		moduleHandler = getModuleAiHandler(
+			parsed.data.operation.moduleId,
+			parsed.data.operation.action
+		);
+		if (!moduleHandler) {
+			return json({ error: 'Unknown module AI action.' }, { status: 404 });
+		}
 
-	const systemPrompt = `You are xlsx-ai, an elite agency data engineering and analysis assistant.
+		const validatedInput = moduleHandler.inputSchema.safeParse(parsed.data.input);
+		if (!validatedInput.success) {
+			return json(
+				{ error: 'Malformed module input.', details: validatedInput.error.format() },
+				{ status: 400 }
+			);
+		}
+		moduleInput = validatedInput.data;
+	}
+
+	const google = createGoogleGenerativeAI({ apiKey });
+	const model = google(targetModel);
+
+	try {
+		// 3. Trusted workspace module AI operations
+		if (moduleHandler) {
+			const result = await moduleHandler.execute(moduleInput, {
+				apiKey,
+				modelId: targetModel,
+				model,
+				signal: request.signal
+			});
+			if (result instanceof Response) return result;
+
+			return json({
+				success: true,
+				kind: 'module',
+				moduleId: moduleHandler.moduleId,
+				action: moduleHandler.action,
+				data: result
+			});
+		}
+
+		// 4. Standard Table Operations Branch
+		if (!('tableContext' in parsed.data)) {
+			return json({ error: 'Malformed table request payload.' }, { status: 400 });
+		}
+
+		const { tableContext, operation, messages = [] } = parsed.data;
+		const truncatedRows = tableContext.rows.slice(0, 40);
+		const columnSchemas = tableContext.columns.map((c) => `${c.name} (id: "${c.id}", type: ${c.type})`).join(', ');
+
+		const systemPrompt = `You are xlsx-ai, an elite agency data engineering and analysis assistant.
 You are operating directly on a live tabular dataset.
 
 TABLE METADATA:
@@ -117,15 +180,6 @@ INSTRUCTIONS:
 - When suggesting edits or explanations, reference specific row IDs and column IDs.
 - For open questions, provide structured markdown with bullet points and bold highlights.`;
 
-	const targetModel = request.headers.get('x-ai-model-id')?.trim() || DEFAULT_AI_MODEL;
-	if (!_isSupportedModelId(targetModel)) {
-		return json({ error: 'Unsupported Gemini model id.' }, { status: 400 });
-	}
-
-	const google = createGoogleGenerativeAI({ apiKey });
-	const model = google(targetModel);
-
-	try {
 		// 4. Structured Output for Clean & Fill Operations
 		if (operation?.kind === 'fill_missing' || operation?.kind === 'clean') {
 			const prompt =

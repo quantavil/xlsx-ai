@@ -1,22 +1,28 @@
 <script lang="ts">
 	import Icon from './Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
+	import type { createModuleStore } from '$lib/modules/module-store.svelte';
+	import type { WorkspaceModule } from '$lib/modules/types';
 	import { importFileToTable, exportTableToExcel, exportTableToCsv } from '$lib/data/index';
 	import { handleMenuKeydown } from '$lib/ui/menu';
 
 	let {
 		store,
+		moduleStore,
 		theme,
 		onToggleTheme,
 		onOpenSettings,
 		onNotify
 	}: {
 		store: ReturnType<typeof createTableStore>;
+		moduleStore?: ReturnType<typeof createModuleStore>;
 		theme: 'dark' | 'light';
 		onToggleTheme: () => void;
 		onOpenSettings?: () => void;
 		onNotify: (type: 'info' | 'success' | 'warning' | 'error', msg: string) => void;
 	} = $props();
+
+	let moduleFileInputRefs = $state<Record<string, HTMLInputElement | null>>({});
 
 	let fileInputRef = $state<HTMLInputElement | null>(null);
 	let showExportMenu = $state<boolean>(false);
@@ -35,6 +41,43 @@
 			onNotify('success', `Imported "${file.name}" (${imported.rows.length} rows, ${imported.columns.length} columns).`);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : 'Failed to import file.';
+			onNotify('error', msg);
+		} finally {
+			target.value = '';
+		}
+	}
+
+	async function handleModuleTrigger(mod: WorkspaceModule) {
+		if (mod.requirements.gemini && (!store.apiKey || store.apiKey.trim().length < 20)) {
+			onNotify('warning', `Google Gemini API key required for ${mod.name}. Please configure it in Settings.`);
+			onOpenSettings?.();
+			return;
+		}
+		moduleFileInputRefs[mod.id]?.click();
+	}
+
+	async function handleModuleFiles(e: Event, mod: WorkspaceModule) {
+		const target = e.target as HTMLInputElement;
+		const files = target.files ? Array.from(target.files) : [];
+		if (files.length === 0 || !moduleStore) return;
+
+		try {
+			const result = await moduleStore.runModule(mod.id, files, {
+				apiKey: store.apiKey,
+				modelId: store.aiModel
+			});
+
+			if (result && result.table && result.table.columns.length > 0) {
+				store.loadTable(result.table);
+				onNotify('success', `Imported ${result.table.rows.length} row(s) via ${mod.name}.`);
+				if (result.warnings && result.warnings.length > 0) {
+					for (const w of result.warnings) {
+						onNotify('warning', w);
+					}
+				}
+			}
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : 'Module processing failed.';
 			onNotify('error', msg);
 		} finally {
 			target.value = '';
@@ -124,6 +167,20 @@
 		onchange={handleFileUpload}
 	/>
 
+	<!-- Hidden File Inputs for Modules -->
+	{#if moduleStore}
+		{#each moduleStore.enabledModules as mod (mod.id)}
+			<input
+				type="file"
+				bind:this={moduleFileInputRefs[mod.id]}
+				accept={mod.ribbon.fileInput.accept}
+				multiple={mod.ribbon.fileInput.multiple}
+				style="display: none;"
+				onchange={(e) => handleModuleFiles(e, mod)}
+			/>
+		{/each}
+	{/if}
+
 	<!-- Top Group: Primary Tools -->
 	<div class="ribbon-group ribbon-top flex flex-col items-center gap-2 w-full max-sm:flex-row max-sm:gap-3 max-sm:w-auto">
 		<!-- AI Assistant Tool Button -->
@@ -142,6 +199,29 @@
 				AI Assistant <kbd class="tooltip-kbd font-mono text-[10px] bg-[var(--surface-1)] border border-[var(--border)] px-1 py-0.5 rounded text-[var(--text-2)]">⌘/</kbd>
 			</span>
 		</button>
+
+		<!-- Enabled Workspace Module Buttons -->
+		{#if moduleStore}
+			{#each moduleStore.enabledModules as mod (mod.id)}
+				{@const isRunning = moduleStore.runningModuleId === mod.id}
+				<button
+					class="ribbon-btn relative group/ribbon w-[34px] h-[34px] rounded-md bg-transparent border border-transparent text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)] active:bg-[var(--surface-3)] flex items-center justify-center cursor-pointer transition-colors disabled:opacity-60"
+					onclick={() => handleModuleTrigger(mod)}
+					disabled={Boolean(moduleStore.runningModuleId)}
+					title={mod.ribbon.label}
+					aria-label={mod.ribbon.label}
+				>
+					{#if isRunning}
+						<Icon name="loader" size={17} class="animate-spin text-[var(--accent-primary)]" aria-hidden="true" />
+					{:else}
+						<Icon name={mod.ribbon.icon} size={17} aria-hidden="true" />
+					{/if}
+					<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
+						{mod.ribbon.label}
+					</span>
+				</button>
+			{/each}
+		{/if}
 
 		<!-- Add Row Tool Button -->
 		<button

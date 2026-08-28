@@ -6,20 +6,24 @@
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/ui/focus';
 
+	import type { createModuleStore } from '$lib/modules/module-store.svelte';
 	import AiSection from './settings/AiSection.svelte';
 	import AppearanceSection from './settings/AppearanceSection.svelte';
+	import ModulesSection from './settings/ModulesSection.svelte';
 	import DatasetsSection from './settings/DatasetsSection.svelte';
 	import ShortcutsSection from './settings/ShortcutsSection.svelte';
 	import AboutSection from './settings/AboutSection.svelte';
 
 	let {
 		store,
+		moduleStore,
 		theme,
 		onToggleTheme,
 		onClose,
 		onNotify
 	}: {
 		store: ReturnType<typeof createTableStore>;
+		moduleStore?: ReturnType<typeof createModuleStore>;
 		theme: 'dark' | 'light';
 		onToggleTheme: () => void;
 		onClose: () => void;
@@ -29,7 +33,7 @@
 	let apiKey = $state<string>('');
 	let showApiKey = $state<boolean>(false);
 	let isSaved = $state<boolean>(false);
-	let activeTab = $state<'ai' | 'appearance' | 'datasets' | 'shortcuts' | 'about'>('ai');
+	let activeTab = $state<'ai' | 'appearance' | 'modules' | 'datasets' | 'shortcuts' | 'about'>('ai');
 	let availableModels = $state<AiModelConfig[]>(AI_MODELS);
 	let isLoadingModels = $state<boolean>(false);
 	let modelsFetchError = $state<string>('');
@@ -200,6 +204,15 @@
 
 				<button
 					type="button"
+					class="sidebar-nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg bg-transparent border-none text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] text-[13px] font-medium text-left cursor-pointer transition-colors {activeTab === 'modules' ? 'active !bg-[var(--surface-1)] !text-[var(--accent-primary)] font-semibold shadow-sm' : ''}"
+					onclick={() => (activeTab = 'modules')}
+				>
+					<Icon name="layers" size={15} />
+					<span>Modules</span>
+				</button>
+
+				<button
+					type="button"
 					class="sidebar-nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg bg-transparent border-none text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] text-[13px] font-medium text-left cursor-pointer transition-colors {activeTab === 'datasets' ? 'active !bg-[var(--surface-1)] !text-[var(--accent-primary)] font-semibold shadow-sm' : ''}"
 					onclick={() => (activeTab = 'datasets')}
 				>
@@ -243,6 +256,8 @@
 					/>
 				{:else if activeTab === 'appearance'}
 					<AppearanceSection {theme} {onToggleTheme} />
+				{:else if activeTab === 'modules' && moduleStore}
+					<ModulesSection {moduleStore} />
 				{:else if activeTab === 'datasets'}
 					<DatasetsSection {store} onLoadSample={handleLoadSample} />
 				{:else if activeTab === 'shortcuts'}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createTableStore } from '$lib/table/store.svelte';
+	import { createModuleStore } from '$lib/modules/module-store.svelte';
 	import { sampleTables } from '$lib/data/index';
 	import { LS_THEME_KEY } from '$lib/constants';
 	import Header from '$lib/components/Header.svelte';
@@ -14,6 +15,7 @@
 
 	// Create reactive Table store with default SaaS sample
 	const store = createTableStore(sampleTables.saas);
+	const moduleStore = createModuleStore();
 	const toastStore = createToastStore();
 
 	let headerRef = $state<{ focusSearch: () => void } | null>(null);
@@ -160,6 +162,7 @@
 		<!-- Right-End Tool Ribbon -->
 		<RightRibbon
 			{store}
+			{moduleStore}
 			{theme}
 			onToggleTheme={toggleTheme}
 			onOpenSettings={() => (showSettingsModal = true)}
@@ -171,6 +174,7 @@
 	{#if showSettingsModal}
 		<SettingsModal
 			{store}
+			{moduleStore}
 			{theme}
 			onToggleTheme={toggleTheme}
 			onClose={() => (showSettingsModal = false)}

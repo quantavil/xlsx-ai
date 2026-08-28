@@ -3,6 +3,7 @@
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import type { CellValue } from '$lib/types';
 	import { AI_MODELS } from '$lib/constants';
+	import { createAiApi } from '$lib/ai/client';
 	import { validatePatchProposals } from '$lib/ai/patches';
 
 	let {
@@ -92,14 +93,8 @@
 		try {
 			// #1 Slice to 40 rows to stay under 1MiB / 2000-row cap; server truncates anyway
 			const truncatedRows = store.rows.slice(0, 40);
-			const res = await fetch('/api/ai', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'x-ai-api-key': key,
-					'x-ai-model-id': store.aiModel
-				},
-				body: JSON.stringify({
+			const ai = createAiApi({ apiKey: key, modelId: store.aiModel, signal: controller.signal });
+			const data: unknown = await ai.request({
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
@@ -108,16 +103,7 @@
 					operation: {
 						kind
 					}
-				}),
-				signal: controller.signal
 			});
-
-			if (!res.ok) {
-				const errorData = await res.json().catch(() => ({ error: 'AI request failed.' }));
-				throw new Error(errorData.error || `HTTP ${res.status}`);
-			}
-
-			const data: unknown = await res.json();
 			if (controller !== activeRequest) return;
 			const result = data as { data?: { explanation?: unknown; patches?: unknown[] } };
 			if (Array.isArray(result.data?.patches) && result.data.patches.length > 0) {
@@ -225,28 +211,15 @@
 				.filter((m) => !m.isStreaming)
 				.slice(-10)
 				.map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }));
-			const res = await fetch('/api/ai', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'x-ai-api-key': key,
-					'x-ai-model-id': store.aiModel
-				},
-				body: JSON.stringify({
+			const ai = createAiApi({ apiKey: key, modelId: store.aiModel, signal: controller.signal });
+			const res = await ai.requestStream({
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
 						rows: truncatedRows
 					},
 					messages: recentMessages
-				}),
-				signal: controller.signal
 			});
-
-			if (!res.ok) {
-				const errorData = await res.json().catch(() => ({ error: 'AI request failed.' }));
-				throw new Error(errorData.error || `HTTP ${res.status}`);
-			}
 
 			// Read streaming response text
 			const reader = res.body?.getReader();

@@ -24,6 +24,78 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect(result.success).toBe(true);
 	});
 
+	it('validates a registered module AI request envelope', () => {
+		const validIcegridPayload = {
+			operation: {
+				kind: 'module',
+				moduleId: 'icegrid',
+				action: 'extract'
+			},
+			input: {
+				sourceFiles: ['invoice.xlsx', 'packing.pdf'],
+				content: '=== FILE: invoice.xlsx ===\n=== SHEET: Sheet1 ===\nINV-001\tCotton Fabric\t100\t12.5'
+			}
+		};
+
+		const result = _RequestSchema.safeParse(validIcegridPayload);
+		expect(result.success).toBe(true);
+	});
+
+	it('leaves module input validation to the registered server handler', () => {
+		const invalidPayload = {
+			operation: {
+				kind: 'module',
+				moduleId: 'icegrid',
+				action: 'extract'
+			},
+			input: {
+				sourceFiles: [],
+				content: 'Some text'
+			}
+		};
+
+		const result = _RequestSchema.safeParse(invalidPayload);
+		expect(result.success).toBe(true);
+	});
+
+	it('returns 404 for an unregistered module AI action', async () => {
+		const request = new Request('http://localhost:5173/api/ai', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-ai-api-key': 'AIzaSyFakeKeyValidLengthForAuthTest12345',
+				'x-ai-model-id': 'gemini-2.5-flash'
+			},
+			body: JSON.stringify({
+				operation: { kind: 'module', moduleId: 'unknown', action: 'extract' },
+				input: {}
+			})
+		});
+
+		const response = await POST({ request } as any);
+		expect(response.status).toBe(404);
+		expect((await response.json()).error).toContain('Unknown module AI action');
+	});
+
+	it('returns 400 when a registered module rejects its input', async () => {
+		const request = new Request('http://localhost:5173/api/ai', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-ai-api-key': 'AIzaSyFakeKeyValidLengthForAuthTest12345',
+				'x-ai-model-id': 'gemini-2.5-flash'
+			},
+			body: JSON.stringify({
+				operation: { kind: 'module', moduleId: 'icegrid', action: 'extract' },
+				input: { sourceFiles: [], content: 'Some text' }
+			})
+		});
+
+		const response = await POST({ request } as any);
+		expect(response.status).toBe(400);
+		expect((await response.json()).error).toContain('Malformed module input');
+	});
+
 	it('validates structured patch schema for clean & fill operations', () => {
 		const validPatchResult = {
 			explanation: 'Filled missing revenue based on tier median.',
@@ -209,5 +281,4 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect(result.conflicts[1].reason).toBe('missing_row');
 	});
 });
-
 

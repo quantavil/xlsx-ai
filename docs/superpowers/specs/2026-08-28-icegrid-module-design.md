@@ -1,7 +1,7 @@
 # ICEGrid Module Design
 
 **Date:** 2026-08-28
-**Status:** Revised for review
+**Status:** Implemented and refined
 
 ## 1. Goal
 
@@ -45,14 +45,21 @@ src/lib/modules/
   registry.ts
   module-store.svelte.ts
   icegrid/
-    module.ts
     index.ts
     columns.ts
-    read-files.ts
+    readers.ts
     extract.ts
+    ai.server.ts
     schema.ts
     validate.ts
     to-table.ts
+
+src/lib/server/modules/
+  types.ts
+  registry.ts
+
+src/lib/ai/
+  client.ts
 
 src/lib/components/settings/
   ModulesSection.svelte
@@ -60,17 +67,17 @@ src/lib/components/settings/
 
 `types.ts` defines the host contract, `registry.ts` statically registers built-in modules, and `module-store.svelte.ts` owns enablement and active-run cancellation. This is not a dynamic plugin loader: modules ship in the application bundle and are only activated or deactivated at runtime.
 
-ICEGrid exposes its browser-facing API through `$lib/modules/icegrid`. The existing AI route may import the ICEGrid structured-output schema because it is the host's server adapter; other application code must not deep-import ICEGrid internals.
+ICEGrid exposes its browser-facing API through `$lib/modules/icegrid`. A separate static server registry imports `ai.server.ts`, so browser code never bundles server handlers and the central AI route does not import ICEGrid prompts or schemas.
 
 Integration outside the module is limited to:
 
 1. `+page.svelte` creates one module store and passes it to Settings and the ribbon.
 2. `SettingsModal.svelte` adds a **Modules** tab that renders `ModulesSection.svelte`.
 3. `RightRibbon.svelte` renders enabled module actions from the registry.
-4. The existing `src/routes/api/ai/+server.ts` adds the `icegrid_extract` request variant and structured-output branch.
+4. The existing `src/routes/api/ai/+server.ts` accepts a generic trusted-module request and dispatches it through the server registry.
 5. `AGENT.md` records the module rules so future extensions follow the same contract.
 
-No second AI endpoint, AI client, API-key store, model selector, table store, or export path is created.
+No second AI endpoint, provider, API-key store, model selector, table store, or export path is created. A shared client wrapper centralizes calls to the existing `/api/ai` endpoint for both core UI and workspace modules.
 
 ## 4. Libraries and module contract
 
@@ -98,20 +105,26 @@ interface WorkspaceModule {
   name: string;
   description: string;
   version: string;
-  icon: IconName;
   defaultEnabled: boolean;
   requirements: { gemini: boolean };
-  action: {
+  ribbon: {
     label: string;
-    accept: string;
-    multiple: boolean;
-    run(files: File[], context: ModuleContext): Promise<ModuleResult>;
+    icon: IconName;
+    fileInput: {
+      accept: string;
+      multiple: boolean;
+    };
   };
+  run(files: File[], context: ModuleContext): Promise<ModuleResult>;
 }
 
 interface ModuleContext {
-  apiKey: string;
-  modelId: string;
+  ai: {
+    readonly apiKey: string;
+    readonly modelId: string;
+    request<T>(payload: unknown): Promise<T>;
+    requestStream(payload: unknown): Promise<Response>;
+  };
   signal: AbortSignal;
   onProgress(message: string): void;
 }
@@ -126,7 +139,9 @@ Standard rules:
 
 - `registry.ts` is the only place that registers modules.
 - A registry entry is statically imported and bundled; enabling a module never downloads or executes new code.
-- A module receives host capabilities through `ModuleContext`; it does not import the table store, Settings state, or toast state.
+- A module receives the full existing AI capability through `ModuleContext`, including the active key/model and JSON/streaming requests. It does not import the table store, Settings state, or toast state.
+- Every module declares its required ribbon label, icon, and file-picker behavior in its manifest. The ribbon contains no module-ID conditionals.
+- Server AI handlers are statically registered by module ID and action. They receive the authenticated Gemini model and may use the installed AI SDK's `generateObject`, `generateText`, or `streamText` APIs.
 - A module returns data and warnings; the host decides when to notify and call `store.loadTable()`.
 - The host starts one `AbortController` per run. Disabling a running module aborts the operation and prevents its result from replacing the table.
 - Module IDs and storage keys are stable and namespaced. ICEGrid uses the ID `icegrid`.
@@ -154,7 +169,7 @@ File[]
   -> validate supported files
   -> extract each file locally
   -> combine sections with source boundaries
-  -> send one icegrid_extract request to /api/ai
+  -> send one registered module request to /api/ai
   -> parse the response with the report schema
   -> run deterministic validation
   -> map canonical row fields to TableData
@@ -246,21 +261,25 @@ x-ai-api-key: current store API key
 x-ai-model-id: current store model ID
 ```
 
-The new request variant is:
+The module request envelope is:
 
 ```ts
 {
-  operation: { kind: 'icegrid_extract' },
-  documentContext: {
+  operation: {
+    kind: 'module',
+    moduleId: 'icegrid',
+    action: 'extract'
+  },
+  input: {
     sourceFiles: string[];
     content: string;
   }
 }
 ```
 
-The existing `_RequestSchema` becomes a discriminated union: current table/chat operations retain their current `tableContext` contract, while `icegrid_extract` requires `documentContext` and does not require a fake table. The ICEGrid branch runs before general table prompt construction.
+The existing `_RequestSchema` accepts the generic module envelope while current table/chat operations retain their existing `tableContext` contract. The static server registry validates each action's `input` using its own Zod schema before execution, and the module branch runs before general table prompt construction.
 
-The branch reuses `_isSupportedModelId`, `createGoogleGenerativeAI`, the current API-key and model headers, the existing 1 MiB byte limit, and the current provider error mapping. It calls the already-installed `generateObject` with the ICEGrid Zod report schema and makes one model call per import action. `documentContext.sourceFiles` is capped at 20 names and `content` at 750,000 characters so the JSON envelope remains below the route limit. Oversized content fails before the Gemini call and is never silently truncated.
+The branch reuses `_isSupportedModelId`, `createGoogleGenerativeAI`, the current API-key and model headers, the existing 1 MiB byte limit, and the current provider error mapping. The registered ICEGrid handler calls the already-installed `generateObject` with its own Zod report schema and makes one model call per import action. `input.sourceFiles` is capped at 20 names and `content` at 750,000 characters so the JSON envelope remains below the route limit. Oversized content fails before the Gemini call and is never silently truncated.
 
 The route returns controlled errors for an invalid key, unsupported model, oversized payload, rate limiting, malformed model output, and provider failure. It does not log document text or the API key. Existing fill, clean, summarize, and Q&A behavior and request shapes remain unchanged.
 
@@ -334,7 +353,7 @@ Manual gate: select combined and split examples from the input/output folder; co
 ### Layer 3: Clean AI report through the existing AI service
 
 - Add the report schema and prompt.
-- Extend the existing `/api/ai` request union with `icegrid_extract` and call its existing Gemini provider.
+- Register the ICEGrid `extract` action with the existing `/api/ai` module dispatcher and call its existing Gemini provider.
 - Parse and return the clean JSON report.
 - Do not map it into the table yet.
 
@@ -371,7 +390,7 @@ Keep tests focused on the pipeline:
 - validators catch required-field, numeric, RITC, and calculation errors;
 - mapping produces exact `TableData` headers, types, order, and values;
 - orchestrator does not mutate the current table on failure;
-- the existing AI endpoint accepts `icegrid_extract`, rejects invalid authentication, models, payloads, and model output, and preserves all previous request variants;
+- the existing AI endpoint accepts registered module operations, rejects unknown modules/actions and invalid authentication, models, payloads, and model output, and preserves all previous request variants;
 - recorded AI JSON supports deterministic tests without network calls;
 - representative provided outputs establish expected headers, row counts, and values.
 
@@ -384,7 +403,7 @@ The module is complete when:
 1. ICEGrid can be enabled and disabled from the Modules Settings tab.
 2. Its dedicated ribbon icon appears only while enabled, and the setting survives reload.
 3. A user can select multiple supported files in one action.
-4. Content from every file is included in one boundary-preserving `icegrid_extract` request to the existing `/api/ai` service.
+4. Content from every file is included in one boundary-preserving ICEGrid module request to the existing `/api/ai` service.
 5. The existing Gemini key, selected model, provider setup, and error handling are reused.
 6. Gemini returns one schema-validated clean JSON report.
 7. Deterministic blocking validation runs before table replacement.
