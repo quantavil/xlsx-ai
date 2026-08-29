@@ -10,6 +10,7 @@
 		value: string | null;
 		mixed?: boolean;
 		options: DropdownOption[];
+		emptyMessage?: string;
 		/** When false, no `+ Add` is offered and an unknown typed value cannot commit. */
 		allowCustom?: boolean;
 		triggerEl?: HTMLElement | null;
@@ -21,6 +22,7 @@
 		value,
 		mixed = false,
 		options,
+		emptyMessage = 'No matching options.',
 		allowCustom = true,
 		triggerEl = null,
 		onCommit,
@@ -173,6 +175,15 @@
 			<span class="dropdown-opt-text empty-text">Clear</span>
 			<span class="clear-icon text-[11px] opacity-40" aria-hidden="true">✕</span>
 		</button>
+
+		{#if filteredOptions.length === 0 && !showCreate}
+			<p
+				class="dropdown-empty-state m-0 px-2.5 py-2 text-[11.5px] leading-snug text-[var(--text-3)]"
+				role="status"
+			>
+				{emptyMessage}
+			</p>
+		{/if}
 
 		{#each filteredOptions as opt, idx (opt.value)}
 			{@const style = getDropdownStyle(opt.value)}

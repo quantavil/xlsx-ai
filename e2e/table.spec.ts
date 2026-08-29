@@ -24,6 +24,41 @@ const FIXTURE = {
 	}))
 };
 
+const DEPENDENT_DROPDOWN_FIXTURE = {
+	version: 2,
+	title: 'Dependent Dropdowns',
+	columns: [
+		{
+			id: 'state',
+			name: 'State',
+			type: 'dropdown',
+			width: 150,
+			dropdown: {
+				options: [{ value: '08' }, { value: '09' }],
+				allowCustom: false
+			}
+		},
+		{
+			id: 'district',
+			name: 'District',
+			type: 'dropdown',
+			width: 180,
+			dropdown: {
+				options: [
+					{ value: '102', label: 'JAIPUR', parentValue: '8' },
+					{ value: '171', label: 'GHAZIABAD', parentValue: '9' }
+				],
+				allowCustom: false,
+				dependsOnColumnId: 'state'
+			}
+		}
+	],
+	rows: [
+		{ id: 'r1', state: '08', district: '102' },
+		{ id: 'r2', state: '09', district: '171' }
+	]
+};
+
 async function seedWorkspace(page: Page) {
 	// Runs on every navigation, so seed once — a reload must observe what the app persisted.
 	await page.addInitScript((doc) => {
@@ -596,6 +631,37 @@ test.describe('xlsx-ai E2E Workflow', () => {
 
 		await page.locator('.header-right button[aria-label="Undo"]').click();
 		await expect(page.locator('thead th:has-text("Tier")')).toHaveCount(1);
+	});
+
+	test('shows when no dependent dropdown option is valid for the whole selection', async ({ page }) => {
+		await page.evaluate((doc) => {
+			const id = 'd_dependent';
+			localStorage.setItem(`xlsx-ai:doc:${id}`, JSON.stringify(doc));
+			localStorage.setItem(
+				'xlsx-ai:docs:v1',
+				JSON.stringify({
+					docs: [{ id, title: doc.title, updatedAt: new Date().toISOString() }],
+					activeId: id
+				})
+			);
+		}, DEPENDENT_DROPDOWN_FIXTURE);
+		await page.reload();
+
+		const rows = page.locator('tbody tr.data-row');
+		const first = rows.nth(0).locator('td.td-cell').nth(1);
+		const second = rows.nth(1).locator('td.td-cell').nth(1);
+		await first.click();
+		await second.click({ modifiers: ['Shift'] });
+		await page.keyboard.press('Enter');
+
+		const popover = second.locator('.custom-dropdown-popover');
+		await expect(popover.locator('.dropdown-empty-state')).toHaveText(
+			'No options are valid for all selected cells.'
+		);
+		await expect(popover.locator('button.dropdown-opt-btn:not(.clear-opt-btn)')).toHaveCount(0);
+		await popover.locator('input.dropdown-search-input').press('Escape');
+		await expect(first).toContainText('102');
+		await expect(second).toContainText('171');
 	});
 
 	test('responsive mobile workspace keeps commands, search, and navigation usable', async ({ page }) => {

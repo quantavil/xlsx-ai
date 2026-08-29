@@ -837,6 +837,9 @@
 													value={dropdownEditorValue(col.id)}
 													mixed={dropdownEditorIsMixed(col.id)}
 													options={getCellDropdownOptions(col, row.id)}
+													emptyMessage={editTargets.length > 1
+														? 'No options are valid for all selected cells.'
+														: 'No matching options.'}
 													allowCustom={col.dropdown?.allowCustom ?? true}
 													triggerEl={cellNodes.get(cellKey)}
 													onCommit={(newVal) => {
