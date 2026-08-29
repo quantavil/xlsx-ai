@@ -100,6 +100,17 @@ export function quoteSupportsValue(quote: string, rawValue: string | number): bo
 		if (squashedNeedle.length >= 3 && squash(normalizedQuote).includes(squashedNeedle)) return true;
 	}
 
+	// The mirror of the rule above: the separators are in the DOCUMENT, not the value.
+	// Every invoice prints an HS code as "HSN:8505.11.10" while the customs field wants
+	// 85051110, so the most important field on the row was being cleared as unsupported.
+	// Squashing is done per whitespace-delimited token, never across the whole quote, so
+	// "300 Pcs 1" can never be read as the identifier "3001".
+	if (needle.length >= 4 && /^[a-z0-9]+$/.test(needle)) {
+		for (const token of normalizedQuote.split(/\s+/)) {
+			if (token.replace(/[^a-z0-9]/g, '').includes(needle)) return true;
+		}
+	}
+
 	// A value the model reported as text but the document prints as a number, e.g.
 	// RITC "94038900" quoted as "9403 8900" or IGST rate "18" inside "18%".
 	const asNumber = Number(needle.replace(/[,\s]/g, ''));

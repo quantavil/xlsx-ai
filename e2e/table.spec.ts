@@ -749,7 +749,15 @@ test.describe('xlsx-ai E2E Workflow', () => {
 	test('the chat switcher offers exactly the models starred in Settings', async ({ page }) => {
 		await page.locator('.right-tool-ribbon button.settings-toggle-btn').click();
 		const settingsPage = page.locator('.settings-page');
-		await settingsPage.locator('button[aria-label="Favorite Gemini 3.7 Flash"]').click();
+
+		// Every model card carries a star, and it is visible without hovering it first -
+		// a control nobody can see is a control nobody uses.
+		const stars = settingsPage.locator('.favorite-model-btn');
+		await expect(stars).toHaveCount(await settingsPage.locator('[role="radio"]').count());
+		for (const star of await stars.all()) await expect(star).toBeVisible();
+		await expect(stars.first()).toHaveCSS('opacity', '1');
+
+		await settingsPage.locator('button[aria-label="Favorite Gemini 3.6 Flash"]').click();
 		await settingsPage.locator('button[aria-label="Favorite Gemini 3.1 Pro"]').click();
 		await settingsPage.locator('.settings-close-btn').click();
 
@@ -758,12 +766,12 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		// The active model is not starred, so it leads; ids only, one writing style.
 		await expect(switcher.locator('option')).toHaveText([
 			'gemini-3.5-flash-lite',
-			'gemini-3.7-flash',
+			'gemini-3.6-flash',
 			'gemini-3.1-pro-preview'
 		]);
 
-		await switcher.selectOption('gemini-3.7-flash');
-		await expect(switcher).toHaveValue('gemini-3.7-flash');
+		await switcher.selectOption('gemini-3.6-flash');
+		await expect(switcher).toHaveValue('gemini-3.6-flash');
 	});
 
 	test('a filled dropdown cell shows the range highlight like every other column', async ({
@@ -835,5 +843,25 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await page.keyboard.press('Enter');
 
 		await expect(tierCell).toContainText('Active');
+	});
+
+	test('shift-clicking a dropdown cell extends the selection, caret included', async ({
+		page
+	}) => {
+		const rows = page.locator('tbody tr.data-row');
+		const selected = page.locator('td.td-cell[aria-selected="true"]');
+
+		await rows.nth(0).locator('td.td-cell').nth(0).click();
+		await rows.nth(2).hover();
+		// The caret covers the right edge of every dropdown cell, so a shift-click on the
+		// cell lands on it often. It must select, not open an editor and drop the range.
+		await rows.nth(2).locator('.dropdown-cell-arrow').click({ modifiers: ['Shift'], force: true });
+
+		await expect(selected).toHaveCount(6);
+		await expect(page.locator('.custom-dropdown-popover')).toHaveCount(0);
+
+		// Without shift it still opens the editor, as the only way in with the mouse.
+		await rows.nth(2).locator('.dropdown-cell-arrow').click();
+		await expect(page.locator('.custom-dropdown-popover')).toHaveCount(1);
 	});
 });

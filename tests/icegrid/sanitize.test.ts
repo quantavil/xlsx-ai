@@ -332,3 +332,23 @@ describe('validateIcegridReport after sanitization', () => {
 		expect(result.warnings.some((w) => /RODTEP|RewardItem|IGST_PaymentStatus/.test(w))).toBe(false);
 	});
 });
+
+describe('quoteSupportsValue: separators in the document, not the value', () => {
+	it('matches an HS code the invoice prints with dots', () => {
+		expect(quoteSupportsValue('Soft Ferrite Cores, HSN:8505.11.10', '85051110')).toBe(true);
+	});
+
+	it('matches an invoice number the invoice prints with a slash', () => {
+		expect(quoteSupportsValue('Invoice 30744 / 26-27 dated', '3074426')).toBe(false);
+		expect(quoteSupportsValue('Invoice 30744/26-27 dated', '307442627')).toBe(true);
+	});
+
+	it('never glues two separate tokens into one identifier', () => {
+		expect(quoteSupportsValue('300 Pcs 1.66000 498.00', '3001')).toBe(false);
+		expect(quoteSupportsValue('Quantity 12 Rate 34', '1234')).toBe(false);
+	});
+
+	it('still refuses a value the quote simply does not contain', () => {
+		expect(quoteSupportsValue('HSN:8505.11.10', '94038900')).toBe(false);
+	});
+});
