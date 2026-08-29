@@ -3,7 +3,11 @@ import type { Column, Row } from '../../src/lib/types';
 import {
 	addressToIndices,
 	aggregatesOwnColumn,
+	insertedAt,
 	offsetFormulaRefs,
+	remapRowFormulas,
+	removedAt,
+	unchanged,
 	cellAddress,
 	referencedCells,
 	resolveFormulaRows,
@@ -236,5 +240,38 @@ describe('fill', () => {
 			'=D3*$G$2',
 			'=D4*$G$2'
 		]);
+	});
+});
+
+describe('structural edits', () => {
+	const c3 = cols('A', 'B', 'C');
+	const grid = () =>
+		rows([1, null, '=SUM(A2:A4)'], [2, null, '=A3*2'], [3, null, '=A2+A4'], [4, null, null]);
+
+	it('follows the rows an insert pushes down', () => {
+		// A row lands at index 1, so rows 3 and 4 become 4 and 5.
+		const out = remapRowFormulas(grid(), c3, insertedAt(1), unchanged, 3, 5);
+		expect(out[0].c3).toBe('=SUM(A2:A5)');
+		expect(out[1].c3).toBe('=A4*2');
+		expect(out[2].c3).toBe('=A2+A5');
+	});
+
+	it('reports a reference to a deleted row instead of silently re-aiming it', () => {
+		// Row index 1 (spreadsheet row 3) goes; row 4 closes up into row 3.
+		const out = remapRowFormulas(grid(), c3, removedAt(1), unchanged, 3, 3);
+		expect(out[0].c3).toBe('=SUM(A2:A3)'); // the range shrinks with the grid
+		expect(out[1].c3).toBe('=#REF!*2'); // this one named the row that went
+		expect(out[2].c3).toBe('=A2+A3');
+	});
+
+	it('moves references across when a column is deleted', () => {
+		const out = remapRowFormulas(rows([1, 2, '=A2+B2']), c3, unchanged, removedAt(0), 2, 1);
+		expect(out[0].c3).toBe('=#REF!+A2');
+	});
+
+	it('follows a pinned reference too — a structural edit outranks the $', () => {
+		// `$A$4` means "row 4 wherever it ends up", not "whatever is at row 4 later".
+		const out = remapRowFormulas(rows([1, null, '=$A$4']), c3, insertedAt(0), unchanged, 3, 4);
+		expect(out[0].c3).toBe('=$A$5');
 	});
 });

@@ -159,17 +159,29 @@ function scanReferences(
 	return out;
 }
 
+/** Where an index goes, or null when it no longer exists. */
+export type IndexMap = (index: number) => number | null;
+
 /**
- * A formula moved by `dRow` rows and `dCol` columns, the way Excel rewrites one you
- * fill or drag. `$` pins a part in place; a reference pushed off the grid becomes
- * `#REF!`, as it must — silently clamping it would report a confident wrong number.
+ * Rewrites every reference in a formula through a row map and a column map.
+ *
+ * The one primitive behind filling, inserting and deleting: each of those is just a
+ * different pair of maps. A reference that maps to nothing — the row it named was
+ * deleted, or it fell off the grid — becomes `#REF!`. Clamping it to the edge would
+ * report a confident wrong number, which is worse than an obvious error.
+ *
+ * `$` pins a part in place, so an absolute reference is left where it is. That is
+ * Excel's fill rule; a structural edit overrides it by mapping absolutes too, which
+ * is why `mapAbsolute` exists — a pinned `$G$2` still has to follow row 2 when a row
+ * is inserted above it.
  */
-export function offsetFormulaRefs(
+export function remapFormulaRefs(
 	formula: string,
-	dRow: number,
-	dCol: number,
+	mapRow: IndexMap,
+	mapCol: IndexMap,
 	columnCount: number,
-	rowCount: number
+	rowCount: number,
+	mapAbsolute = false
 ): string {
 	let out = '';
 	let cursor = 0;
@@ -182,9 +194,16 @@ export function offsetFormulaRefs(
 		colIndex -= 1;
 		const rowIndex = Number(ref.row) - 1 - HEADER_ROWS;
 
-		const nextCol = ref.colAbs ? colIndex : colIndex + dCol;
-		const nextRow = ref.rowAbs ? rowIndex : rowIndex + dRow;
-		if (nextCol < 0 || nextCol >= columnCount || nextRow < 0 || nextRow >= rowCount) {
+		const nextCol = ref.colAbs && !mapAbsolute ? colIndex : mapCol(colIndex);
+		const nextRow = ref.rowAbs && !mapAbsolute ? rowIndex : mapRow(rowIndex);
+		if (
+			nextCol === null ||
+			nextRow === null ||
+			nextCol < 0 ||
+			nextCol >= columnCount ||
+			nextRow < 0 ||
+			nextRow >= rowCount
+		) {
 			out += REF_ERROR;
 			continue;
 		}
@@ -192,6 +211,58 @@ export function offsetFormulaRefs(
 	}
 	return out + formula.slice(cursor);
 }
+
+/**
+ * A formula moved by `dRow` rows and `dCol` columns, the way Excel rewrites one you
+ * fill or drag.
+ */
+export function offsetFormulaRefs(
+	formula: string,
+	dRow: number,
+	dCol: number,
+	columnCount: number,
+	rowCount: number
+): string {
+	return remapFormulaRefs(formula, (r) => r + dRow, (c) => c + dCol, columnCount, rowCount);
+}
+
+/** Rewrites a whole grid's formulas through one pair of maps, leaving values alone. */
+export function remapRowFormulas(
+	rows: Row[],
+	columns: Column[],
+	mapRow: IndexMap,
+	mapCol: IndexMap,
+	columnCount: number,
+	rowCount: number
+): Row[] {
+	return rows.map((row) => {
+		let next: Row | null = null;
+		for (const col of columns) {
+			const raw = row[col.id];
+			if (!isFormula(raw)) continue;
+			const rewritten = `=${remapFormulaRefs(raw.slice(1), mapRow, mapCol, columnCount, rowCount, true)}`;
+			if (rewritten === raw) continue;
+			next ??= { ...row };
+			next[col.id] = rewritten;
+		}
+		return next ?? row;
+	});
+}
+
+/** Maps for a row (or column) inserted at `at`: everything from there on moves down. */
+export const insertedAt =
+	(at: number): IndexMap =>
+	(i) =>
+		i >= at ? i + 1 : i;
+
+/** Maps for a row (or column) removed at `at`: it becomes #REF!, the rest close up. */
+export const removedAt =
+	(at: number): IndexMap =>
+	(i) =>
+		i === at ? null : i > at ? i - 1 : i;
+
+/** Leaves an axis untouched. */
+export const unchanged: IndexMap = (i) => i;
 
 /**
  * Whether a formula reads any cell in the column it sits in.

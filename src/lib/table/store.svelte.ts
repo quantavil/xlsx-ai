@@ -23,7 +23,16 @@ import {
 	COLUMN_TYPE_CONFIG
 } from '$lib/constants';
 import { normalizeCellValue, numericCellValue, defaultAlignForType, isFormula, isNumericType } from './cells';
-import { aggregatesOwnColumn, resolveFormulaRows, sheetRowNumber } from './formulas';
+import {
+	aggregatesOwnColumn,
+	insertedAt,
+	offsetFormulaRefs,
+	remapRowFormulas,
+	removedAt,
+	resolveFormulaRows,
+	sheetRowNumber,
+	unchanged
+} from './formulas';
 import {
 	parseAndMigrateTableDocument,
 	sanitizeAndNormalizeTableData,
@@ -354,7 +363,27 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		const original = rows[index];
 		const newId = `r_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 		const clone: Row = { ...original, id: newId };
-		rows = [...rows.slice(0, index + 1), clone, ...rows.slice(index + 1)];
+		const nextCount = rows.length + 1;
+
+		// Everything from the insertion point down moves one row, so every formula that
+		// pointed there has to follow it — otherwise the row below keeps summing the
+		// range it used to occupy.
+		const shifted = remapRowFormulas(
+			rows,
+			columns,
+			insertedAt(index + 1),
+			unchanged,
+			columns.length,
+			nextCount
+		);
+		// The clone is a copy placed one row lower, so its own references step with it.
+		for (const col of columns) {
+			const raw = clone[col.id];
+			if (isFormula(raw)) {
+				clone[col.id] = `=${offsetFormulaRefs(raw.slice(1), 1, 0, columns.length, nextCount)}`;
+			}
+		}
+		rows = [...shifted.slice(0, index + 1), clone, ...shifted.slice(index + 1)];
 		triggerSave();
 	}
 
@@ -362,7 +391,17 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		const index = rows.findIndex((r) => r.id === rowId);
 		if (index === -1) return;
 		pushHistory();
-		rows = rows.filter((r) => r.id !== rowId);
+		// A reference to the deleted row has nothing left to name and becomes #REF!;
+		// references below it close up. Leaving them alone would silently change which
+		// cells a formula reads, which is the one failure a spreadsheet must not have.
+		rows = remapRowFormulas(
+			rows.filter((r) => r.id !== rowId),
+			columns,
+			removedAt(index),
+			unchanged,
+			columns.length,
+			rows.length - 1
+		);
 		triggerSave();
 	}
 
@@ -419,7 +458,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		for (const row of rows) {
 			delete row[columnId];
 		}
-		rows = [...rows];
+		rows = remapRowFormulas(rows, columns, unchanged, removedAt(colIndex), columns.length, rows.length);
 		if (sortConfig?.columnId === columnId) {
 			sortConfig = null;
 		}

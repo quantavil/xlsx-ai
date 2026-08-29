@@ -965,4 +965,24 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await rows.nth(2).locator('td.td-cell').nth(3).dblclick();
 		await expect(page.locator('input.cell-input-editor')).toHaveValue('=C4*2');
 	});
+
+	test('deleting a row re-aims the formulas that pointed past it', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const totals = rows.nth(0).locator('td.td-cell').nth(3);
+
+		// Active Accounts starts 1000, 989, 978 — a total over the first three rows.
+		await totals.dblclick();
+		await page.locator('input.cell-input-editor').fill('=SUM(D3:D5)');
+		await page.locator('input.cell-input-editor').press('Enter');
+		await expect(totals).toContainText('2,934');
+
+		// Drop the middle row of that range. Excel shrinks the range; leaving it alone
+		// would silently make it sum a different three rows.
+		await rows.nth(2).hover();
+		await rows.nth(2).locator('button[aria-label^="Delete row"]').click();
+		await expect(totals).toContainText('1,956'); // 989 + 967, the two rows left in the range
+
+		await totals.dblclick();
+		await expect(page.locator('input.cell-input-editor')).toHaveValue('=SUM(D3:D4)');
+	});
 });
