@@ -2,7 +2,6 @@
 	import Icon from './Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import type { CellValue } from '$lib/types';
-	import { AI_MODELS } from '$lib/constants';
 	import { createAiApi } from '$lib/ai/client';
 	import { validatePatchProposals } from '$lib/ai/patches';
 
@@ -16,9 +15,27 @@
 		onOpenSettings?: () => void;
 	} = $props();
 
-	let activeModelName = $derived(
-		AI_MODELS.find((m) => m.id === store.aiModel)?.name || store.aiModel
+	// Favourites only, plus whichever model is actually in use so the control never
+	// displays a value it does not list. Ids verbatim, never display names: a model
+	// starred from the live catalog has no name stored here, and half a list of
+	// "Gemini 3.7 Flash" next to half a list of "gemini-3.5-flash-lite" reads as a bug.
+	let switchableModels = $derived(
+		store.favoriteModels.includes(store.aiModel)
+			? store.favoriteModels
+			: [store.aiModel, ...store.favoriteModels]
 	);
+
+	// Grow the composer with its content instead of scrolling one fixed row. `field-sizing`
+	// would do this in CSS but Firefox and Safari do not ship it yet.
+	let promptEl = $state<HTMLTextAreaElement | null>(null);
+	$effect(() => {
+		const el = promptEl;
+		if (!el) return;
+		el.style.height = 'auto';
+		// Reading promptInput is what re-runs this on each keystroke; clearing it hands
+		// the height back to the `rows` attribute rather than pinning an empty box open.
+		el.style.height = promptInput ? `${Math.min(el.scrollHeight, 180)}px` : '';
+	});
 
 	// Derived from the live table instead of hardcoded to one sample dataset.
 	let examplePrompts = $derived.by(() => {
@@ -73,7 +90,7 @@
 	interface DiffPreview {
 		explanation: string;
 		patches: DiffPatch[];
-		kind: 'fill_missing' | 'clean';
+		kind: 'fill_missing' | 'clean' | 'chat';
 	}
 
 	let activeDiffPreview = $state<DiffPreview | null>(null);
@@ -105,6 +122,33 @@
 		);
 	}
 
+	/**
+	 * The rows the model gets to see.
+	 *
+	 * This used to be 40, which meant "fill every blank" quietly stopped at row 40 and
+	 * an edit request over a longer table came back covering a fraction of it with no
+	 * indication why. 2 000 is the server's schema cap, so this now only truncates where
+	 * the request would be rejected outright.
+	 */
+	function rowsForPrompt() {
+		return store.rows.slice(0, 2_000);
+	}
+
+	/** Drop patches that no longer address a live cell, and stamp the current value for the diff. */
+	function hydratePatches(raw: unknown[]): DiffPatch[] {
+		return raw
+			.filter(isDiffPatch)
+			.filter(
+				(patch) =>
+					store.rows.some((row) => row.id === patch.rowId) &&
+					store.columns.some((column) => column.id === patch.columnId)
+			)
+			.map((patch) => {
+				const row = store.rows.find((candidate) => candidate.id === patch.rowId);
+				return { ...patch, oldValue: row?.[patch.columnId] ?? null };
+			});
+	}
+
 	// Trigger structured transformation (fill missing or clean)
 	async function runStructuredOperation(kind: 'fill_missing' | 'clean') {
 		const key = store.apiKey?.trim();
@@ -118,8 +162,7 @@
 		activeDiffPreview = null;
 
 		try {
-			// #1 Slice to 40 rows to stay under 1MiB / 2000-row cap; server truncates anyway
-			const truncatedRows = store.rows.slice(0, 40);
+			const truncatedRows = rowsForPrompt();
 			const ai = createAiApi({ apiKey: key, modelId: store.aiModel, signal: controller.signal });
 			const data: unknown = await ai.request({
 					tableContext: {
@@ -134,18 +177,7 @@
 			if (controller !== activeRequest) return;
 			const result = data as { data?: { explanation?: unknown; patches?: unknown[] } };
 			if (Array.isArray(result.data?.patches) && result.data.patches.length > 0) {
-				// Augment patches with current live values
-				const patches: DiffPatch[] = result.data.patches
-					.filter(isDiffPatch)
-					.filter(
-						(patch) =>
-							store.rows.some((row) => row.id === patch.rowId) &&
-							store.columns.some((column) => column.id === patch.columnId)
-					)
-					.map((patch) => {
-						const row = store.rows.find((candidate) => candidate.id === patch.rowId);
-						return { ...patch, oldValue: row?.[patch.columnId] ?? null };
-					});
+				const patches = hydratePatches(result.data.patches);
 				if (patches.length === 0) {
 					onNotify('warning', 'Gemini returned no valid changes for the current table.');
 					return;
@@ -232,14 +264,13 @@
 		const controller = beginRequest();
 
 		try {
-			// #1 + #5 Keep payload under 1MiB/2000 cap and honor server max(50)/8000 limits
-			const truncatedRows = store.rows.slice(0, 40);
+			const truncatedRows = rowsForPrompt();
 			const recentMessages = messages
 				.filter((m) => !m.isStreaming)
 				.slice(-10)
 				.map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }));
 			const ai = createAiApi({ apiKey: key, modelId: store.aiModel, signal: controller.signal });
-			const res = await ai.requestStream({
+			const data: unknown = await ai.request({
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
@@ -247,30 +278,26 @@
 					},
 					messages: recentMessages
 			});
+			if (controller !== activeRequest) return;
 
-			// Read streaming response text
-			const reader = res.body?.getReader();
-			if (!reader) throw new Error('Response body is unavailable.');
-
-			const decoder = new TextDecoder();
-			let accumulated = '';
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				const chunk = decoder.decode(value, { stream: true });
-				accumulated += chunk;
-
-				messages = messages.map((m) =>
-					m.id === assistantMsgId
-						? { ...m, content: accumulated, isStreaming: true }
-						: m
-				);
-			}
-
+			const result = data as { data?: { reply?: unknown; patches?: unknown[] } };
+			const reply =
+				typeof result.data?.reply === 'string' && result.data.reply.trim()
+					? result.data.reply
+					: 'No answer was returned.';
 			messages = messages.map((m) =>
-				m.id === assistantMsgId ? { ...m, isStreaming: false } : m
+				m.id === assistantMsgId ? { ...m, content: reply, isStreaming: false } : m
 			);
+
+			// An edit asked for in chat lands in the same review card the quick actions use,
+			// so nothing reaches the sheet without the user pressing Apply.
+			const patches = Array.isArray(result.data?.patches)
+				? hydratePatches(result.data.patches)
+				: [];
+			if (patches.length > 0) {
+				activeDiffPreview = { explanation: reply, patches, kind: 'chat' };
+				onNotify('info', `${patches.length} cell change(s) proposed. Review above.`);
+			}
 		} catch (err: unknown) {
 			if (err instanceof DOMException && err.name === 'AbortError') {
 				messages = messages.filter((m) => m.id !== assistantMsgId);
@@ -322,9 +349,6 @@
 				</div>
 				<div class="drawer-headings min-w-0">
 					<h3 class="text-[13.5px] font-bold tracking-tight text-[var(--text-1)] m-0 leading-none">Gemini Assistant</h3>
-					<span class="model-tag text-[11px] font-medium text-[var(--text-2)] tracking-tight mt-1 block truncate" title={activeModelName}>
-						{activeModelName}
-					</span>
 				</div>
 			</div>
 
@@ -404,7 +428,7 @@
 			<div class="diff-preview-card bezel-card m-3 p-3 bg-[var(--surface-2)] border border-[var(--accent-primary-border)] rounded-xl flex flex-col gap-2 shadow-lg">
 				<div class="diff-header flex items-center justify-between">
 					<span class="diff-title text-[12.5px] font-bold text-[var(--text-1)]">Proposed Changes ({activeDiffPreview.patches.length})</span>
-					<span class="diff-kind-tag text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] uppercase tracking-wide">{activeDiffPreview.kind === 'fill_missing' ? 'Imputation' : 'Cleanup'}</span>
+					<span class="diff-kind-tag text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] uppercase tracking-wide">{activeDiffPreview.kind === 'fill_missing' ? 'Imputation' : activeDiffPreview.kind === 'clean' ? 'Cleanup' : 'Chat Edit'}</span>
 				</div>
 				<p class="diff-explanation text-[12px] text-[var(--text-2)] leading-tight m-0">{activeDiffPreview.explanation}</p>
 
@@ -474,13 +498,27 @@
 		</div>
 
 		<!-- Chat Input Box -->
-		<div class="drawer-footer p-3 border-t border-[var(--border)] bg-[var(--surface-1)] shrink-0">
+		<div class="drawer-footer p-3 border-t border-[var(--border)] bg-[var(--surface-1)] shrink-0 flex flex-col gap-1.5">
+			<div class="model-switcher flex items-center gap-1.5 px-0.5">
+				<Icon name="sparkles" size={11} class="text-[var(--text-3)] shrink-0" aria-hidden="true" />
+				<select
+					class="model-switcher-select bg-transparent border-none outline-none text-[11px] font-medium text-[var(--text-2)] hover:text-[var(--text-1)] cursor-pointer max-w-full truncate focus-visible:text-[var(--text-1)]"
+					aria-label="Model"
+					value={store.aiModel}
+					onchange={(e) => store.setAiModel(e.currentTarget.value)}
+				>
+					{#each switchableModels as modelId (modelId)}
+						<option value={modelId}>{modelId}</option>
+					{/each}
+				</select>
+			</div>
 			<div class="chat-input-wrapper relative flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-primary-border)] transition-all">
 				<textarea
-					rows="2"
+					rows="1"
+					bind:this={promptEl}
 					placeholder="Ask Gemini about this table..."
 					aria-label="Message for AI Assistant"
-					class="bg-transparent border-none outline-none text-[12.5px] text-[var(--text-1)] w-full resize-none placeholder:text-[var(--text-3)] font-normal"
+					class="bg-transparent border-none outline-none text-[12.5px] text-[var(--text-1)] w-full resize-none overflow-y-auto placeholder:text-[var(--text-3)] font-normal leading-relaxed"
 					bind:value={promptInput}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' && !e.shiftKey) {

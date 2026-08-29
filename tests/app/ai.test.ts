@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { _RequestSchema, _CleanFillSchema, POST } from '../../src/routes/api/ai/+server';
+import { _RequestSchema, _CleanFillSchema, _ChatSchema, _renderTsv, POST } from '../../src/routes/api/ai/+server';
 
 describe('Server AI Endpoint (/api/ai)', () => {
 	it('validates request schema with Zod', () => {
@@ -282,3 +282,39 @@ describe('Server AI Endpoint (/api/ai)', () => {
 	});
 });
 
+describe('_renderTsv', () => {
+	const columns = [
+		{ id: 'c1', name: 'Product' },
+		{ id: 'c2', name: 'Revenue' }
+	];
+
+	it('emits the row id first and one line per row', () => {
+		expect(_renderTsv(columns, [{ id: 'r1', c1: 'Widget', c2: 1200 }])).toBe(
+			'rowId\tc1\tc2\nr1\tWidget\t1200'
+		);
+	});
+
+	it('renders a missing or null cell as an empty field so columns stay aligned', () => {
+		expect(_renderTsv(columns, [{ id: 'r1', c1: null }])).toBe('rowId\tc1\tc2\nr1\t\t');
+	});
+
+	it('flattens embedded tabs and newlines that would otherwise forge a row', () => {
+		expect(_renderTsv(columns, [{ id: 'r1', c1: 'a\tb\nr9', c2: 1 }])).toBe(
+			'rowId\tc1\tc2\nr1\ta b r9\t1'
+		);
+	});
+});
+
+describe('_ChatSchema', () => {
+	it('accepts a read-only answer with no patches', () => {
+		expect(_ChatSchema.safeParse({ reply: 'Revenue totals 4600.', patches: [] }).success).toBe(true);
+	});
+
+	it('accepts an answer carrying cell edits', () => {
+		const parsed = _ChatSchema.safeParse({
+			reply: 'Changed AU to AE.',
+			patches: [{ rowId: 'r1', columnId: 'CountryDestination', newValue: 'AE' }]
+		});
+		expect(parsed.success).toBe(true);
+	});
+});

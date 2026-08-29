@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { generateObject, streamText } from 'ai';
+import { generateObject } from 'ai';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
 import { getModuleAiHandler } from '$lib/server/modules/registry';
 import { isSupportedModelId } from '$lib/server/models';
@@ -56,16 +56,31 @@ export const _TableOperationRequestSchema = z.object({
 
 export const _RequestSchema = z.union([_ModuleOperationRequestSchema, _TableOperationRequestSchema]);
 
+const _PatchSchema = z.object({
+	rowId: z.string().describe('The id of the row to update'),
+	columnId: z.string().describe('The id of the column to update'),
+	oldValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+	newValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).describe('The new cleaned or imputed value')
+});
+
+/**
+ * Chat answers and chat edits share one response.
+ *
+ * Chat used to be a text stream, so a request like "change every AU to AE" could only
+ * ever come back as prose offering to do it - there was no channel to say it in. The
+ * model now emits the cells alongside the reply and the drawer's existing diff card
+ * gates them, so an edit request produces a reviewable edit instead of a promise.
+ */
+export const _ChatSchema = z.object({
+	reply: z.string().describe('The markdown answer shown in the chat transcript'),
+	patches: z
+		.array(_PatchSchema)
+		.describe('Cell edits the request calls for, or an empty array for a read-only question')
+});
+
 export const _CleanFillSchema = z.object({
 	explanation: z.string().describe('Brief explanation of what was filled or cleaned'),
-	patches: z.array(
-		z.object({
-			rowId: z.string().describe('The id of the row to update'),
-			columnId: z.string().describe('The id of the column to update'),
-			oldValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
-			newValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).describe('The new cleaned or imputed value')
-		})
-	)
+	patches: z.array(_PatchSchema)
 });
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -159,7 +174,6 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const { tableContext, operation, messages = [] } = parsed.data;
-		const truncatedRows = tableContext.rows.slice(0, 40);
 		const columnSchemas = tableContext.columns.map((c) => `${c.name} (id: "${c.id}", type: ${c.type})`).join(', ');
 
 		const systemPrompt = `You are xlsx-ai, an elite agency data engineering and analysis assistant.
@@ -167,16 +181,17 @@ You are operating directly on a live tabular dataset.
 
 TABLE METADATA:
 Title: "${tableContext.title || 'Data Table'}"
-Total Rows in Dataset: ${tableContext.rows.length} (Showing sample of ${truncatedRows.length} rows)
+Total Rows in Dataset: ${tableContext.rows.length}
 Columns: ${columnSchemas}
 
-DATA SAMPLE (JSON):
-${JSON.stringify(truncatedRows, null, 2)}
+DATA (tab-separated, first column is the row id):
+${_renderTsv(tableContext.columns, tableContext.rows)}
 
 INSTRUCTIONS:
 - Give concise, highly specific, data-grounded answers.
 - When performing calculations, verify math strictly.
 - When suggesting edits or explanations, reference specific row IDs and column IDs.
+- Every row above is in scope. An instruction that names no subset applies to all ${tableContext.rows.length} rows.
 - For open questions, provide structured markdown with bullet points and bold highlights.`;
 
 		// 4. Structured Output for Clean & Fill Operations
@@ -201,7 +216,7 @@ INSTRUCTIONS:
 			});
 		}
 
-		// 5. Streaming Output for Q&A and Summarization
+		// 5. Structured Q&A: one reply plus any cell edits the request calls for.
 		let chatMessages = messages;
 		if (operation?.kind === 'summarize') {
 			chatMessages = [
@@ -217,16 +232,25 @@ INSTRUCTIONS:
 			chatMessages = [{ role: 'user', content: 'Summarize this dataset.' }];
 		}
 
-		const result = streamText({
+		const chat = await generateObject({
 			model,
-			instructions: systemPrompt,
+			instructions: `${systemPrompt}
+
+EDIT REQUESTS:
+- When the user asks you to change, fill, fix, replace or clear cell values, put every affected cell in \`patches\` and describe what you did in \`reply\`.
+- Never answer an edit request with an offer to make the edit. The user reviews and approves your patches in the app before anything is written, so proposing them IS asking.
+- Emit one patch per affected cell, covering every row the request touches - not a sample.
+- \`reply\` is a short summary in that case, not a table of the changes.
+- For a question that changes nothing, leave \`patches\` empty.`,
 			messages: chatMessages.map((m) => ({
 				role: m.role as 'user' | 'assistant',
 				content: m.content
-			}))
+			})),
+			schema: _ChatSchema,
+			abortSignal: request.signal
 		});
 
-		return result.toTextStreamResponse();
+		return json({ success: true, kind: 'chat', data: chat.object });
 	} catch (err: unknown) {
 		console.error('AI SDK Generation Error:', err);
 		const e = (err ?? {}) as Record<string, unknown>;
@@ -265,4 +289,25 @@ function describeProviderError(err: unknown): string {
 	}
 	if (err instanceof Error && err.message) return err.message.slice(0, 400);
 	return 'unknown provider error';
+}
+
+/**
+ * The table as TSV rather than pretty-printed JSON.
+ *
+ * JSON.stringify(rows, null, 2) spends roughly five tokens of braces, quotes and
+ * repeated key names for every one token of data, which is why the whole table used
+ * to be sliced to 40 rows to fit. TSV names each column once, so the full table goes
+ * in and edits stop silently missing row 41 onward.
+ */
+export function _renderTsv(
+	columns: Array<{ id: string; name: string }>,
+	rows: Array<Record<string, unknown>>
+): string {
+	const cell = (v: unknown) =>
+		v === null || v === undefined ? '' : String(v).replace(/[\t\r\n]+/g, ' ');
+	const lines = [['rowId', ...columns.map((c) => c.id)].join('\t')];
+	for (const row of rows) {
+		lines.push([cell(row.id), ...columns.map((c) => cell(row[c.id]))].join('\t'));
+	}
+	return lines.join('\n');
 }
