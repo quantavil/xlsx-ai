@@ -18,7 +18,7 @@
 				class="toast-item toast-{toast.type} pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl shadow-2xl text-[13px] text-[var(--text-1)] border-l-4 animate-[toastSlideIn_150ms_cubic-bezier(0.16,1,0.3,1)] {toast.type === 'success' ? 'border-l-emerald-500' : toast.type === 'error' ? 'border-l-rose-500' : toast.type === 'warning' ? 'border-l-amber-500' : 'border-l-[var(--accent-primary)]'}"
 				role="status"
 			>
-				<span class="toast-icon flex items-center shrink-0 {toast.type === 'success' ? 'text-emerald-400' : toast.type === 'error' ? 'text-rose-400' : toast.type === 'warning' ? 'text-amber-400' : 'text-[var(--accent-primary)]'}" aria-hidden="true">
+				<span class="toast-icon flex items-center shrink-0 {toast.type === 'success' ? 'text-[var(--accent-primary)]' : toast.type === 'error' ? 'text-[var(--accent-rose)]' : toast.type === 'warning' ? 'text-[var(--accent-amber)]' : 'text-[var(--accent-primary)]'}" aria-hidden="true">
 					{#if toast.type === 'success'}
 						<Icon name="check" size={14} />
 					{:else if toast.type === 'error'}
@@ -34,7 +34,7 @@
 
 				{#if toast.action}
 					<button
-						class="toast-action-btn bg-[var(--surface-3)] hover:bg-[var(--accent-primary)] hover:text-white border border-[var(--border)] rounded px-2 py-0.5 text-[11.5px] font-semibold text-[var(--text-1)] cursor-pointer transition-colors"
+						class="toast-action-btn bg-[var(--surface-3)] hover:bg-[var(--accent-primary-hover)] hover:text-[var(--text-inverse)] border border-[var(--border)] rounded px-2 py-0.5 text-[11.5px] font-semibold text-[var(--text-1)] cursor-pointer transition-colors"
 						onclick={() => {
 							toast.action?.onClick();
 							onDismiss(toast.id);

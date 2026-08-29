@@ -493,7 +493,7 @@
 			<h3 class="empty-title text-base font-bold text-[var(--text-1)] m-0">Spreadsheet is empty</h3>
 			<p class="empty-subtitle text-[13px] text-[var(--text-3)] max-w-sm m-0">Start a blank sheet, import a file, or load a sample dataset.</p>
 			<div class="empty-actions flex items-center gap-2 mt-2">
-				<button class="btn-tactile btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white cursor-pointer shadow-sm" onclick={() => store.newSheet()}>
+				<button class="btn-tactile btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-[var(--text-inverse)] cursor-pointer shadow-sm" onclick={() => store.newSheet()}>
 					<Icon name="file-spreadsheet" size={14} />
 					<span>New Blank Sheet</span>
 				</button>
@@ -639,7 +639,7 @@
 												{#each Object.entries(COLUMN_TYPE_CONFIG) as [typeKey, typeCfg]}
 													{@const isActiveType = col.type === typeKey}
 													<button
-														class="popover-item flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors {isActiveType ? 'active !text-[var(--accent-primary)] !bg-emerald-500/10 font-semibold' : ''}"
+														class="popover-item flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors {isActiveType ? 'active !text-[var(--accent-primary)] !bg-[var(--accent-primary-bg)] font-semibold' : ''}"
 														role="menuitem"
 														onclick={() => handleUpdateColumnType(col.id, typeKey as ColumnType)}
 													>
@@ -648,14 +648,14 @@
 															<span>{typeCfg.label}</span>
 														</div>
 														{#if isActiveType}
-															<span class="check-icon text-emerald-500 font-bold text-[12px]"><Icon name="check" size={12} aria-hidden="true" /></span>
+															<span class="check-icon text-[var(--accent-primary)] font-bold text-[12px]"><Icon name="check" size={12} aria-hidden="true" /></span>
 														{/if}
 													</button>
 												{/each}
 
 												<div class="popover-divider h-px bg-[var(--border)] my-1"></div>
 												<button
-													class="popover-item popover-delete flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-rose-500 hover:!text-rose-400 hover:!bg-rose-500/10 cursor-pointer text-left transition-colors"
+													class="popover-item popover-delete flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--accent-rose)] hover:!text-[var(--accent-rose)] hover:!bg-[var(--accent-rose-bg)] cursor-pointer text-left transition-colors"
 													role="menuitem"
 													onclick={() => requestDeleteColumn(col.id, col.name)}
 												>
@@ -670,7 +670,7 @@
 								<!-- Interactive Column Resize Handle -->
 								<button
 									type="button"
-									class="th-resize-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[var(--accent-primary)] active:bg-[var(--accent-primary)] transition-colors z-10 bg-transparent border-none"
+									class="th-resize-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[var(--accent-primary-hover)] active:bg-[var(--accent-primary)] transition-colors z-10 bg-transparent border-none"
 									tabindex="-1"
 									onmousedown={(e) => startResize(e, col.id, col.width || 180)}
 									ondblclick={(e) => {
@@ -723,7 +723,7 @@
 											<Icon name="copy" size={11} aria-hidden="true" />
 										</button>
 										<button
-											class="row-action-btn delete w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer transition-colors"
+											class="row-action-btn delete w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer transition-colors"
 											onclick={() => store.deleteRow(row.id)}
 											title="Delete row"
 											aria-label="Delete row {rowIndex + 1}"
@@ -882,7 +882,7 @@
 								<div class="summary-metric-group flex flex-col justify-center leading-tight">
 									{#if isNumericSummable && summary?.sum !== undefined}
 										<div class="summary-line primary-sum flex items-center gap-1.5" title="Sum: {formatCellValue(colType, summary.sum)} | Avg: {formatCellValue(colType, summary.avg)} | Min: {formatCellValue(colType, summary.min)} | Max: {formatCellValue(colType, summary.max)}">
-											<span class="sum-tag text-[9.5px] font-mono font-bold px-1 rounded bg-emerald-500/15 text-emerald-400">SUM</span>
+											<span class="sum-tag text-[9.5px] font-mono font-bold px-1 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]">SUM</span>
 											<span class="sum-val font-mono font-bold text-[var(--text-1)] text-[12px]">{formatCellValue(colType, summary.sum)}</span>
 										</div>
 										<div class="summary-line secondary-stats text-[10.5px] text-[var(--text-3)] font-mono mt-0.5">
@@ -890,7 +890,7 @@
 										</div>
 									{:else if isPercent && summary?.avg !== undefined}
 										<div class="summary-line primary-sum flex items-center gap-1.5" title="Avg: {formatCellValue(colType, summary.avg)} | Min: {formatCellValue(colType, summary.min)} | Max: {formatCellValue(colType, summary.max)} | {summary ? summary.countNonEmpty : 0} rows">
-											<span class="sum-tag tag-avg text-[9.5px] font-mono font-bold px-1 rounded bg-sky-500/15 text-sky-400">AVG</span>
+											<span class="sum-tag tag-avg text-[9.5px] font-mono font-bold px-1 rounded bg-[var(--accent-sky-bg)] text-[var(--accent-sky)]">AVG</span>
 											<span class="sum-val font-mono font-bold text-[var(--text-1)] text-[12px]">{formatCellValue(colType, summary.avg)}</span>
 										</div>
 										<div class="summary-line secondary-stats text-[10.5px] text-[var(--text-3)] font-mono mt-0.5">

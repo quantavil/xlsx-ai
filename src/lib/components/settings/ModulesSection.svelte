@@ -29,7 +29,7 @@
 								<span class="text-[13px] font-semibold text-[var(--text-1)]">{mod.name}</span>
 								<span class="text-[10.5px] font-mono px-1.5 py-0.2 rounded bg-[var(--surface-3)] text-[var(--text-3)]">v{mod.version}</span>
 								{#if mod.requirements.gemini}
-									<span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400">Gemini</span>
+									<span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]">Gemini</span>
 								{/if}
 							</div>
 							<p class="text-[12px] text-[var(--text-2)] m-0 leading-relaxed">{mod.description}</p>
@@ -65,7 +65,7 @@
 						<span class="px-1.5 py-0.5 rounded bg-[var(--surface-1)] text-[var(--text-2)] border border-[var(--border)]">{mod.ribbon.fileInput.accept}</span>
 					</div>
 					<div class="flex items-center gap-1.5">
-						<span class="w-1.5 h-1.5 rounded-full {isEnabled ? 'bg-emerald-500' : 'bg-[var(--text-3)]'}"></span>
+						<span class="w-1.5 h-1.5 rounded-full {isEnabled ? 'bg-[var(--accent-primary)]' : 'bg-[var(--text-3)]'}"></span>
 						<span>{isEnabled ? 'Enabled in Ribbon' : 'Disabled'}</span>
 					</div>
 				</div>

@@ -317,7 +317,7 @@
 		<!-- Header -->
 		<div class="drawer-header flex items-center justify-between p-4 border-b border-[var(--border)] shrink-0 gap-3">
 			<div class="drawer-title-group flex items-center gap-2.5 min-w-0">
-				<div class="ai-badge-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--accent-primary)] text-white shrink-0 shadow-sm" aria-hidden="true">
+				<div class="ai-badge-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--accent-primary)] text-[var(--text-inverse)] shrink-0 shadow-sm" aria-hidden="true">
 					<Icon name="sparkles" size={15} />
 				</div>
 				<div class="drawer-headings min-w-0">
@@ -331,7 +331,7 @@
 			<div class="drawer-header-actions flex items-center gap-1 shrink-0">
 				{#if messages.length > 0}
 					<button
-						class="header-trash w-7 h-7 rounded-md text-[var(--text-3)] hover:text-rose-500 hover:bg-rose-500/10 flex items-center justify-center cursor-pointer transition-colors"
+						class="header-trash w-7 h-7 rounded-md text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] flex items-center justify-center cursor-pointer transition-colors"
 						onclick={clearChat}
 						title="Clear Chat History"
 						aria-label="Clear chat history"
@@ -344,9 +344,9 @@
 
 		<!-- API Key Prompt Banner (shown when key not configured) -->
 		{#if !store.apiKey}
-			<div class="api-key-banner m-3 p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl flex flex-col gap-1.5">
-				<div class="banner-top flex items-center gap-2 text-amber-500 font-semibold text-[12.5px]">
-					<div class="banner-badge-icon w-5 h-5 rounded flex items-center justify-center bg-amber-500/20 text-amber-500" aria-hidden="true">
+			<div class="api-key-banner m-3 p-3 bg-[var(--accent-amber-bg)] border border-[var(--accent-amber-border)] rounded-xl flex flex-col gap-1.5">
+				<div class="banner-top flex items-center gap-2 text-[var(--accent-amber)] font-semibold text-[12.5px]">
+					<div class="banner-badge-icon w-5 h-5 rounded flex items-center justify-center bg-[var(--accent-amber-bg)] text-[var(--accent-amber)]" aria-hidden="true">
 						<Icon name="key" size={13} />
 					</div>
 					<div class="banner-title font-semibold">Gemini API Key Required</div>
@@ -373,7 +373,7 @@
 					onclick={() => runStructuredOperation('fill_missing')}
 					aria-label="Fill missing values"
 				>
-					<Icon name="wand" size={13} class="icon-accent-purple text-purple-400" aria-hidden="true" />
+					<Icon name="wand" size={13} class="icon-accent-purple text-[var(--accent-purple)]" aria-hidden="true" />
 					<span>Fill Missing</span>
 				</button>
 
@@ -383,7 +383,7 @@
 					onclick={() => runStructuredOperation('clean')}
 					aria-label="Clean table data"
 				>
-					<Icon name="sparkle" size={13} class="icon-accent-emerald text-emerald-400" aria-hidden="true" />
+					<Icon name="sparkle" size={13} class="icon-accent-emerald text-[var(--accent-primary)]" aria-hidden="true" />
 					<span>Clean Data</span>
 				</button>
 
@@ -393,7 +393,7 @@
 					onclick={() => sendChatMessage('Summarize this dataset, highlighting key metrics, top distributions, and anomalies.')}
 					aria-label="Summarize dataset"
 				>
-					<Icon name="bar-chart" size={13} class="icon-accent-sky text-sky-400" aria-hidden="true" />
+					<Icon name="bar-chart" size={13} class="icon-accent-sky text-[var(--accent-sky)]" aria-hidden="true" />
 					<span>Summarize Dataset</span>
 				</button>
 			</div>
@@ -401,10 +401,10 @@
 
 		<!-- Structured Diff Preview Card -->
 		{#if activeDiffPreview}
-			<div class="diff-preview-card bezel-card m-3 p-3 bg-[var(--surface-2)] border border-emerald-500/30 rounded-xl flex flex-col gap-2 shadow-lg">
+			<div class="diff-preview-card bezel-card m-3 p-3 bg-[var(--surface-2)] border border-[var(--accent-primary-border)] rounded-xl flex flex-col gap-2 shadow-lg">
 				<div class="diff-header flex items-center justify-between">
 					<span class="diff-title text-[12.5px] font-bold text-[var(--text-1)]">Proposed Changes ({activeDiffPreview.patches.length})</span>
-					<span class="diff-kind-tag text-[10.5px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 uppercase tracking-wide">{activeDiffPreview.kind === 'fill_missing' ? 'Imputation' : 'Cleanup'}</span>
+					<span class="diff-kind-tag text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] uppercase tracking-wide">{activeDiffPreview.kind === 'fill_missing' ? 'Imputation' : 'Cleanup'}</span>
 				</div>
 				<p class="diff-explanation text-[12px] text-[var(--text-2)] leading-tight m-0">{activeDiffPreview.explanation}</p>
 
@@ -413,9 +413,9 @@
 						{@const col = store.columns.find((c) => c.id === patch.columnId)}
 						<div class="diff-patch-row flex items-center gap-1.5 text-[11px] font-mono py-0.5 px-1.5 rounded hover:bg-[var(--surface-2)]">
 							<span class="patch-col-name text-[var(--text-3)] font-sans font-medium truncate max-w-[90px]">{col?.name || patch.columnId}</span>
-							<span class="patch-old text-rose-400 line-through truncate max-w-[70px]">{patch.oldValue !== null && patch.oldValue !== undefined ? String(patch.oldValue) : 'null'}</span>
+							<span class="patch-old text-[var(--accent-rose)] line-through truncate max-w-[70px]">{patch.oldValue !== null && patch.oldValue !== undefined ? String(patch.oldValue) : 'null'}</span>
 							<span class="patch-arrow text-[var(--text-3)]" aria-hidden="true">→</span>
-							<span class="patch-new text-emerald-400 font-semibold truncate max-w-[70px]">{String(patch.newValue)}</span>
+							<span class="patch-new text-[var(--accent-primary)] font-semibold truncate max-w-[70px]">{String(patch.newValue)}</span>
 						</div>
 					{/each}
 					{#if activeDiffPreview.patches.length > 8}
@@ -428,7 +428,7 @@
 						<Icon name="rotate-ccw" size={12} aria-hidden="true" />
 						<span>Discard</span>
 					</button>
-					<button class="btn-tactile btn-apply inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-sm transition-colors" onclick={applyDiffPreview} aria-label="Apply AI changes">
+					<button class="btn-tactile btn-apply inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-medium rounded-md bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-[var(--text-inverse)] cursor-pointer shadow-sm transition-colors" onclick={applyDiffPreview} aria-label="Apply AI changes">
 						<Icon name="check" size={12} aria-hidden="true" />
 						<span>Apply to Table</span>
 					</button>
@@ -462,10 +462,10 @@
 								<Icon name="bot" size={12} />
 							{/if}
 						</div>
-						<div class="msg-body px-3 py-2 rounded-2xl shadow-sm {msg.role === 'user' ? 'bg-[var(--accent-primary)] text-white rounded-tr-sm' : 'bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-1)] rounded-tl-sm'}">
+						<div class="msg-body px-3 py-2 rounded-2xl shadow-sm {msg.role === 'user' ? 'bg-[var(--accent-primary)] text-[var(--text-inverse)] rounded-tr-sm' : 'bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-1)] rounded-tl-sm'}">
 							<div class="msg-content whitespace-pre-wrap">{msg.content}</div>
 							{#if msg.isStreaming}
-								<span class="streaming-cursor animate-pulse inline-block text-emerald-400" aria-hidden="true">▋</span>
+								<span class="streaming-cursor animate-pulse inline-block text-[var(--accent-primary)]" aria-hidden="true">▋</span>
 							{/if}
 						</div>
 					</div>
@@ -475,7 +475,7 @@
 
 		<!-- Chat Input Box -->
 		<div class="drawer-footer p-3 border-t border-[var(--border)] bg-[var(--surface-1)] shrink-0">
-			<div class="chat-input-wrapper relative flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
+			<div class="chat-input-wrapper relative flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-primary-border)] transition-all">
 				<textarea
 					rows="2"
 					placeholder="Ask Gemini about this table..."
@@ -490,7 +490,7 @@
 					}}
 				></textarea>
 				<button
-					class="btn-tactile send-btn w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary-hover)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors shadow-sm ml-2"
+					class="btn-tactile send-btn w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors shadow-sm ml-2"
 					disabled={isGenerating || !promptInput.trim()}
 					onclick={() => sendChatMessage()}
 					title="Send Message"

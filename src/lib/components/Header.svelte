@@ -122,7 +122,7 @@
 	<!-- Left: brand, file switcher, editable title -->
 	<div class="header-left flex items-center gap-2 min-w-0 shrink-0 max-sm:order-1">
 		<div
-			class="brand-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--accent-primary)] text-white shrink-0 shadow-sm"
+			class="brand-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--accent-primary)] text-[var(--text-inverse)] shrink-0 shadow-sm"
 			title="xlsx-ai"
 			aria-hidden="true"
 		>
@@ -198,7 +198,7 @@
 							{@const isActive = doc.id === documents.activeId}
 							<div
 								class="file-row group/file flex items-center gap-1 rounded-lg pr-1 {isActive
-									? 'bg-emerald-500/10'
+									? 'bg-[var(--accent-primary-bg)]'
 									: 'hover:bg-[var(--surface-hover)]'}"
 							>
 								<button
@@ -226,7 +226,7 @@
 									</span>
 								</button>
 								<button
-									class="file-delete w-6 h-6 shrink-0 rounded flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-3)] hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover/file:opacity-100 focus-visible:opacity-100 transition-opacity"
+									class="file-delete w-6 h-6 shrink-0 rounded flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] opacity-0 group-hover/file:opacity-100 focus-visible:opacity-100 transition-opacity"
 									onclick={(e) => {
 										e.stopPropagation();
 										onDeleteFile(doc.id);

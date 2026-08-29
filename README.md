@@ -28,7 +28,7 @@
   - Clean borders, tight radius tokens (0–8px), subtle elevation, and responsive layouts across desktop, tablet, and mobile.
   - Keyboard navigation (`ArrowUp`/`ArrowDown`, `Home`/`End`, `Escape`) and instant actions for column deletion and document replacement with undo (`Ctrl+Z`) — no confirmation modals.
   - Settings is a route (`/settings`) with a three-item section rail — AI & Models, Modules, Shortcuts — not a floating modal.
-  - Seamless **Dark** & **Light** themes with FOUC prevention and explicit `color-scheme` support.
+  - Seamless **Dark** & **Light** themes with FOUC prevention and explicit `color-scheme` support. Both palettes are generated in OKLCH on a single neutral hue with flat chroma, and every text/surface and accent/surface pairing is verified at >= 4.5:1 (WCAG AA).
   - 30-entry undo/redo history stack (`Ctrl+Z` / `Ctrl+Y`) and robust debounced auto-saving to `localStorage` with unload flush.
 
 ---

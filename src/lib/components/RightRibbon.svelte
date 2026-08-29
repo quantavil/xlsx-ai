@@ -181,7 +181,7 @@
 			<Icon name="loader" size={14} class="animate-spin text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
 			<span class="truncate">{moduleStore.progressMessage || 'Working…'}</span>
 			<button
-				class="module-progress-cancel shrink-0 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[11.5px] font-semibold text-[var(--text-2)] hover:text-rose-400 hover:border-rose-500/40 cursor-pointer transition-colors"
+				class="module-progress-cancel shrink-0 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[11.5px] font-semibold text-[var(--text-2)] hover:text-[var(--accent-rose)] hover:border-[var(--accent-rose-border)] cursor-pointer transition-colors"
 				onclick={() => moduleStore?.cancelRun()}
 			>
 				Cancel
@@ -192,7 +192,7 @@
 	<!-- Consolidated import warnings, opened from the summary toast -->
 	{#if showWarnings && moduleWarnings.length > 0}
 		<div
-			class="module-warnings-panel fixed bottom-6 right-6 z-[950] w-[min(92vw,420px)] max-h-[46vh] flex flex-col rounded-xl bg-[var(--surface-1)] border border-amber-500/30 shadow-2xl overflow-hidden"
+			class="module-warnings-panel fixed bottom-6 right-6 z-[950] w-[min(92vw,420px)] max-h-[46vh] flex flex-col rounded-xl bg-[var(--surface-1)] border border-[var(--accent-amber-border)] shadow-2xl overflow-hidden"
 			role="dialog"
 			aria-label="Import warnings"
 		>
@@ -222,7 +222,7 @@
 	<div class="ribbon-group ribbon-top flex flex-col items-center gap-2 w-full max-sm:flex-row max-sm:gap-3 max-sm:w-auto">
 		<!-- AI Assistant Tool Button -->
 		<button
-			class="ribbon-btn btn-ai-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border flex items-center justify-center cursor-pointer transition-all {store.isAiOpen ? 'active !bg-[var(--accent-primary)] !text-white !border-[var(--accent-primary)] shadow-sm' : 'text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'}"
+			class="ribbon-btn btn-ai-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border flex items-center justify-center cursor-pointer transition-all {store.isAiOpen ? 'active !bg-[var(--accent-primary)] !text-[var(--text-inverse)] !border-[var(--accent-primary)] shadow-sm' : 'text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'}"
 			onclick={() => store.toggleAi()}
 			aria-label="Toggle AI Assistant"
 			aria-expanded={store.isAiOpen}
@@ -316,7 +316,7 @@
 						onclick={handleExportExcel}
 						disabled={isExporting}
 					>
-						<span class="menu-icon-wrap icon-excel w-7 h-7 rounded-md bg-emerald-500/15 text-emerald-500 flex items-center justify-center shrink-0"><Icon name="file-spreadsheet" size={14} aria-hidden="true" /></span>
+						<span class="menu-icon-wrap icon-excel w-7 h-7 rounded-md bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] flex items-center justify-center shrink-0"><Icon name="file-spreadsheet" size={14} aria-hidden="true" /></span>
 						<div class="menu-item-text flex flex-col">
 							<span class="menu-title text-[12.5px] font-semibold text-[var(--text-1)]">Excel (.xlsx)</span>
 							<span class="menu-sub text-[10.5px] text-[var(--text-3)]">Standard workbook</span>
@@ -329,7 +329,7 @@
 						onclick={handleExportCsv}
 						disabled={isExporting}
 					>
-						<span class="menu-icon-wrap icon-csv w-7 h-7 rounded-md bg-sky-500/15 text-sky-500 flex items-center justify-center shrink-0"><Icon name="file-text" size={14} aria-hidden="true" /></span>
+						<span class="menu-icon-wrap icon-csv w-7 h-7 rounded-md bg-[var(--accent-sky-bg)] text-[var(--accent-sky)] flex items-center justify-center shrink-0"><Icon name="file-text" size={14} aria-hidden="true" /></span>
 						<div class="menu-item-text flex flex-col">
 							<span class="menu-title text-[12.5px] font-semibold text-[var(--text-1)]">CSV (.csv)</span>
 							<span class="menu-sub text-[10.5px] text-[var(--text-3)]">Plain text data</span>
