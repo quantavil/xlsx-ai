@@ -156,3 +156,41 @@ startxref
 		await expect(combineDocumentSources([txtFile])).rejects.toThrow('Unsupported file type');
 	});
 });
+
+describe('layOutPageText', () => {
+	// pdf.js `transform` is [a, b, c, d, x, y]; y grows upward.
+	const run = (str: string, x: number, y: number, width = str.length * 5) => ({
+		str,
+		transform: [1, 0, 0, 1, x, y],
+		width,
+		height: 10
+	});
+
+	it('rebuilds a table row that the content stream emitted column by column', async () => {
+		const { layOutPageText } = await import('../../src/lib/modules/icegrid/readers');
+		// Painted as every quantity, then every rate - the invoice-generator order that
+		// used to strand each number away from the line it belongs to.
+		const text = layOutPageText([
+			run('Ferrite Cores', 50, 700),
+			run('Ferrite Rings', 50, 680),
+			run('300', 300, 700, 15),
+			run('864', 300, 680, 15),
+			run('1.66', 400, 700, 20),
+			run('1.01', 400, 680, 20)
+		]);
+
+		expect(text).toBe('Ferrite Cores\t300\t1.66\nFerrite Rings\t864\t1.01');
+	});
+
+	it('joins runs inside one word with a space, not a column break', async () => {
+		const { layOutPageText } = await import('../../src/lib/modules/icegrid/readers');
+		expect(layOutPageText([run('WALL', 50, 700, 20), run('CLOCK', 72, 700, 25)])).toBe(
+			'WALL CLOCK'
+		);
+	});
+
+	it('returns an empty string for a page with no positioned text', async () => {
+		const { layOutPageText } = await import('../../src/lib/modules/icegrid/readers');
+		expect(layOutPageText([{ str: 'no transform' }, run('   ', 10, 10)])).toBe('');
+	});
+});

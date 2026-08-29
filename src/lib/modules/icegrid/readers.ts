@@ -108,27 +108,7 @@ export async function extractPdfText(file: File): Promise<ExtractedDocumentResul
 	for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
 		const page = await pdfDoc.getPage(pageNum);
 		const textContent = await page.getTextContent();
-		
-		const pageLines: string[] = [];
-		let currentLine = '';
-
-		for (const item of textContent.items) {
-			if ('str' in item && typeof item.str === 'string') {
-				const str = item.str.trim();
-				if (str) {
-					currentLine = currentLine ? `${currentLine} ${str}` : str;
-				}
-				if ('hasEOL' in item && item.hasEOL && currentLine) {
-					pageLines.push(currentLine);
-					currentLine = '';
-				}
-			}
-		}
-		if (currentLine) {
-			pageLines.push(currentLine);
-		}
-
-		const pageText = pageLines.join('\n').trim();
+		const pageText = layOutPageText(textContent.items);
 		if (pageText.length > 0) {
 			totalTextLength += pageText.length;
 			pageSections.push(`=== PAGE: ${pageNum} ===\n${pageText}`);
@@ -148,6 +128,71 @@ export async function extractPdfText(file: File): Promise<ExtractedDocumentResul
 		pageCount: pdfDoc.numPages,
 		charCount: joined.length
 	};
+}
+
+interface PositionedGlyphRun {
+	str: string;
+	transform: number[];
+	width: number;
+	height: number;
+}
+
+function isPositioned(item: unknown): item is PositionedGlyphRun {
+	const i = item as Partial<PositionedGlyphRun>;
+	return typeof i?.str === 'string' && Array.isArray(i.transform) && i.transform.length >= 6;
+}
+
+/**
+ * Rebuild a page's reading order from glyph positions.
+ *
+ * pdf.js hands back text runs in content-stream order, which on a form-drawn
+ * invoice is the order the generator painted boxes - every quantity, then every
+ * rate, then every amount, with the descriptions somewhere else entirely. Joining
+ * that stream on `hasEOL` produced text where no number sat beside the line it
+ * belonged to, so which cells the model could fill came down to which column it
+ * guessed right on a given run. That is the whole nondeterministic-blank problem.
+ *
+ * Runs are therefore bucketed by baseline (`transform[5]`) and ordered by x within
+ * the bucket, and a horizontal gap wider than a space becomes a tab so a table row
+ * stays a table row.
+ */
+export function layOutPageText(items: unknown[]): string {
+	const runs = items.filter(isPositioned).filter((i) => i.str.trim().length > 0);
+	if (runs.length === 0) return '';
+
+	// Half a line height tolerates the baseline jitter of sub/superscripts and mixed
+	// font sizes without merging two genuinely different rows.
+	const medianHeight =
+		runs.map((r) => r.height || 0).sort((a, b) => a - b)[Math.floor(runs.length / 2)] || 8;
+	const rowTolerance = Math.max(medianHeight * 0.5, 2);
+
+	const lines: PositionedGlyphRun[][] = [];
+	for (const run of [...runs].sort((a, b) => b.transform[5] - a.transform[5])) {
+		const last = lines[lines.length - 1];
+		if (last && Math.abs(last[0].transform[5] - run.transform[5]) <= rowTolerance) {
+			last.push(run);
+		} else {
+			lines.push([run]);
+		}
+	}
+
+	return lines
+		.map((line) => {
+			line.sort((a, b) => a.transform[4] - b.transform[4]);
+			let text = '';
+			let cursor = -Infinity;
+			for (const run of line) {
+				const gap = run.transform[4] - cursor;
+				// A gap wider than roughly one character is column spacing, not a word space.
+				if (text) text += gap > medianHeight * 0.8 ? '\t' : gap > 0.1 ? ' ' : '';
+				text += run.str.trim();
+				cursor = run.transform[4] + (run.width || 0);
+			}
+			return text.trim();
+		})
+		.filter((line) => line.length > 0)
+		.join('\n')
+		.trim();
 }
 
 export async function combineDocumentSources(
