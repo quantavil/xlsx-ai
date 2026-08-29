@@ -61,7 +61,6 @@ const AI_RESPONSE = {
 			evidence: [
 				{
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice row 6',
 					quote: '1\tSIDE TABLE LARGE\t94038900\t48\tPCS\t30.00\t1,440.00\t19',
 					fields: [
 						'Description',
@@ -75,32 +74,27 @@ const AI_RESPONSE = {
 				},
 				{
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice row 1',
 					quote: 'Invoice Number\tINV-A',
 					fields: ['InvoiceNo']
 				},
 				{
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice row 2',
 					quote: 'Destination\tUnited States',
 					fields: ['CountryDestination']
 				},
 				{
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice row 3',
 					quote: 'State of Origin\tRAJASTHAN',
 					fields: ['StateOrigin']
 				},
 				{
 					sourceFile: 'packing.xlsx',
-					location: 'Sheet Packing row 3',
 					quote: 'SIDE TABLE LARGE\t67.5\tKGS',
 					fields: ['SQCQTY', 'SQCUnit']
 				},
 				{
 					// Fabricated: this text is in neither file.
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice',
 					quote: 'FTA Preference NCPTI End Use GNX100',
 					fields: ['FTACode', 'EndUse']
 				}
@@ -115,13 +109,11 @@ const AI_RESPONSE = {
 			evidence: [
 				{
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice row 7',
 					quote: '2\tWALL CLOCK 24 INCH\t91059990\t120\tPCS\t36.57\t4,388.40\t19',
 					fields: ['Description', 'Quantity', 'QuantityUnit']
 				},
 				{
 					sourceFile: 'invoice.xlsx',
-					location: 'Sheet Invoice row 1',
 					quote: 'Invoice Number\tINV-A',
 					fields: ['InvoiceNo']
 				}

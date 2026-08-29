@@ -40,7 +40,6 @@ const extraction: CombinedExtractionResult = {
 
 const span = (over: Partial<IcegridEvidenceSpan>): IcegridEvidenceSpan => ({
 	sourceFile: 'invoice.pdf',
-	location: 'Page 1',
 	quote: '1  SIDE TABLE LARGE   48 PCS   30.00   1,440.00',
 	fields: ['Description'],
 	...over
@@ -252,13 +251,13 @@ describe('sanitizeIcegridExtraction', () => {
 	});
 
 	it('always clears Accessories and serials no matter what the AI sent', () => {
+		// These four are no longer in the candidate schema, so a compliant model cannot send
+		// them. sanitize still has to blank them, because nothing here trusts the model to
+		// stay compliant - hence the cast.
 		const { report } = run([
 			candidateRow({
-				Accessories: 'Y',
-				InvoiceSNo: 7,
-				ItemSNo: 9,
-				Per: 5,
-				evidence: [span({ fields: ['Accessories', 'InvoiceSNo', 'ItemSNo', 'Per'], quote: 'Invoice No: INV-A' })]
+				evidence: [span({ fields: ['Accessories', 'InvoiceSNo', 'ItemSNo', 'Per'], quote: 'Invoice No: INV-A' })],
+				...({ Accessories: 'Y', InvoiceSNo: 7, ItemSNo: 9, Per: 5 } as object)
 			})
 		]);
 		expect(report.rows[0].Accessories).toBeNull();
