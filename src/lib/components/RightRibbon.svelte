@@ -111,7 +111,10 @@
 				{
 					title: store.title,
 					columns: store.columns,
-					rows: store.rows
+					// CSV has no formulas — a `.xlsx` keeps `=SUM(..)`, a `.csv` carries
+					// what it computed. Passing store.rows here would escape the formula
+					// to literal `'=SUM(..)` text via sanitizeCsvValue.
+					rows: store.resolvedRows
 				},
 				store.title
 			);

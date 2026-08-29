@@ -182,9 +182,10 @@ describe('Data Management & SheetJS I/O', () => {
 				{ id: 'c1', name: 'Item', type: 'text' },
 				{ id: 'c2', name: 'Price', type: 'currency' },
 				{ id: 'c3', name: 'Share', type: 'percent' },
-				{ id: 'c4', name: 'Due', type: 'date' }
+				{ id: 'c4', name: 'Due', type: 'date' },
+				{ id: 'c5', name: 'Qty', type: 'number' }
 			],
-			rows: [{ id: 'r1', c1: 'Widget', c2: '$1,250.50', c3: '12.5%', c4: '05-04-2026' }],
+			rows: [{ id: 'r1', c1: 'Widget', c2: '$1,250.50', c3: '12.5%', c4: '05-04-2026', c5: 120 }],
 			// The user centered one text cell; everything else falls back to the type default.
 			cellAlign: { 'r1::c1': 'center' }
 		};
@@ -195,7 +196,8 @@ describe('Data Management & SheetJS I/O', () => {
 			{ value: 'Item', type: String, fontWeight: 'bold' },
 			{ value: 'Price', type: String, fontWeight: 'bold' },
 			{ value: 'Share', type: String, fontWeight: 'bold' },
-			{ value: 'Due', type: String, fontWeight: 'bold' }
+			{ value: 'Due', type: String, fontWeight: 'bold' },
+			{ value: 'Qty', type: String, fontWeight: 'bold' }
 		]);
 
 		expect(row).toEqual([
@@ -203,7 +205,8 @@ describe('Data Management & SheetJS I/O', () => {
 			{ value: 1250.5, type: Number, format: '"$"#,##0.00', align: 'right' },
 			{ value: 0.125, type: Number, format: '0.0#%', align: 'right' },
 			// Dates stay verbatim strings so a DD-MM-YYYY table survives the round trip.
-			{ value: '05-04-2026', type: String, align: 'left' }
+			{ value: '05-04-2026', type: String, align: 'left' },
+			{ value: 120, type: Number, align: 'right' }
 		]);
 	});
 

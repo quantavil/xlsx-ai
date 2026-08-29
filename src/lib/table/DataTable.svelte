@@ -5,7 +5,7 @@
 	import type { CellAlign, Column, ColumnType, CellValue, Row } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
 	import { computeFloatingPosition } from '$lib/ui/position';
-	import { resolveDropdownOptionsForRows } from './cells';
+	import { isNumericType, resolveDropdownOptionsForRows } from './cells';
 	import { resolveEditTargets, type EditTarget } from './range-edit';
 
 	let {
@@ -434,7 +434,7 @@
 		} else if (e.key === 'Enter' || e.key === 'F2') {
 			e.preventDefault();
 			const col = store.columns[colIndex];
-			if (col) startEditing(currentRow.id, col.id, currentRow[col.id]);
+			if (col) startEditing(currentRow.id, col.id, store.rawCell(currentRow.id, col.id));
 		} else if (e.key === 'Delete' || e.key === 'Backspace') {
 			e.preventDefault();
 			store.applyCellPatches(
@@ -769,16 +769,17 @@
 							<tr class="virtual-spacer" aria-hidden="true"><td colspan={store.columns.length + 2} style="height: {topPadH}px; padding:0; border:none"></td></tr>
 						{/if}
 						{#each renderedRows as { row, idx: rowIndex } (row.id)}
-							<tr class="data-row table-data-row h-9 border-b border-[var(--table-grid-line)] hover:bg-[var(--table-row-hover)] transition-colors group/row odd:bg-transparent even:bg-[var(--table-row-even)]" aria-rowindex={rowIndex + 1}>
+							<tr class="data-row table-data-row h-9 border-b border-[var(--table-grid-line)] hover:bg-[var(--table-row-hover)] transition-colors group/row odd:bg-transparent even:bg-[var(--table-row-even)]" aria-rowindex={store.sheetRowFor(row.id)}>
 								<!-- Row Index & Hover Actions -->
 								<td class="td-index w-10 min-w-10 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[10.5px] text-[var(--text-3)] select-none p-0" role="gridcell">
-									<span class="row-num block group-hover/row:hidden" aria-hidden="true">{rowIndex + 1}</span>
+									<!-- Row 1 is the header, so data starts at 2 - the number a formula references. -->
+									<span class="row-num block group-hover/row:hidden" aria-hidden="true">{store.sheetRowFor(row.id)}</span>
 									<div class="row-actions-hover hidden group-hover/row:flex items-center justify-center gap-0.5 absolute inset-0 bg-[var(--surface-2)]">
 										<button
 											class="row-action-btn w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] cursor-pointer transition-colors"
 											onclick={() => store.duplicateRow(row.id)}
 											title="Duplicate row"
-											aria-label="Duplicate row {rowIndex + 1}"
+											aria-label="Duplicate row {store.sheetRowFor(row.id)}"
 										>
 											<Icon name="copy" size={11} aria-hidden="true" />
 										</button>
@@ -786,7 +787,7 @@
 											class="row-action-btn delete w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer transition-colors"
 											onclick={() => store.deleteRow(row.id)}
 											title="Delete row"
-											aria-label="Delete row {rowIndex + 1}"
+											aria-label="Delete row {store.sheetRowFor(row.id)}"
 										>
 											<Icon name="trash" size={11} aria-hidden="true" />
 										</button>
@@ -800,7 +801,7 @@
 									{@const cellVal = row ? row[col.id] : null}
 									{@const isEditing = editingCell?.rowId === row?.id && editingCell?.columnId === col.id}
 									{@const isActive = activeCell?.rowId === row?.id && activeCell?.columnId === col.id}
-									{@const isNumeric = colType === 'number' || colType === 'currency' || colType === 'percent'}
+									{@const isNumeric = isNumericType(colType)}
 									{@const hasVal = cellVal !== null && cellVal !== undefined && cellVal !== ''}
 									{@const dropdownStyle = isDropdown && hasVal ? getDropdownStyle(String(cellVal)) : null}
 
@@ -838,7 +839,7 @@
 												startEditing(row.id, col.id, cellVal);
 											}
 										}}
-										ondblclick={() => startEditing(row.id, col.id, cellVal)}
+										ondblclick={() => startEditing(row.id, col.id, store.rawCell(row.id, col.id))}
 									>
 										{#if isDropdown}
 											<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
@@ -869,7 +870,7 @@
 																return;
 															}
 															if (!isActive) selectCell(row.id, col.id, rowIndex, colIndex);
-															startEditing(row.id, col.id, cellVal);
+															startEditing(row.id, col.id, store.rawCell(row.id, col.id));
 														}}
 													>▾</button>
 												{/if}

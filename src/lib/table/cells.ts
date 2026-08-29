@@ -3,6 +3,11 @@ import type { CellAlign, CellValue, Column, ColumnType, DropdownOption, Row } fr
 
 const NUMERIC_TYPES = new Set<ColumnType>(['number', 'currency', 'percent']);
 
+/** The three types the grid right-aligns, sums, and exports as Excel numbers. */
+export function isNumericType(type: ColumnType | string | undefined): boolean {
+	return NUMERIC_TYPES.has(type as ColumnType);
+}
+
 function parseNumeric(value: CellValue): number | null {
 	if (typeof value === 'number') return Number.isFinite(value) ? value : null;
 	if (typeof value !== 'string') return null;
@@ -24,9 +29,17 @@ export function numericCellValue(type: ColumnType, value: CellValue | undefined)
 		: parsed;
 }
 
+/** An Excel formula the user typed. Stored verbatim; `resolveFormulaRows` computes it. */
+export function isFormula(value: CellValue | undefined): value is string {
+	return typeof value === 'string' && value.length > 1 && value[0] === '=';
+}
+
 export function normalizeCellValue(type: ColumnType, value: CellValue | undefined): CellValue {
 	if (value === null || value === undefined) return null;
 	if (typeof value === 'string' && value.trim() === '') return null;
+	// A formula survives every column type verbatim - coercing `=SUM(A1:B1)` through
+	// numericCellValue would strip it to the digits it happens to contain.
+	if (typeof value === 'string' && isFormula(value.trim())) return value.trim();
 	if (NUMERIC_TYPES.has(type)) return numericCellValue(type, value);
 	if (typeof value === 'string') return value.trim();
 	return value;

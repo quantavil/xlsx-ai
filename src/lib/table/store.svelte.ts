@@ -22,7 +22,8 @@ import {
 	DEFAULT_TABLE_TITLE,
 	COLUMN_TYPE_CONFIG
 } from '$lib/constants';
-import { normalizeCellValue, numericCellValue, defaultAlignForType } from './cells';
+import { normalizeCellValue, numericCellValue, defaultAlignForType, isNumericType } from './cells';
+import { resolveFormulaRows, sheetRowNumber } from './formulas';
 import {
 	parseAndMigrateTableDocument,
 	sanitizeAndNormalizeTableData,
@@ -141,9 +142,29 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		future = [];
 	}
 
+	/**
+	 * `rows` with formula cells swapped for their computed values.
+	 *
+	 * Everything downstream - the grid, search, sort, summaries, export - reads this,
+	 * so a formula behaves like the number it produces. Editing still reads `rows`
+	 * through `rawCell()`, which is what puts `=SUM(A1:B1)` back in the editor.
+	 * Identical to `rows` when the table holds no formulas.
+	 */
+	const resolvedRows = $derived(resolveFormulaRows(columns || [], rows || []));
+
+	/**
+	 * Row id to the spreadsheet row number a formula addresses it by.
+	 *
+	 * Storage order, never the rendered position: sorting and search are views here,
+	 * so a gutter counting rendered rows would label a row `4` while `A4` in a formula
+	 * still meant a different one. Numbers skip over filtered-out rows, which is what
+	 * Excel's own filtered view does.
+	 */
+	const sheetRowById = $derived(new Map((rows || []).map((r, i) => [r.id, sheetRowNumber(i)])));
+
 	// Derived: Filtered & Sorted Rows
 	const filteredRows = $derived.by(() => {
-		let result = rows || [];
+		let result = resolvedRows;
 
 		// 1. Search Query Filter across all cell values
 		const query = searchQuery ? searchQuery.trim().toLowerCase() : '';
@@ -166,7 +187,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			if (!col) return result;
 
 			const colType = col.type || 'text';
-			const isNumeric = colType === 'number' || colType === 'currency' || colType === 'percent';
+			const isNumeric = isNumericType(colType);
 			const isDate = colType === 'date';
 
 			result = [...result].sort((a, b) => {
@@ -226,7 +247,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			let min: number | undefined = undefined;
 			let max: number | undefined = undefined;
 
-			for (const row of rows || []) {
+			for (const row of resolvedRows) {
 				if (!row) continue;
 				totalCount++;
 				const val = row[col.id];
@@ -747,6 +768,17 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		},
 		get filteredRows() {
 			return filteredRows;
+		},
+		get resolvedRows() {
+			return resolvedRows;
+		},
+		/** The row number shown in the gutter and used by formula references. */
+		sheetRowFor(rowId: string): number {
+			return sheetRowById.get(rowId) ?? 0;
+		},
+		/** The stored cell - a formula string, not its result. What the editor opens on. */
+		rawCell(rowId: string, columnId: string): CellValue {
+			return rows.find((r) => r.id === rowId)?.[columnId] ?? null;
 		},
 		get columnSummaries() {
 			return columnSummaries;

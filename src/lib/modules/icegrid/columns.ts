@@ -31,8 +31,8 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'quantityUnit', header: 'QuantityUnit', type: 'dropdown', description: 'Unit of measurement', catalog: 'unit', required: true },
 	{ id: 'sqcQty', header: 'SQCQTY', type: 'number', description: 'Standard Quantity Code quantity' },
 	{ id: 'sqcUnit', header: 'SQCUnit', type: 'dropdown', description: 'Standard Quantity Code unit', catalog: 'unit' },
-	{ id: 'unitPrice', header: 'UnitPrice', type: 'currency', description: 'Price per unit', required: true },
-	{ id: 'productAmount', header: 'ProductAmount', type: 'currency', description: 'Total item amount as stated on the source document' },
+	{ id: 'unitPrice', header: 'UnitPrice', type: 'number', description: 'Price per unit', required: true },
+	{ id: 'productAmount', header: 'ProductAmount', type: 'number', description: 'Total item amount as stated on the source document' },
 	{ id: 'per', header: 'Per', type: 'number', description: 'Unit price denominator; defaults to 1' },
 	{ id: 'perUnit', header: 'PerUnit', type: 'dropdown', description: 'Unit for the price denominator', catalog: 'unit' },
 	{ id: 'drawbackSchNo', header: 'drawback_schno', type: 'text', description: 'Duty drawback schedule serial number' },
@@ -46,12 +46,12 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'ftaCode', header: 'FTACode', type: 'dropdown', description: 'Free Trade Agreement preference code', catalog: 'fta' },
 	{ id: 'stateOrigin', header: 'StateOrigin', type: 'dropdown', description: 'State of origin, stored as its two-digit code', catalog: 'state' },
 	{ id: 'districtOrigin', header: 'DistrictOrigin', type: 'dropdown', description: 'District of origin, stored as its code; options depend on StateOrigin', catalog: 'district', dependsOn: 'StateOrigin' },
-	{ id: 'taxableValue', header: 'Taxable_Value', type: 'currency', description: 'Assessable taxable value' },
+	{ id: 'taxableValue', header: 'Taxable_Value', type: 'number', description: 'Assessable taxable value' },
 	// `number`, not `percent`: ICEGrid stores 18 for 18%, and the host `percent` type
 	// would treat that as 1800%.
 	{ id: 'igstRate', header: 'IGST_Rate', type: 'number', description: 'IGST rate as a whole number, e.g. 5, 12, 18, 28' },
-	{ id: 'igstAmount', header: 'IGST_Amount', type: 'currency', description: 'IGST tax amount' },
-	{ id: 'gstCessAmount', header: 'GSTCCessAmount', type: 'currency', description: 'GST compensation cess amount' },
+	{ id: 'igstAmount', header: 'IGST_Amount', type: 'number', description: 'IGST tax amount' },
+	{ id: 'gstCessAmount', header: 'GSTCCessAmount', type: 'number', description: 'GST compensation cess amount' },
 	{ id: 'rodtep', header: 'RODTEP', type: 'dropdown', description: 'RoDTEP eligibility', catalog: 'rodtep' },
 	{ id: 'rodtepQty', header: 'RoDTEPQty', type: 'number', description: 'RoDTEP eligible quantity' }
 ];
@@ -66,7 +66,15 @@ export function buildIcegridTableColumns(
 ): Column[] {
 	return ICEGRID_COLUMNS.map((col) => {
 		const width =
-			col.type === 'currency' ? 140 : col.id === 'description' ? 240 : 130;
+			col.id === 'description'
+				? 240
+				: col.id === 'unitPrice' ||
+					  col.id === 'productAmount' ||
+					  col.id === 'taxableValue' ||
+					  col.id === 'igstAmount' ||
+					  col.id === 'gstCessAmount'
+					? 140
+					: 130;
 
 		if (!col.catalog) {
 			return { id: col.header, name: col.header, type: col.type, width };

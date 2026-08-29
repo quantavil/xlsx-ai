@@ -4,6 +4,7 @@
 	import type { CellValue } from '$lib/types';
 	import { createAiApi } from '$lib/ai/client';
 	import { validatePatchProposals } from '$lib/ai/patches';
+	import { isNumericType } from '$lib/table/cells';
 
 	let {
 		store,
@@ -40,7 +41,7 @@
 	// Derived from the live table instead of hardcoded to one sample dataset.
 	let examplePrompts = $derived.by(() => {
 		const firstNumeric = store.columns.find(
-			(c) => c.type === 'number' || c.type === 'currency' || c.type === 'percent'
+			(c) => isNumericType(c.type)
 		);
 		const firstCategorical = store.columns.find((c) => c.type === 'dropdown' || c.type === 'text');
 		const chips = [

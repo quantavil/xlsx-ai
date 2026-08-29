@@ -47,7 +47,7 @@ describe('ICEGrid Column Catalog', () => {
 		expect(descCol?.width).toBeGreaterThanOrEqual(200);
 
 		const priceCol = tableCols.find((c) => c.id === 'UnitPrice');
-		expect(priceCol?.type).toBe('currency');
+		expect(priceCol?.type).toBe('number');
 	});
 });
 

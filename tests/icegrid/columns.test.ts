@@ -44,9 +44,15 @@ describe('ICEGrid column metadata', () => {
 		expect(buildIcegridTableColumns().find((c) => c.id === 'Accessories')?.dropdown).toBeUndefined();
 	});
 
-	it('types IGST_Rate as a number so 18 does not render as 1800%', () => {
+	it('types IGST_Rate and amount columns as numbers with no currency or percent types', () => {
 		expect(ICEGRID_COLUMNS.find((c) => c.header === 'IGST_Rate')!.type).toBe('number');
+		expect(ICEGRID_COLUMNS.find((c) => c.header === 'UnitPrice')!.type).toBe('number');
+		expect(ICEGRID_COLUMNS.find((c) => c.header === 'ProductAmount')!.type).toBe('number');
+		expect(ICEGRID_COLUMNS.find((c) => c.header === 'Taxable_Value')!.type).toBe('number');
+		expect(ICEGRID_COLUMNS.find((c) => c.header === 'IGST_Amount')!.type).toBe('number');
+		expect(ICEGRID_COLUMNS.find((c) => c.header === 'GSTCCessAmount')!.type).toBe('number');
 		expect(ICEGRID_COLUMNS.some((c) => c.type === 'percent')).toBe(false);
+		expect(ICEGRID_COLUMNS.some((c) => c.type === 'currency')).toBe(false);
 	});
 
 	it('attaches the unit catalog to all four UOM columns', () => {

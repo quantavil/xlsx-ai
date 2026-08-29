@@ -1,6 +1,6 @@
 import type { Cell, SheetData } from 'write-excel-file/browser';
 import type { CellAlignMap, CellValue, Column, ColumnType, Row, TableData } from '$lib/types';
-import { defaultAlignForType, numericCellValue } from '$lib/table/cells';
+import { defaultAlignForType, isFormula, isNumericType, numericCellValue } from '$lib/table/cells';
 
 export function sanitizeFilename(raw?: string): string {
 	const clean = (raw || 'table-export')
@@ -77,7 +77,6 @@ export function tableToCsv(table: TableData, options: { safeFormulaEscape?: bool
 
 /** Excel number formats mirroring the grid's Intl formatters in `constants.ts`. */
 const NUMBER_FORMAT: Partial<Record<ColumnType, string>> = {
-	number: '#,##0.##',
 	currency: '"$"#,##0.00',
 	percent: '0.0#%'
 };
@@ -93,13 +92,22 @@ function toSheetCell(column: Column, row: Row | undefined, cellAlign: CellAlignM
 	const raw = row?.[column.id];
 
 	if (raw === null || raw === undefined || raw === '') return null;
+
+	// The `<f>` element carries the expression without its leading `=`; passing the
+	// typed string through verbatim writes `<f>=SUM(..)</f>`, which is off-spec.
+	// Excel computes the result when it opens the file — write-excel-file has no slot
+	// for a cached value, so the cell reads blank in viewers that do not recalculate.
+	if (isFormula(raw)) return { value: raw.slice(1), type: 'Formula', align };
+
 	if (typeof raw === 'boolean') return { value: raw, type: Boolean, align };
 
-	const format = NUMBER_FORMAT[column.type];
-	if (format) {
+	if (isNumericType(column.type)) {
 		const num = numericCellValue(column.type, raw);
 		// Unparseable text sitting in a numeric column still has to survive the export.
-		if (num !== null) return { value: num, type: Number, format, align };
+		if (num !== null) {
+			const format = NUMBER_FORMAT[column.type];
+			return { value: num, type: Number, ...(format ? { format } : {}), align };
+		}
 	}
 
 	// Dates stay strings on purpose — the grid never reparses them either, so a

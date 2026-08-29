@@ -103,6 +103,20 @@ export async function parseSpreadsheetBuffer(
 		throw new Error('The selected sheet is empty.');
 	}
 
+	// `sheet_to_json` hands back Excel's cached results. Overlay the expressions so a
+	// workbook round-trips as formulas instead of collapsing to the numbers it last
+	// computed. Only cells Excel actually stored a value for are visible here.
+	// The matrix is origin-shifted to `!ref`'s top-left, so a sheet whose data starts
+	// at B3 puts B3 in `rawMatrix[0][0]` — the address has to be offset to match.
+	const origin = XLSX.utils.decode_range(ws['!ref'] ?? 'A1').s;
+	for (let r = 0; r < rawMatrix.length; r++) {
+		for (let c = 0; c < (rawMatrix[r]?.length ?? 0); c++) {
+			const addr = `${getExcelColumnName(origin.c + c)}${origin.r + r + 1}`;
+			const formula = (ws[addr] as { f?: string } | undefined)?.f;
+			if (formula) rawMatrix[r][c] = formula.startsWith('=') ? formula : `=${formula}`;
+		}
+	}
+
 	// Filter out empty trailing rows
 	const nonEmptyMatrix = rawMatrix.filter((row) =>
 		row && row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== '')
