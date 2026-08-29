@@ -114,7 +114,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	let body: unknown;
 	try {
 		const rawBody = await request.text();
-		if (new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
+		// UTF-8 never encodes to fewer bytes than the string has UTF-16 code units, so a
+		// short string is provably under the cap and needs no encoded copy made of it.
+		if (rawBody.length > MAX_REQUEST_BYTES && new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
 			return json({ error: 'Request payload exceeds the 4 MiB limit.' }, { status: 413 });
 		}
 		body = JSON.parse(rawBody);

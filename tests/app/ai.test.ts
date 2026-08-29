@@ -280,6 +280,39 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect(result.conflicts[0].reason).toBe('value_conflict');
 		expect(result.conflicts[1].reason).toBe('missing_row');
 	});
+
+	it('treats an empty cell the model saw as a value it has to still find there', async () => {
+		const { validatePatchProposals } = await import('../../src/lib/ai/patches');
+		const table = {
+			title: 'Live Table',
+			columns: [{ id: 'c1', name: 'Status', type: 'text' as const }],
+			// The user typed this after the model read the table and saw the cell empty.
+			rows: [{ id: 'r1', c1: 'Typed by hand' }]
+		};
+
+		const result = validatePatchProposals(table, [
+			{ rowId: 'r1', columnId: 'c1', oldValue: null, newValue: 'Imputed' }
+		]);
+
+		expect(result.validPatches.length).toBe(0);
+		expect(result.conflicts[0].reason).toBe('value_conflict');
+	});
+
+	it('still applies a patch to a cell that really is empty', async () => {
+		const { validatePatchProposals } = await import('../../src/lib/ai/patches');
+		const table = {
+			title: 'Live Table',
+			columns: [{ id: 'c1', name: 'Status', type: 'text' as const }],
+			rows: [{ id: 'r1', c1: null }]
+		};
+
+		const result = validatePatchProposals(table, [
+			{ rowId: 'r1', columnId: 'c1', oldValue: null, newValue: 'Imputed' }
+		]);
+
+		expect(result.conflicts.length).toBe(0);
+		expect(result.validPatches[0].newValue).toBe('Imputed');
+	});
 });
 
 describe('_renderTsv', () => {

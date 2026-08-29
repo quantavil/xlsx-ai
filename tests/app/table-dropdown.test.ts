@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import { handleComboboxKeydown, type ComboboxOptions } from '../../src/lib/ui/combobox';
 import {
 	sanitizeDropdownConfig,
 	sanitizeAndNormalizeTableData,
@@ -242,5 +243,57 @@ describe('dropdownOptionLabel', () => {
 	it('renders "value — label" when labeled and the bare value otherwise', () => {
 		expect(dropdownOptionLabel({ value: '08', label: 'RAJASTHAN' })).toBe('08 — RAJASTHAN');
 		expect(dropdownOptionLabel({ value: 'PCS' })).toBe('PCS');
+	});
+});
+
+describe('handleComboboxKeydown reaches every rendered row', () => {
+	const press = (
+		key: string,
+		highlightIndex: number,
+		extra: Partial<ComboboxOptions<string>> = {}
+	) => {
+		const seen: { landed: number | null; cleared: boolean; created: string | null } = {
+			landed: null,
+			cleared: false,
+			created: null
+		};
+		handleComboboxKeydown<string>({ key, preventDefault: () => {} } as KeyboardEvent, {
+			items: ['a', 'b'],
+			query: 'zz',
+			highlightIndex,
+			getItemLabel: (i: string) => i,
+			onHighlight: (idx) => (seen.landed = idx),
+			onSelect: () => {},
+			onCreate: (q) => (seen.created = q),
+			onCancel: () => {},
+			onClear: () => (seen.cleared = true),
+			...extra
+		});
+		return seen;
+	};
+
+	it('walks up from the first option onto Clear rather than past it', () => {
+		expect(press('ArrowUp', 0).landed).toBe(-1);
+	});
+
+	it('walks down from the last option onto + Add when it is on screen', () => {
+		expect(press('ArrowDown', 1, { hasCreateRow: true }).landed).toBe(2);
+		// ...and wraps to Clear when it is not, never landing on a row that is not drawn.
+		expect(press('ArrowDown', 1).landed).toBe(-1);
+	});
+
+	it('wraps from Clear to the last drawn row in both directions', () => {
+		expect(press('ArrowUp', -1, { hasCreateRow: true }).landed).toBe(2);
+		expect(press('ArrowDown', -1).landed).toBe(0);
+	});
+
+	it('commits Clear on Enter instead of creating a value from the search text', () => {
+		const r = press('Enter', -1);
+		expect(r.cleared).toBe(true);
+		expect(r.created).toBeNull();
+	});
+
+	it('leaves a list with no Clear row starting at the first option', () => {
+		expect(press('ArrowUp', 0, { onClear: undefined }).landed).toBe(1);
 	});
 });

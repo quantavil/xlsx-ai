@@ -43,12 +43,11 @@ export function validatePatchProposals(
 
 		const currentVal = row[proposal.columnId] ?? null;
 
-		// Stale patch conflict check: if oldValue was specified and differs from current live table cell
-		if (
-			proposal.oldValue !== undefined &&
-			proposal.oldValue !== null &&
-			!Object.is(proposal.oldValue, currentVal)
-		) {
+		// Stale patch conflict check: if oldValue was specified and differs from current
+		// live table cell. `null` is one of those specified values - it is what the model
+		// saw in an empty cell - so skipping the check for it would let a patch written
+		// against a blank overwrite whatever the user typed there in the meantime.
+		if (proposal.oldValue !== undefined && !Object.is(proposal.oldValue, currentVal)) {
 			conflicts.push({
 				patch: proposal,
 				reason: 'value_conflict',

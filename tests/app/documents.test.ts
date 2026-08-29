@@ -58,6 +58,49 @@ describe('Workspace file index', () => {
 		expect(store.rows[0].c1).toBe('two');
 	});
 
+	it('does not carry one file\'s undo history into another', () => {
+		const docs = createDocumentStore();
+		docs.hydrate();
+		const store = createTableStore(undefined, { storageKey: () => docs.contentKey() });
+
+		const first = docs.activeId!;
+		store.loadTable(
+			{ title: 'Invoices', columns: [{ id: 'c1', name: 'A', type: 'text' }], rows: [{ id: 'r1', c1: 'one' }] },
+			{ undoable: false }
+		);
+		store.flushSave();
+
+		const second = docs.create('Second');
+		store.loadTable(
+			{ title: 'Second', columns: [{ id: 'c1', name: 'B', type: 'text' }], rows: [{ id: 'r1', c1: 'two' }] },
+			{ undoable: false }
+		);
+		store.flushSave();
+
+		// Back to the first file and edit it, so it has something to undo. This is the
+		// path `openFile` takes: a restored document never goes through `loadTable`.
+		docs.open(first);
+		expect(store.hydrate().status).toBe('restored');
+		store.setCell('r1', 'c1', 'edited');
+		store.flushSave();
+		expect(store.canUndo).toBe(true);
+
+		docs.open(second);
+		expect(store.hydrate().status).toBe('restored');
+
+		// Ctrl+Z here used to restore the *first* file's contents and autosave them over
+		// this one, because hydrate left the previous file's history in place.
+		expect(store.canUndo).toBe(false);
+		store.undo();
+		store.flushSave();
+		expect(store.title).toBe('Second');
+		expect(store.rows[0].c1).toBe('two');
+
+		docs.open(first);
+		store.hydrate();
+		expect(store.rows[0].c1).toBe('edited');
+	});
+
 	it('deleting a file drops its stored rows and re-points the active file', () => {
 		const docs = createDocumentStore();
 		const first = docs.hydrate();

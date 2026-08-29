@@ -966,6 +966,39 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(page.locator('input.cell-input-editor')).toHaveValue('=C4*2');
 	});
 
+	test('filling under a filter steps by sheet rows, not by visible ones', async ({ page }) => {
+		// Tier cycles Active/Trial/Pending, so the Trial rows are r2, r5, r8 - sheet rows
+		// 3, 6, 9. Two rows apart on screen, three apart in the sheet a formula addresses.
+		await page.locator('.search-box input').fill('Trial');
+		const rows = page.locator('tbody tr.data-row');
+		await expect(rows).toHaveCount(8);
+
+		const source = rows.nth(0).locator('td.td-cell').nth(3);
+		await source.click();
+		await source.dblclick();
+		await page.locator('input.cell-input-editor').fill('=C3*2');
+		await page.locator('input.cell-input-editor').press('Enter');
+
+		await source.click();
+		const box = await source.locator('.active-cell-handle').boundingBox();
+		const target = await rows.nth(1).locator('td.td-cell').nth(3).boundingBox();
+		await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, {
+			steps: 6
+		});
+		await page.mouse.up();
+
+		// The next Trial row is r5, whose price is on sheet row 6 - not row 4, which is
+		// simply the next row down and belongs to a row the filter is hiding.
+		await rows.nth(1).locator('td.td-cell').nth(3).dblclick();
+		await expect(page.locator('input.cell-input-editor')).toHaveValue('=C6*2');
+		await page.locator('input.cell-input-editor').press('Escape');
+
+		await page.locator('.search-clear').click();
+		await expect(rows.nth(4).locator('td.td-cell').nth(3)).toContainText('496');
+	});
+
 	test('deleting a row re-aims the formulas that pointed past it', async ({ page }) => {
 		const rows = page.locator('tbody tr.data-row');
 		const totals = rows.nth(0).locator('td.td-cell').nth(3);

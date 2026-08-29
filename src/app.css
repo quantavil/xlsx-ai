@@ -12,6 +12,9 @@
 
 	[data-theme='dark'] {
 		color-scheme: dark;
+		/* Dropdown chip text, solved per theme to clear WCAG AA on every curated hue. */
+		--chip-text-s: 85%;
+		--chip-text-l: 82%;
 		/* Neutrals: OKLCH hue 265, chroma held flat at 0.030, even lightness steps. */
 		--bg: #050a17;
 		--surface-1: #141b29;
@@ -56,6 +59,9 @@
 
 	[data-theme='light'] {
 		color-scheme: light;
+		/* Dropdown chip text, solved per theme to clear WCAG AA on every curated hue. */
+		--chip-text-s: 72%;
+		--chip-text-l: 26%;
 		/* Same hue/chroma discipline; accents are solved dark enough to read on white. */
 		--bg: #eef1f7;
 		--surface-1: #ffffff;

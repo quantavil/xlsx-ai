@@ -159,6 +159,8 @@
 				// smuggle a value past the catalog.
 				if (allowCustom) onCommit(newOption);
 			},
+			onClear: () => onCommit(''),
+			hasCreateRow: showCreate,
 			onCancel: () => {
 				onCancel();
 			}

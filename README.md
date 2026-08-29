@@ -213,7 +213,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 ```bash
 bun test
 ```
-Runs **372 unit tests across 21 files**, covering the table store, the multi-file document
+Runs **383 unit tests across 21 files**, covering the table store, the multi-file document
 index, cell alignment, formula evaluation and reference remapping, SheetJS import/export,
 the AI endpoint, structured dropdowns, the duty-structure lookup, and the ICEGrid
 extraction pipeline.
@@ -222,7 +222,7 @@ extraction pipeline.
 | :--- | ---: | :--- |
 | `formulas` | 31 | Evaluation, `#ERROR!` containment, A1 addressing, completion, point mode, fill and structural reference remapping |
 | `icegrid-golden-fixtures` | 38 | The trusted workbook contract: 37 headers, row counts, blank `Accessories`, `Per = 1`, serial rules, literal IGST rates |
-| `icegrid-sanitize` | 37 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support, reordered extraction, trusted prose |
+| `icegrid-sanitize` | 40 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support, reordered extraction, trusted prose, fragments of a printed identifier |
 | `icegrid-derive` | 24 | Schedule lookups and formulas, asserted against every corpus RITC |
 | `icegrid-duty-lookup` | 18 | Serial selection and its basis, per-tariff-code dropdown scoping, the three `RODTEP` states, and fallback to the bundled schedule |
 | `icegrid-catalogs` | 21 | Catalog shape and exact-only resolution, including negative fuzzy-match tests |
@@ -286,7 +286,7 @@ the deterministic code is tested with captured responses that carry evidence spa
 ```bash
 bun run test:e2e
 ```
-Runs 44 end-to-end user workflows in headless Chromium. CI runs this suite as its own
+Runs 45 end-to-end user workflows in headless Chromium. CI runs this suite as its own
 job alongside `check`/`test`/`build`, so a regression here fails the branch. Covered:
 - The column-letter strip above the named header, and the row gutter counting from spreadsheet row 2.
 - Formula completion (`=SU` → `SUM(`), point mode writing a clicked cell's address, and the outline over what a formula reads.

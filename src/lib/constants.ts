@@ -178,9 +178,14 @@ export function getDropdownStyle(value: string): { bg: string; text: string; bor
 		hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
 	}
 	const hue = _CURATED_HUES[hash % _CURATED_HUES.length];
-	// Balanced for both themes: translucent bg blends to surface, text 48% is crisp on light and still visible on dark
+	// The chip background is translucent and blends into whichever surface is behind it,
+	// so it needs no theme of its own. The text does: one fixed lightness cannot clear
+	// 4.5:1 against both a near-white and a near-black surface - the hues that read on
+	// one are the ones that vanish on the other. `--chip-text-*` carries the theme's own
+	// answer (see app.css); the literals here are the light-theme values, used only if
+	// this ever renders outside the themed tree.
 	const bg = `hsla(${hue} 80% 55% / 0.16)`;
-	const text = `hsl(${hue} 72% 42%)`;
+	const text = `hsl(${hue} var(--chip-text-s, 72%) var(--chip-text-l, 26%))`;
 	const border = `hsla(${hue} 80% 55% / 0.28)`;
 	const style = { bg, text, border };
 	_dropdownStyleCache.set(key, style);

@@ -337,6 +337,24 @@ describe('validateIcegridReport after sanitization', () => {
 	});
 });
 
+describe('quoteSupportsValue: a fragment of a printed thing is not evidence', () => {
+	it('refuses a value that is only part of a longer printed number', () => {
+		// The whole point of the run rule: 1000 is not 100000, however the layout reads.
+		expect(quoteSupportsValue('QTY 100000 PCS', '1000')).toBe(false);
+		expect(quoteSupportsValue('REF 1994038900XY', '94038900')).toBe(false);
+	});
+
+	it('refuses a fragment carved out of the middle of an identifier', () => {
+		expect(quoteSupportsValue('GSTIN 27AABCU9603R1ZM', 'AABCU9603')).toBe(false);
+	});
+
+	it('still reads a value the layout split or labelled', () => {
+		expect(quoteSupportsValue('RITC 9403 8900 furniture', '94038900')).toBe(true);
+		expect(quoteSupportsValue('Net 100PCS shipped', 'PCS')).toBe(true);
+		expect(quoteSupportsValue('Destination: United States', 'United States')).toBe(true);
+	});
+});
+
 describe('quoteSupportsValue: separators in the document, not the value', () => {
 	it('matches an HS code the invoice prints with dots', () => {
 		expect(quoteSupportsValue('Soft Ferrite Cores, HSN:8505.11.10', '85051110')).toBe(true);

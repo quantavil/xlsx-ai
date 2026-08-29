@@ -89,6 +89,56 @@ function numericTokens(text: string): Set<string> {
 }
 
 /**
+ * Every span of runs the quote can be said to spell out.
+ *
+ * A run is a stretch of digits or of letters. Runs the layout glued together with
+ * punctuation and nothing else - `8505.11.10`, `26-27`, `1,440.00` - are one printed
+ * thing, and a span may not stop in the middle of one unless the character class
+ * changes there. Across a space, a span may stop wherever it likes, because a space
+ * is where the document itself stopped.
+ *
+ * That is the whole distinction between the layout and the value. `hsn:8505.11.10`
+ * spells out `85051110`, `ritc 9403 8900` spells out `94038900`, and `100pcs` spells
+ * out `pcs`. But `1994038900` does not spell out `94038900`, a printed `100000` does
+ * not spell out `1000`, and `30744 / 26-27` does not spell out `3074426` - that last
+ * one stops halfway through `26-27`, keeping a fragment of a printed number.
+ *
+ * Spans are capped because an identifier is a handful of runs, never a paragraph -
+ * without it a long prose quote would cost O(runs^2).
+ */
+const MAX_SPAN_RUNS = 8;
+
+function runSpans(text: string): Set<string> {
+	const runs = [...text.matchAll(/\d+|[a-z]+/g)];
+	const digits = runs.map((m) => m[0].charCodeAt(0) <= 57);
+	const end = (i: number) => (runs[i].index ?? 0) + runs[i][0].length;
+	/** Nothing but punctuation sits between this run and the next. */
+	const glued = runs.map(
+		(_, i) => i + 1 < runs.length && !/\s/.test(text.slice(end(i), runs[i + 1].index))
+	);
+	const breakable = (j: number) =>
+		j + 1 === runs.length || !glued[j] || digits[j + 1] !== digits[j];
+
+	const spans = new Set<string>();
+	for (let i = 0; i < runs.length; i++) {
+		// Starting here would take the back half of something printed as one thing.
+		if (i > 0 && glued[i - 1] && digits[i - 1] === digits[i]) continue;
+		// A span carved out of a glued group has to reach one of its ends. Stripping the
+		// `hsn` off `hsn:8505.11.10` leaves a value that still ends where the printed one
+		// does; `aabcu9603` out of a GSTIN reaches neither end and is a fragment.
+		const atGroupStart = i === 0 || !glued[i - 1];
+		let joined = '';
+		for (let j = i; j < Math.min(runs.length, i + MAX_SPAN_RUNS); j++) {
+			joined += runs[j][0];
+			if (breakable(j) && (atGroupStart || j + 1 === runs.length || !glued[j])) {
+				spans.add(joined);
+			}
+		}
+	}
+	return spans;
+}
+
+/**
  * Does this quote actually contain the value the model proposed?
  *
  * Numbers are compared as numbers, so `1,250.00` in the document supports `1250`.
@@ -106,36 +156,18 @@ export function quoteSupportsValue(quote: string, rawValue: string | number): bo
 
 	const needle = normalizeEvidenceText(rawValue);
 	if (!needle) return false;
-	if (normalizedQuote.includes(needle)) return true;
 
-	// Identifiers are routinely laid out with separator spacing that the stored value
-	// drops: a PDF column prints `30744 / 26-27` for invoice number `30744/26-27`.
-	// Comparing with separators removed keeps every character accountable while
-	// ignoring where the layout put the gaps. Length-bounded so it stays an identifier
-	// rule and never turns into loose matching over prose.
-	if (needle.length <= 40 && /[^a-z0-9]/.test(needle)) {
-		const squash = (v: string) => v.replace(/[^a-z0-9]/g, '');
-		const squashedNeedle = squash(needle);
-		if (squashedNeedle.length >= 3 && squash(normalizedQuote).includes(squashedNeedle)) return true;
-	}
+	// Where the layout put its separators cannot matter - the same tariff item is
+	// printed `HSN:8505.11.10`, `9403 8900` and `94038900` - but which runs the value
+	// covers must. Anything the quote spells out over whole runs is supported.
+	const squashedNeedle = needle.replace(/[^a-z0-9]/g, '');
+	if (squashedNeedle && runSpans(normalizedQuote).has(squashedNeedle)) return true;
 
-	// The mirror of the rule above: the separators are in the DOCUMENT, not the value.
-	// Every invoice prints an HS code as "HSN:8505.11.10" while the customs field wants
-	// 85051110, so the most important field on the row was being cleared as unsupported.
-	// Squashing is done per whitespace-delimited token, never across the whole quote, so
-	// "300 Pcs 1" can never be read as the identifier "3001".
-	if (needle.length >= 4 && /^[a-z0-9]+$/.test(needle)) {
-		for (const token of normalizedQuote.split(/\s+/)) {
-			if (token.replace(/[^a-z0-9]/g, '').includes(needle)) return true;
-		}
-	}
-
-	// A value the model reported as text but the document prints as a number, e.g.
-	// RITC "94038900" quoted as "9403 8900" or IGST rate "18" inside "18%".
+	// A value the model reported as text but the document prints as a number, e.g. an
+	// IGST rate of "18" inside "18%", or "1440" against a printed "1,440.00".
 	const asNumber = Number(needle.replace(/[,\s]/g, ''));
 	if (Number.isFinite(asNumber) && needle !== '') {
 		if (numericTokens(normalizedQuote).has(String(asNumber))) return true;
-		if (normalizedQuote.replace(/[\s,]/g, '').includes(needle.replace(/[\s,]/g, ''))) return true;
 	}
 
 	return false;

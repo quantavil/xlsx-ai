@@ -641,6 +641,13 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	}
 
 	function hydrate(): HydrationResult {
+		// A switch between documents lands here. Undo entries describe the document we
+		// are leaving, and `undo()` writes what it restores straight back to storage
+		// under whichever key is active - so carrying them across would let Ctrl+Z in
+		// one file overwrite it with another file's contents.
+		history = [];
+		future = [];
+
 		if (!persist || typeof localStorage === 'undefined') {
 			hydrated = true;
 			return { status: 'missing' };

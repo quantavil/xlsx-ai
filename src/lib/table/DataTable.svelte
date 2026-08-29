@@ -373,6 +373,12 @@
 		if (!sourceRow || !sourceCol) return;
 		const source = store.rawCell(sourceRow.id, sourceCol.id);
 
+		// A formula addresses the sheet, and the sheet is the unfiltered table. Under a
+		// search or a sort the visible row two below is rarely the sheet row two below,
+		// so the step has to be measured where the references actually point.
+		const sheetIndex = new Map(store.rows.map((row, i) => [row.id, i]));
+		const sourceSheetRow = sheetIndex.get(sourceRow.id) ?? from.rowIndex;
+
 		const patches = [];
 		for (let r = rect.r0; r <= rect.r1; r++) {
 			for (let c = rect.c0; c <= rect.c1; c++) {
@@ -386,10 +392,10 @@
 					newValue: isFormula(source)
 						? offsetFormulaRefs(
 								source,
-								r - from.rowIndex,
+								(sheetIndex.get(row.id) ?? r) - sourceSheetRow,
 								c - from.colIndex,
 								store.columns.length,
-								store.filteredRows.length
+								store.rows.length
 							)
 						: source
 				});
