@@ -12,7 +12,34 @@ import { buildXlsxSheetData, sanitizeFilename, tableToRecords } from '../../src/
 
 
 
+function workbookOf(sheets: Record<string, unknown[][]>): ArrayBuffer {
+	const wb = XLSX.utils.book_new();
+	for (const [name, aoa] of Object.entries(sheets)) {
+		XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
+	}
+	return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+}
+
 describe('Data Management & SheetJS I/O', () => {
+	it('names the sheets a multi-sheet import left behind', async () => {
+		const warnings: string[] = [];
+		const table = await importFileToTable(
+			workbookOf({ Invoice: [['a'], [1]], Packing: [['b'], [2]], Notes: [['c'], [3]] }),
+			'book.xlsx',
+			(m) => warnings.push(m)
+		);
+		// The first sheet is still what gets imported; the warning is the only change.
+		expect(table.columns[0].name).toBe('a');
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain('Packing, Notes');
+	});
+
+	it('says nothing when there is only one sheet', async () => {
+		const warnings: string[] = [];
+		await importFileToTable(workbookOf({ Only: [['a'], [1]] }), 'book.xlsx', (m) => warnings.push(m));
+		expect(warnings).toEqual([]);
+	});
+
 	it('normalizes typed cell values consistently', () => {
 		expect(normalizeCellValue('percent', '12.5%')).toBe(0.125);
 		expect(normalizeCellValue('percent', '12.5')).toBe(0.125);

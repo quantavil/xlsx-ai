@@ -72,9 +72,18 @@ export function inferColumnTypeFromSamples(values: CellValue[]): ColumnType {
 }
 
 
+/**
+ * Told when the import silently left something behind.
+ *
+ * The parser cannot raise a toast itself - the store is context-scoped - so it hands
+ * the sentence to whoever called it.
+ */
+export type ImportWarn = (message: string) => void;
+
 export async function parseSpreadsheetBuffer(
 	buffer: ArrayBuffer | Uint8Array,
-	title = 'Imported Spreadsheet'
+	title = 'Imported Spreadsheet',
+	onWarning?: ImportWarn
 ): Promise<TableData> {
 	if (buffer.byteLength > MAX_IMPORT_BYTES) {
 		throw new Error(`File size (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB) exceeds 10 MB limit.`);
@@ -90,6 +99,15 @@ export async function parseSpreadsheetBuffer(
 	const firstSheetName = wb.SheetNames[0];
 	if (!firstSheetName) {
 		throw new Error('Workbook contains no sheets.');
+	}
+
+	// Only the first sheet is imported. Dropping the rest without a word looks like
+	// data loss, so name what was left behind.
+	if (wb.SheetNames.length > 1) {
+		const rest = wb.SheetNames.slice(1);
+		onWarning?.(
+			`Imported "${firstSheetName}" only. ${rest.length} other sheet${rest.length > 1 ? 's were' : ' was'} not read: ${rest.join(', ')}.`
+		);
 	}
 
 	const ws = wb.Sheets[firstSheetName];
@@ -182,7 +200,8 @@ export async function parseSpreadsheetBuffer(
 
 export async function importFileToTable(
 	input: File | ArrayBuffer | Uint8Array,
-	filename?: string
+	filename?: string,
+	onWarning?: ImportWarn
 ): Promise<TableData> {
 	let arrayBuffer: ArrayBuffer;
 
@@ -200,6 +219,6 @@ export async function importFileToTable(
 	}
 
 	const title = filename ? filename.replace(/\.[^/.]+$/, '') : 'Imported Table';
-	return parseSpreadsheetBuffer(arrayBuffer, title);
+	return parseSpreadsheetBuffer(arrayBuffer, title, onWarning);
 }
 

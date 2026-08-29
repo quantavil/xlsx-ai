@@ -10,3 +10,12 @@ jobs:
       - run: bun run check
       - run: bun test tests
       - run: bun run build
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Only chromium: playwright.config.ts declares one project.
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e

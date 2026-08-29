@@ -3,6 +3,7 @@ export {
 	importFileToTable,
 	inferColumnTypeFromSamples
 } from './import';
+export type { ImportWarn } from './import';
 export {
 	sanitizeFilename,
 	buildUniqueExportHeaders,

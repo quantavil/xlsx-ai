@@ -32,7 +32,9 @@
 		const file = target.files?.[0];
 		if (!file) return;
 		try {
-			const imported = await importFileToTable(file);
+			const imported = await importFileToTable(file, undefined, (message) =>
+				notify('warning', message, { durationMs: 8000 })
+			);
 			createFile(imported);
 			notify(
 				'success',

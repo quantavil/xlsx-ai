@@ -1,6 +1,6 @@
 # xlsx-ai — Fast, Modern AI Spreadsheet Workspace
 
-**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, **xlsx-calc**, and official **Google Gemini** generative models (`gemini-3.7-flash-lite` default, `gemini-3.7-flash`, `gemini-3.1-pro-preview`).
+**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, **xlsx-calc**, and official **Google Gemini** generative models (`gemini-3.5-flash-lite` default, `gemini-3.6-flash`, `gemini-3.1-pro-preview`).
 
 ---
 
@@ -213,7 +213,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 ```bash
 bun test
 ```
-Runs **370 unit tests across 21 files**, covering the table store, the multi-file document
+Runs **372 unit tests across 21 files**, covering the table store, the multi-file document
 index, cell alignment, formula evaluation and reference remapping, SheetJS import/export,
 the AI endpoint, structured dropdowns, the duty-structure lookup, and the ICEGrid
 extraction pipeline.
@@ -286,7 +286,8 @@ the deterministic code is tested with captured responses that carry evidence spa
 ```bash
 bun run test:e2e
 ```
-Runs 44 end-to-end user workflows in headless Chromium, including:
+Runs 44 end-to-end user workflows in headless Chromium. CI runs this suite as its own
+job alongside `check`/`test`/`build`, so a regression here fails the branch. Covered:
 - The column-letter strip above the named header, and the row gutter counting from spreadsheet row 2.
 - Formula completion (`=SU` → `SUM(`), point mode writing a clicked cell's address, and the outline over what a formula reads.
 - Dragging the fill handle down a column, and deleting a row re-aiming the formulas that pointed past it.
