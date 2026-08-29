@@ -98,7 +98,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json(
 			{
 				error: 'Malformed request payload.',
-				details: parsed.error.format()
+				details: z.treeifyError(parsed.error)
 			},
 			{ status: 400 }
 		);
@@ -123,7 +123,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const validatedInput = moduleHandler.inputSchema.safeParse(parsed.data.input);
 		if (!validatedInput.success) {
 			return json(
-				{ error: 'Malformed module input.', details: validatedInput.error.format() },
+				{ error: 'Malformed module input.', details: z.treeifyError(validatedInput.error) },
 				{ status: 400 }
 			);
 		}
@@ -188,7 +188,7 @@ INSTRUCTIONS:
 
 			const result = await generateObject({
 				model,
-				system: systemPrompt,
+				instructions: systemPrompt,
 				prompt,
 				schema: _CleanFillSchema,
 				abortSignal: request.signal
@@ -219,7 +219,7 @@ INSTRUCTIONS:
 
 		const result = streamText({
 			model,
-			system: systemPrompt,
+			instructions: systemPrompt,
 			messages: chatMessages.map((m) => ({
 				role: m.role as 'user' | 'assistant',
 				content: m.content

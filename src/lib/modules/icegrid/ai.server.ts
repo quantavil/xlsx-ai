@@ -68,7 +68,7 @@ Extract every commercial-invoice line item as one row, with evidence spans for e
 
 		const result = await generateObject({
 			model: context.model,
-			system: ICEGRID_SYSTEM_PROMPT,
+			instructions: ICEGRID_SYSTEM_PROMPT,
 			prompt,
 			schema: IcegridExtractionSchema,
 			abortSignal: context.signal

@@ -1,6 +1,6 @@
 # xlsx-ai — Fast, Modern AI Spreadsheet Workspace
 
-**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, and official **Google Gemini** generative models (`gemini-3.7-flash` default, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`).
+**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, and official **Google Gemini** generative models (`gemini-3.7-flash-lite` default, `gemini-3.7-flash`, `gemini-3.1-pro-preview`).
 
 ---
 
@@ -289,7 +289,7 @@ holds no secret.
 Free-tier fit: static asset requests are free and unlimited, so only AI calls count against
 the 100,000/day Workers quota that Pages Functions share. The 10 ms CPU ceiling excludes
 time awaiting `fetch`, so streaming a Gemini response costs almost no CPU. The bundled
-function is 184 KB gzipped, against a 3 MB limit.
+function is 170 KB gzipped, against a 3 MB limit.
 
 ---
 
@@ -330,6 +330,8 @@ src/
     │   ├── registry.ts          # Browser module registry (no runtime-downloaded modules)
     │   ├── module-store.svelte.ts # Enablement, run lifecycle, cancellation
     │   └── icegrid/             # ICEGATE 37-column invoice extraction module
+    │       ├── pipeline.ts         # The run: read -> extract -> sanitize -> derive -> validate
+    │       │                       # (dynamically imported, so its 168 KB of data stays lazy)
     │       ├── readers.ts          # Local PDF/XLS/XLSX text extraction with file boundaries
     │       ├── ai.server.ts        # The single Gemini request and its extraction contract
     │       ├── schema.ts           # Candidate rows, evidence spans, clean report (Zod)
@@ -343,7 +345,9 @@ src/
     │       └── catalogs/           # Trusted catalogs and exact-only resolution
     │           ├── fixed.ts            # Units/schemes/EndUse from the trusted Guidelines sheet
     │           ├── resolve.ts          # Exact match only - no fuzzy, no nearest option
-    │           └── generated/schedules.ts # Drawback AIR + RoDTEP 4R snapshots, keyed by RITC
+    │           └── generated/
+    │               ├── schedules.ts    # Drawback AIR + RoDTEP 4R snapshots, keyed by RITC
+    │               └── provenance.ts   # Notification/SHA metadata, split out to stay eager-safe
     ├── server/               # Server-only code
     │   ├── models.ts            # Allowed Gemini model ids, shared by both API routes
     │   └── modules/             # Server AI handler types + static action registry

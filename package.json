@@ -24,15 +24,14 @@
 		"svelte-check": "^4.7.6",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^5.9.3",
-		"vite": "^6.4.3",
-		"vitest": "^4.1.11"
+		"vite": "^6.4.3"
 	},
 	"dependencies": {
-		"@ai-sdk/google": "^1.2.22",
-		"ai": "^4.3.19",
-		"pdfjs-dist": "6.1.200",
+		"@ai-sdk/google": "^4",
+		"ai": "^7",
+		"pdfjs-dist": "^6.2",
 		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-		"zod": "^3.25.76"
+		"zod": "^4"
 	},
 	"type": "module"
 }
