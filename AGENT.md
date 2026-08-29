@@ -4,7 +4,7 @@
 - SvelteKit 2 + Svelte 5 runes (`$state`, `$derived`, `$props`) running on Bun 1.4+. `src/routes/+layout.ts` owns `export const ssr = false` for every route.
 - Deploys to Cloudflare Pages via `@sveltejs/adapter-cloudflare` (output `.svelte-kit/cloudflare`, build command `bun run build`). Since nothing is server-rendered, the only code in the Pages Function is `/api/ai*`; the `nodejs_als` compatibility flag is required for the AI SDK (it uses `AsyncLocalStorage`). No environment variables — the Gemini key arrives per-request in the `x-ai-api-key` header.
 - Core Modules:
-  - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `store.svelte.ts`, `documents.svelte.ts` (multi-file index), `cells.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
+  - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `store.svelte.ts`, `documents.svelte.ts` (multi-file index), `cells.ts`, `range-edit.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
   - `src/lib/components/`: `Header.svelte` (Files switcher + title + search + alignment control), `RightRibbon.svelte` (AI, modules, add row, export, theme, settings — **not** file creation or import), `AiDrawer.svelte`, `Icons.svelte`, `settings/` (`AiSection.svelte`, `ModulesSection.svelte`, `ShortcutsSection.svelte`) — rendered on the `/settings` page behind a three-item section rail (`nav.settings-sidebar`), not a modal.
   - `src/lib/modules/`: `types.ts`, `registry.ts`, `module-store.svelte.ts`, `icegrid/` (`index.ts`, `pipeline.ts`, `columns.ts`, `readers.ts`, `schema.ts`, `extract.ts`, `ai.server.ts`, `evidence.ts`, `sanitize.ts`, `derive.ts`, `validate.ts`, `to-table.ts`, `profile.ts`, `IcegridSettings.svelte`, `catalogs/`).
   - `src/lib/server/`: `models.ts` (single source of truth for allowed Gemini model ids, shared by both API routes) and `modules/` (server-only AI handler types + static module action registry).
@@ -63,6 +63,7 @@
 - CSV Injection Mitigation: Values starting with `=`, `+`, `-`, `@`, `\t`, `\r` are prefixed with `'` during export to neutralize spreadsheet execution vulnerabilities.
 - Request Cancellation & Versioning: AI model fetching and chat sessions use versioned request IDs and `AbortController` cancellation to eliminate race conditions.
 - ICEGrid catalogs are no longer partly empty: `DISTRICT_OPTIONS` now carries all 725 ICEGATE districts, each scoped to its state via `parentValue`, so `DistrictOrigin` is a real state-dependent dropdown. Nothing derives it — the exporter address names its district in only 4 of 6 corpus fixtures and 3 of those are ambiguous. `StateOrigin` is still derived from the GSTIN's first two digits (`stateCodeFromGstin`), correct in 17/17 shipments.
+- Multi-Cell Replacement: Shift-selected ranges in a single column can be edited simultaneously. `DataTable.svelte` tracks `editTargets`, preserves selection on Enter/Tab, computes intersected options via `resolveDropdownOptionsForRows()`, and applies updates through a single history entry in `updateCellValues()`.
 
 ## Workspace Module Rules
 - Register browser modules only in `src/lib/modules/registry.ts`; register server AI actions only in `src/lib/server/modules/registry.ts`. Runtime-downloaded modules are not supported.
