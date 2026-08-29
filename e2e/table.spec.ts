@@ -195,7 +195,10 @@ test.describe('xlsx-ai E2E Workflow', () => {
 
 		const navItems = settingsPage.locator('nav.settings-sidebar .settings-nav-item');
 		await expect(navItems).toHaveCount(3);
-		await expect(settingsPage).toContainText('Google Gemini AI Configuration');
+		// The section names itself in the topbar; the card headings carry the detail.
+		await expect(settingsPage.locator('.settings-topbar h1')).toHaveText('AI & Models');
+		await expect(settingsPage).toContainText('API Key');
+		await expect(settingsPage).toContainText('Models');
 
 		await navItems.filter({ hasText: 'Shortcuts' }).click();
 		await expect(settingsPage).toContainText('Keyboard shortcuts');

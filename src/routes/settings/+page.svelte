@@ -122,7 +122,7 @@
 	});
 </script>
 
-<svelte:head><title>Settings — xlsx-ai</title></svelte:head>
+<svelte:head><title>Settings · xlsx-ai</title></svelte:head>
 
 <div class="settings-page flex w-screen h-screen bg-[var(--bg)] overflow-hidden">
 	<!-- Left Sidebar Column -->
@@ -131,15 +131,15 @@
 	>
 		<!-- Left Topbar (Brand/Title) -->
 		<div
-			class="flex items-center h-12 px-4 border-b border-[var(--border)] gap-2.5 shrink-0 max-sm:justify-center max-sm:px-0"
+			class="flex items-center h-16 px-4 border-b border-[var(--border)] gap-2.5 shrink-0 max-sm:justify-center max-sm:px-0"
 		>
 			<div
-				class="brand-icon flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] shrink-0 shadow-xs"
+				class="brand-icon flex items-center justify-center w-8 h-8 rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] shrink-0 shadow-xs"
 				aria-hidden="true"
 			>
-				<Icon name="settings" size={15} strokeWidth={2.2} />
+				<Icon name="settings" size={17} strokeWidth={2.2} />
 			</div>
-			<span class="text-[13.5px] font-bold text-[var(--text-1)] tracking-tight max-sm:hidden">Settings</span>
+			<span class="text-[15px] font-bold text-[var(--text-1)] tracking-tight max-sm:hidden">Settings</span>
 		</div>
 
 		<!-- Nav items -->
@@ -167,7 +167,7 @@
 	<div class="flex-1 flex flex-col min-w-0 bg-[var(--bg)] overflow-hidden">
 		<!-- Right Header -->
 		<header
-			class="settings-topbar flex items-start justify-between gap-4 px-7 py-3.5 border-b border-[var(--border)] bg-[var(--surface-1)] shrink-0"
+			class="settings-topbar flex items-center justify-between gap-4 h-16 px-7 border-b border-[var(--border)] bg-[var(--surface-1)] shrink-0"
 		>
 			<div class="flex flex-col gap-0.5 min-w-0">
 				<h1 class="text-[15px] font-bold text-[var(--text-1)] tracking-tight m-0 leading-tight">
@@ -193,8 +193,8 @@
 		</header>
 
 		<!-- Content -->
-		<main class="settings-content flex-1 overflow-y-auto px-7 py-7 min-h-0">
-			<div class="settings-content-inner max-w-3xl">
+		<main class="settings-content flex-1 overflow-y-auto px-8 py-8 min-h-0">
+			<div class="settings-content-inner max-w-4xl mx-auto">
 				{#if activeSection === 'ai'}
 					<AiSection
 						{store}
