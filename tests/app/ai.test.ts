@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { _RequestSchema, _CleanFillSchema, POST } from '../../src/routes/api/ai/+server';
 
 describe('Server AI Endpoint (/api/ai)', () => {
@@ -218,7 +218,7 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect(data.error).toContain('valid Gemini API key is required');
 	});
 
-	it('formats a successful Google model catalog containing gemini-3.5-flash-lite', async () => {
+	it('formats a successful Google model catalog containing gemini-3.7-flash-lite', async () => {
 		const { GET } = await import('../../src/routes/api/ai/models/+server');
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async () =>
@@ -226,8 +226,8 @@ describe('Server AI Endpoint (/api/ai)', () => {
 				JSON.stringify({
 					models: [
 						{
-							name: 'models/gemini-3.5-flash-lite',
-							displayName: 'Gemini 3.5 Flash Lite',
+							name: 'models/gemini-3.7-flash-lite',
+							displayName: 'Gemini 3.7 Flash Lite',
 							supportedGenerationMethods: ['generateContent'],
 							inputTokenLimit: 1_048_576
 						}
@@ -246,7 +246,7 @@ describe('Server AI Endpoint (/api/ai)', () => {
 			const response = await GET({ request } as any);
 			expect(response.status).toBe(200);
 			const data = await response.json();
-			expect(data.models[0].id).toBe('gemini-3.5-flash-lite');
+			expect(data.models[0].id).toBe('gemini-3.7-flash-lite');
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

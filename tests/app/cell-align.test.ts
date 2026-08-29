@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { createTableStore } from '../../src/lib/table/store.svelte';
 import { defaultAlignForType } from '../../src/lib/table/cells';
 import type { TableData } from '../../src/lib/types';

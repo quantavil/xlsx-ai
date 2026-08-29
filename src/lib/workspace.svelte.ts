@@ -8,7 +8,11 @@ import type { TableData } from '$lib/types';
 // One workspace shared by every route. The table lives above the router so navigating to
 // /settings (and back) never rebuilds or drops the open file.
 export const documents = createDocumentStore();
-export const store = createTableStore(undefined, { storageKey: () => documents.contentKey() });
+export const store = createTableStore(undefined, {
+	storageKey: () => documents.contentKey(),
+	// A failed write means edits are only in memory — the user has to hear about it.
+	onSaveError: (message) => notify('error', `Could not save: ${message}`, { durationMs: 8000 })
+});
 export const moduleStore = createModuleStore();
 export const toastStore = createToastStore();
 

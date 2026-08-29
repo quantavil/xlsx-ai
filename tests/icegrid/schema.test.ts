@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
 	IcegridReportSchema,
 	IcegridAiReportSchema,
@@ -142,7 +142,7 @@ describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
 
 		const google = createGoogleGenerativeAI({ apiKey: 'x'.repeat(30), fetch: captureFetch });
 		await generateObject({
-			model: google('gemini-3.7-flash'),
+			model: google('gemini-3.7-flash-lite'),
 			prompt: 'extract',
 			schema: IcegridExtractionSchema
 		}).catch(() => undefined); // the canned empty response fails rows.min(1); we only want the request

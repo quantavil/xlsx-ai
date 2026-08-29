@@ -1,7 +1,8 @@
 import { ICEGRID_COLUMNS } from './columns';
 import { resolveCatalogValue } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
-import { lookupDrawback, lookupRodtep, uqcToUnit, SCHEDULES_PROVENANCE } from './catalogs/generated/schedules';
+import { lookupDrawback, lookupRodtep, uqcToUnit } from './catalogs/generated/schedules';
+import { SCHEDULES_PROVENANCE } from './catalogs/generated/provenance';
 import { EMPTY_PROFILE, PROFILE_FIELD_HEADERS, type IcegridProfile } from './profile';
 import type { IcegridRow } from './schema';
 

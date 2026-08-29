@@ -7,7 +7,5 @@ const SPECIALIZED = /(?:image|imagen|embedding|audio|speech|tts|live|robotics|aq
 export function isSupportedModelId(modelId: string): boolean {
 	if (!/^gemini-[a-z0-9][a-z0-9._-]{2,80}$/i.test(modelId)) return false;
 	if (SPECIALIZED.test(modelId)) return false;
-	// Gemini 2.0 is retired; keep it out of the picker and out of requests.
-	if (/gemini-2\.0/i.test(modelId)) return false;
 	return true;
 }

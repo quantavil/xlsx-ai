@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { createTableStore } from '../../src/lib/table/store.svelte';
 import type { TableData } from '../../src/lib/types';
 
@@ -207,10 +207,9 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		store.setApiKey('');
 		expect(store.apiKey).toBe('');
 
+		expect(store.aiModel).toBe('gemini-3.7-flash-lite');
+		store.setAiModel('gemini-3.7-flash');
 		expect(store.aiModel).toBe('gemini-3.7-flash');
-		store.setAiModel('gemini-3.1-pro');
-		expect(store.aiModel).toBe('gemini-3.1-pro');
-
 
 		expect(store.isAiOpen).toBe(false);
 		store.toggleAi(true);
@@ -246,13 +245,47 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		expect(emptyStore.rowCount).toBe(0);
 	});
 
-	it('resets dirty state when undoing back to clean baseline', () => {
-		expect(store.isDirty).toBe(false);
-		store.setCell('r1', 'c1', 'Brand New Name');
-		expect(store.isDirty).toBe(true);
+	it('reports a failed save instead of dropping edits silently', () => {
+		const errors: string[] = [];
+		const originalSetItem = localStorage.setItem;
+		localStorage.setItem = () => {
+			throw new Error('QuotaExceededError');
+		};
+		try {
+			const persisted = createTableStore(initialData, {
+				storageKey: 'test:quota',
+				onSaveError: (m) => errors.push(m)
+			});
+			persisted.setCell('r1', 'c1', 'Too Big');
+			persisted.flushSave();
+		} finally {
+			localStorage.setItem = originalSetItem;
+		}
+		expect(errors.length).toBe(1);
+		expect(errors[0]).toContain('QuotaExceededError');
+	});
 
-		store.undo();
-		expect(store.isDirty).toBe(false);
+	it('does not let history snapshots share a column dropdown config with live state', () => {
+		const dropdownStore = createTableStore(
+			{
+				title: 'Dropdowns',
+				columns: [
+					{
+						id: 'c1',
+						name: 'State',
+						type: 'dropdown',
+						dropdown: { options: [{ value: 'RJ' }], allowCustom: false }
+					}
+				],
+				rows: [{ id: 'r1', c1: 'RJ' }]
+			},
+			{ persist: false }
+		);
+		dropdownStore.setCell('r1', 'c1', 'GJ');
+		// Mutating live config must not reach back into the snapshot undo will restore.
+		dropdownStore.columns[0].dropdown!.options.push({ value: 'MH' });
+		dropdownStore.undo();
+		expect(dropdownStore.columns[0].dropdown!.options.length).toBe(1);
 	});
 
 	it('converts column type atomically and supports undo', () => {

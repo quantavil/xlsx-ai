@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { createDocumentStore, docContentKey, LS_DOCS_KEY } from '../../src/lib/table/documents.svelte';
 import { createTableStore } from '../../src/lib/table/store.svelte';
 import { LS_KEY } from '../../src/lib/constants';

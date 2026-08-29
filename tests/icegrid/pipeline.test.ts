@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import * as XLSX from 'xlsx';
 import { icegridModule, summarizeWarnings } from '../../src/lib/modules/icegrid';
 import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';

@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { deriveRows, findExchangeRate, stateCodeFromGstin } from '../../src/lib/modules/icegrid/derive';
 import {
 	lookupDrawback,
 	lookupRodtep,
-	uqcToUnit,
-	SCHEDULES_PROVENANCE
+	uqcToUnit
 } from '../../src/lib/modules/icegrid/catalogs/generated/schedules';
+import { SCHEDULES_PROVENANCE } from '../../src/lib/modules/icegrid/catalogs/generated/provenance';
 import { getCatalogSnapshot } from '../../src/lib/modules/icegrid/catalogs';
 import { parseProfile, EMPTY_PROFILE } from '../../src/lib/modules/icegrid/profile';
 import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';

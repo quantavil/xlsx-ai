@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { createAiApi } from '../../src/lib/ai/client';
 
 const originalFetch = globalThis.fetch;

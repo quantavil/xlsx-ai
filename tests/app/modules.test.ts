@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { BUILTIN_MODULES, getModuleById } from '../../src/lib/modules/registry';
 import { createModuleStore, LS_MODULES_KEY } from '../../src/lib/modules/module-store.svelte';
 
@@ -74,7 +74,7 @@ describe('Workspace Modules Framework', () => {
 		// Trigger runModule
 		const runPromise = store.runModule('icegrid', [mockFile], {
 			apiKey: 'AIzaSyFakeKey1234567890',
-			modelId: 'gemini-3.5-flash-lite'
+			modelId: 'gemini-3.7-flash-lite'
 		});
 
 		// Disabling while running triggers cancelRun

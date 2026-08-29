@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { validateIcegridReport } from '../../src/lib/modules/icegrid/validate';
 import { mapReportToTableData } from '../../src/lib/modules/icegrid/to-table';
 import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getCatalogSnapshot, normalizeStateKey } from './catalogs';
 	import { loadProfile, saveProfile, EMPTY_PROFILE, type IcegridProfile } from './profile';
-	import { SCHEDULES_PROVENANCE } from './catalogs/generated/schedules';
+	import { SCHEDULES_PROVENANCE } from './catalogs/generated/provenance';
 	import type { IcegridCatalogId } from './catalogs/types';
 
 	const catalogs = getCatalogSnapshot();

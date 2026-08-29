@@ -33,10 +33,20 @@ export interface TableStoreOptions {
 	persist?: boolean;
 	/** Pass a getter when the destination changes at runtime (one key per open file). */
 	storageKey?: string | (() => string);
+	/** Called when a save fails (quota exceeded, storage unavailable) so the UI can warn. */
+	onSaveError?: (message: string) => void;
 }
 
-function cloneState<T>(data: T): T {
-	return structuredClone($state.snapshot(data) as T);
+function cloneColumns(cols: Column[]): Column[] {
+	return cols.map((c) => (c.dropdown ? { ...c, dropdown: structuredClone($state.snapshot(c.dropdown)) } : { ...c }));
+}
+
+function cloneRows(rows: Row[]): Row[] {
+	return rows.map((r) => ({ ...r }));
+}
+
+function cloneCellAlign(align: CellAlignMap): CellAlignMap {
+	return { ...align };
 }
 
 export interface CellRef {
@@ -53,20 +63,6 @@ export interface SelectionRect {
 	c1: number;
 }
 
-function computeDocumentHash(
-	title: string,
-	columns: Column[],
-	rows: Row[],
-	cellAlign: CellAlignMap
-): string {
-	return JSON.stringify({
-		t: title,
-		c: columns.map((c) => ({ id: c.id, n: c.name, t: c.type, w: c.width })),
-		r: rows,
-		a: cellAlign
-	});
-}
-
 export function createTableStore(initialData?: TableData, options: TableStoreOptions = {}) {
 	const persist = options.persist ?? true;
 	const storageKey = options.storageKey ?? LS_KEY;
@@ -80,11 +76,11 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		: { title: DEFAULT_TABLE_TITLE, columns: [], rows: [] };
 
 	let title = $state<string>(sanitizedInitial.title);
-	let columns = $state<Column[]>(cloneState(sanitizedInitial.columns));
-	let rows = $state<Row[]>(cloneState(sanitizedInitial.rows));
+	let columns = $state<Column[]>(cloneColumns(sanitizedInitial.columns));
+	let rows = $state<Row[]>(cloneRows(sanitizedInitial.rows));
 	let searchQuery = $state<string>('');
 	let sortConfig = $state<SortConfig | null>(null);
-	let cellAlign = $state<CellAlignMap>(cloneState(initialData?.cellAlign ?? {}));
+	let cellAlign = $state<CellAlignMap>(cloneCellAlign(initialData?.cellAlign ?? {}));
 	// Anchor is where the selection started, focus is the cell the keyboard drives.
 	// Equal anchor and focus means a single-cell selection, exactly like Excel.
 	let selectionAnchor = $state<CellRef | null>(null);
@@ -96,35 +92,23 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	let future = $state<HistoryEntry[]>([]);
 	let hydrated = $state<boolean>(false);
 
-	let savedBaselineHash = $state<string>(
-		computeDocumentHash(
-			sanitizedInitial.title,
-			sanitizedInitial.columns,
-			sanitizedInitial.rows,
-			initialData?.cellAlign ?? {}
-		)
-	);
 	let saveStatus = $state<SaveStatus>('idle');
 
 	const storageAdapter = createLocalStorageAdapter(storageKey, {
 		debounceMs: 300,
-		onStatusChange: (status) => {
+		onStatusChange: (status, error) => {
 			saveStatus = status;
+			if (status === 'error') options.onSaveError?.(error ?? 'Could not save this file.');
 		}
-	});
-
-	let isDirty = $derived.by(() => {
-		const currentHash = computeDocumentHash(title, columns, rows, cellAlign);
-		return currentHash !== savedBaselineHash;
 	});
 
 	function triggerSave() {
 		if (!persist) return;
 		storageAdapter.scheduleSave({
 			title,
-			columns: cloneState(columns),
-			rows: cloneState(rows),
-			cellAlign: cloneState(cellAlign)
+			columns: cloneColumns(columns),
+			rows: cloneRows(rows),
+			cellAlign: cloneCellAlign(cellAlign)
 		});
 	}
 
@@ -136,9 +120,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	function pushHistory() {
 		const snapshot: HistoryEntry = {
 			title,
-			columns: cloneState(columns),
-			rows: cloneState(rows),
-			cellAlign: cloneState(cellAlign)
+			columns: cloneColumns(columns),
+			rows: cloneRows(rows),
+			cellAlign: cloneCellAlign(cellAlign)
 		};
 
 		const nextHistory = [...history, snapshot];
@@ -329,7 +313,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		pushHistory();
 		const original = rows[index];
 		const newId = `r_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-		const clone: Row = { ...cloneState(original), id: newId };
+		const clone: Row = { ...original, id: newId };
 		rows = [...rows.slice(0, index + 1), clone, ...rows.slice(index + 1)];
 		triggerSave();
 	}
@@ -501,13 +485,12 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			data.rows || []
 		);
 		title = sanitized.title;
-		columns = cloneState(sanitized.columns);
-		rows = cloneState(sanitized.rows);
-		cellAlign = cloneState(sanitized.cellAlign ?? {});
+		columns = cloneColumns(sanitized.columns);
+		rows = cloneRows(sanitized.rows);
+		cellAlign = cloneCellAlign(sanitized.cellAlign ?? {});
 		searchQuery = '';
 		sortConfig = null;
 		setSelection(null);
-		savedBaselineHash = computeDocumentHash(title, columns, rows, cellAlign);
 		triggerSave();
 	}
 
@@ -538,17 +521,17 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		future = [
 			{
 				title,
-				columns: cloneState(columns),
-				rows: cloneState(rows),
-				cellAlign: cloneState(cellAlign)
+				columns: cloneColumns(columns),
+				rows: cloneRows(rows),
+				cellAlign: cloneCellAlign(cellAlign)
 			},
 			...future
 		];
 
 		title = previous.title;
-		columns = cloneState(previous.columns);
-		rows = cloneState(previous.rows);
-		cellAlign = cloneState(previous.cellAlign ?? {});
+		columns = cloneColumns(previous.columns);
+		rows = cloneRows(previous.rows);
+		cellAlign = cloneCellAlign(previous.cellAlign ?? {});
 		triggerSave();
 	}
 
@@ -561,9 +544,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			...history,
 			{
 				title,
-				columns: cloneState(columns),
-				rows: cloneState(rows),
-				cellAlign: cloneState(cellAlign)
+				columns: cloneColumns(columns),
+				rows: cloneRows(rows),
+				cellAlign: cloneCellAlign(cellAlign)
 			}
 		];
 		if (nextHistory.length > MAX_HISTORY) {
@@ -572,9 +555,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		history = nextHistory;
 
 		title = next.title;
-		columns = cloneState(next.columns);
-		rows = cloneState(next.rows);
-		cellAlign = cloneState(next.cellAlign ?? {});
+		columns = cloneColumns(next.columns);
+		rows = cloneRows(next.rows);
+		cellAlign = cloneCellAlign(next.cellAlign ?? {});
 		triggerSave();
 	}
 
@@ -592,10 +575,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 				result = parseAndMigrateTableDocument(saved);
 				if (result.status === 'restored' && result.document) {
 					title = result.document.title;
-					columns = cloneState(result.document.columns);
-					rows = cloneState(result.document.rows);
-					cellAlign = cloneState(result.document.cellAlign ?? {});
-					savedBaselineHash = computeDocumentHash(title, columns, rows, cellAlign);
+					columns = cloneColumns(result.document.columns);
+					rows = cloneRows(result.document.rows);
+					cellAlign = cloneCellAlign(result.document.cellAlign ?? {});
 				}
 			}
 
@@ -700,9 +682,6 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		},
 		get canRedo() {
 			return canRedo;
-		},
-		get isDirty() {
-			return isDirty;
 		},
 		get saveStatus() {
 			return saveStatus;

@@ -12,7 +12,7 @@ export const LS_THEME_KEY = 'xlsx-ai:theme';
 export const LS_API_KEY = 'xlsx-ai:gemini-key';
 export const LS_AI_MODEL = 'xlsx-ai:gemini-model';
 
-export const DEFAULT_AI_MODEL = 'gemini-3.7-flash';
+export const DEFAULT_AI_MODEL = 'gemini-3.7-flash-lite';
 
 export interface AiModelConfig {
 	id: string;
@@ -27,17 +27,17 @@ export interface AiModelConfig {
 // Generative Language API model — "Fetch Live Models" replaces this list once a key exists.
 export const AI_MODELS: AiModelConfig[] = [
 	{
-		id: 'gemini-3.7-flash',
-		name: 'Gemini 3.7 Flash',
-		description: 'Latest Flash-class workhorse — strongest document extraction and tabular reasoning per second.',
+		id: 'gemini-3.7-flash-lite',
+		name: 'Gemini 3.7 Flash Lite',
+		description: 'Cheapest ultra low-latency option for bulk document parsing and fast table transforms.',
 		badge: 'Default',
 		speed: 'Ultra-Fast',
 		contextWindow: '1M tokens'
 	},
 	{
-		id: 'gemini-3.5-flash-lite',
-		name: 'Gemini 3.5 Flash Lite',
-		description: 'Cheapest low-latency option for bulk document parsing and simple table transforms.',
+		id: 'gemini-3.7-flash',
+		name: 'Gemini 3.7 Flash',
+		description: 'Latest Flash-class workhorse — strongest document extraction and tabular reasoning per second.',
 		speed: 'Ultra-Fast',
 		contextWindow: '1M tokens'
 	},
