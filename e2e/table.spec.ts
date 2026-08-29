@@ -580,11 +580,20 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		expect(scrollWidth).toBe(clientWidth);
 
 		// Firefox hands a fixed table's leftover height to any row that declares none, so
-		// the header swelled to 190px there. It must stay the height of its own content.
+		// the header swelled to 190px there. Both header rows declare their own height —
+		// the 20px column-letter strip and the 32px named row — so the thead stays put.
 		const headerH = await page
-			.locator('thead tr')
+			.locator('thead')
 			.evaluate((el) => el.getBoundingClientRect().height);
-		expect(headerH).toBeLessThan(48);
+		expect(headerH).toBeLessThan(60);
+
+		// The letter strip must span exactly the columns the named row does, or every
+		// column below it drifts out of alignment.
+		const [letterCells, nameCells] = await Promise.all([
+			page.locator('thead tr').nth(0).locator('th').count(),
+			page.locator('thead tr').nth(1).locator('th').count()
+		]);
+		expect(letterCells).toBe(nameCells);
 	});
 
 	test('opens status dropdown on chevron click and avoids footer clipping in light mode', async ({
@@ -753,7 +762,11 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		// Every model card carries a star, and it is visible without hovering it first -
 		// a control nobody can see is a control nobody uses.
 		const stars = settingsPage.locator('.favorite-model-btn');
-		await expect(stars).toHaveCount(await settingsPage.locator('[role="radio"]').count());
+		// `.count()` does not auto-wait, so read it only once a card has actually
+		// rendered - otherwise the expected count races to 0 and the assertion inverts.
+		const modelCards = settingsPage.locator('[role="radio"]');
+		await expect(modelCards.first()).toBeVisible();
+		await expect(stars).toHaveCount(await modelCards.count());
 		for (const star of await stars.all()) await expect(star).toBeVisible();
 		await expect(stars.first()).toHaveCSS('opacity', '1');
 
@@ -863,5 +876,60 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		// Without shift it still opens the editor, as the only way in with the mouse.
 		await rows.nth(2).locator('.dropdown-cell-arrow').click();
 		await expect(page.locator('.custom-dropdown-popover')).toHaveCount(1);
+	});
+
+	test('column letters sit above the names and the gutter counts from Excel row 2', async ({
+		page
+	}) => {
+		const letters = page.locator('thead th.th-letter');
+		await expect(letters).toHaveCount(6);
+		await expect(letters.nth(0)).toHaveText('A');
+		await expect(letters.nth(3)).toHaveText('D');
+
+		// The gutter is the number a formula addresses the row by: row 1 is the header.
+		const gutter = page.locator('tbody tr.data-row .row-num');
+		await expect(gutter.nth(0)).toHaveText('2');
+		await expect(gutter.nth(1)).toHaveText('3');
+
+		// The letter of the active cell's column lights up, like Excel's header.
+		await page.locator('tbody tr.data-row').nth(0).locator('td.td-cell').nth(2).click();
+		await expect(letters.nth(2)).toHaveClass(/text-\[var\(--accent-primary\)\]/);
+	});
+
+	test('typing = SU offers matching functions and Enter completes to SUM(', async ({ page }) => {
+		const cell = page.locator('tbody tr.data-row').nth(0).locator('td.td-cell').nth(3);
+		await cell.dblclick();
+		const editor = page.locator('input.cell-input-editor');
+		await editor.fill('=SU');
+
+		const hints = page.locator('.formula-hints [role="option"]');
+		await expect(hints).toHaveCount(4);
+		await expect(hints.nth(0)).toContainText('SUBSTITUTE');
+
+		await editor.press('ArrowDown');
+		await editor.press('Enter');
+		await expect(editor).toHaveValue('=SUM(');
+		// Enter completed the name; it must not have committed the cell.
+		await expect(editor).toBeVisible();
+	});
+
+	test('clicking a cell mid-formula writes its address, and outlines what it reads', async ({
+		page
+	}) => {
+		const rows = page.locator('tbody tr.data-row');
+		await rows.nth(0).locator('td.td-cell').nth(3).dblclick();
+		const editor = page.locator('input.cell-input-editor');
+		await editor.fill('=');
+
+		// Point mode: the click lands in the formula instead of moving the selection.
+		await rows.nth(2).locator('td.td-cell').nth(2).click();
+		await expect(editor).toHaveValue('=C4');
+		await expect(editor).toBeVisible();
+
+		// The referenced cell is outlined while the formula is open.
+		await expect(page.locator('td.formula-ref')).toHaveCount(1);
+
+		await editor.press('Enter');
+		await expect(rows.nth(0).locator('td.td-cell').nth(3)).toContainText('174');
 	});
 });

@@ -7,6 +7,15 @@
 	import { computeFloatingPosition } from '$lib/ui/position';
 	import { isNumericType, resolveDropdownOptionsForRows } from './cells';
 	import { resolveEditTargets, type EditTarget } from './range-edit';
+	import { cellAddress, columnLetter, referencedCells } from './formulas';
+	import {
+		applyFunction,
+		applyReference,
+		expectsReference,
+		matchFunctions,
+		type FormulaFunction
+	} from './formula-hints';
+	import FormulaHintPopup from './FormulaHintPopup.svelte';
 
 	let {
 		store,
@@ -235,6 +244,80 @@
 		return { value: agrees ? String(first ?? '') : '', mixed: !agrees };
 	}
 
+	// ── Formula editing ────────────────────────────────────────────────────────────
+	// The text editor is a plain <input>, so the caret is the only thing that says
+	// what the user is typing *at* — both the name to complete and whether a clicked
+	// cell should become a reference. It is read back on every input and key event.
+	let editorInput = $state<HTMLInputElement | null>(null);
+	let editorCaret = $state(0);
+	let hintIndex = $state(0);
+	/** Escape closes the list without cancelling the edit; typing brings it back. */
+	let hintDismissed = $state(false);
+	/** Set while a drag is writing a range, holding the address the drag began on. */
+	let pointAnchor = $state<string | null>(null);
+
+	const hintMatches = $derived(
+		editingCell && !hintDismissed ? matchFunctions(editValue, editorCaret) : []
+	);
+
+	/** Cells the formula being edited reads, so the grid can outline them. */
+	const highlightedRefs = $derived(
+		editingCell && editValue[0] === '='
+			? referencedCells(editValue, store.columns.length, store.filteredRows.length)
+			: new Set<string>()
+	);
+
+	const HINT_SIZE = { width: 260, height: 224 };
+
+	const hintAnchor = $derived.by(() => {
+		if (!editingCell || hintMatches.length === 0 || typeof window === 'undefined') return null;
+		const node = cellNodes.get(`${editingCell.rowId}-${editingCell.columnId}`);
+		if (!node) return null;
+		// Same clamping every other floating layer here uses, so editing the last column
+		// does not push the list off the right edge, or a bottom row off the floor.
+		const placed = computeFloatingPosition(
+			node.getBoundingClientRect(),
+			HINT_SIZE,
+			{ width: window.innerWidth, height: window.innerHeight },
+			{ offset: 2 }
+		);
+		return { left: placed.left, bottom: placed.top, maxHeight: placed.maxHeight };
+	});
+
+	function syncCaret() {
+		editorCaret = editorInput?.selectionStart ?? editValue.length;
+		hintIndex = 0;
+		hintDismissed = false;
+	}
+
+	function writeEditor(next: { text: string; caret: number }) {
+		editValue = next.text;
+		editorCaret = next.caret;
+		// The DOM caret only moves after Svelte has written the new value back.
+		queueMicrotask(() => {
+			editorInput?.focus();
+			editorInput?.setSelectionRange(next.caret, next.caret);
+		});
+	}
+
+	function pickHint(fn: FormulaFunction) {
+		writeEditor(applyFunction(editValue, editorCaret, fn));
+		hintIndex = 0;
+	}
+
+	/**
+	 * Point mode: a click on another cell writes its address into the formula.
+	 *
+	 * Only when the caret sits where a reference belongs — otherwise a click is an
+	 * ordinary "move on, commit this cell". Returns whether it consumed the click.
+	 */
+	function pointAtCell(colIndex: number, rowIndex: number, extendFrom: string | null): boolean {
+		if (!editingCell || !expectsReference(editValue, editorCaret)) return false;
+		const address = cellAddress(colIndex, rowIndex);
+		writeEditor(applyReference(editValue, editorCaret, extendFrom ? `${extendFrom}:${address}` : address));
+		return true;
+	}
+
 	function startEditing(rowId: string, columnId: string, initialVal: unknown, typedChar = '') {
 		const requestedCell = {
 			rowId,
@@ -256,6 +339,10 @@
 		// A dropdown ignores editValue, so the character that opened it has to reach the
 		// editor's search box separately or the keystroke is simply swallowed.
 		dropdownSearchSeed = typedChar;
+		editorCaret = editValue.length;
+		hintIndex = 0;
+		hintDismissed = false;
+		pointAnchor = null;
 	}
 
 	function commitEdit(): boolean {
@@ -271,6 +358,7 @@
 		const { rowId, columnId } = editingCell;
 		editingCell = null;
 		editTargets = [];
+		pointAnchor = null;
 		cellNodes.get(`${rowId}-${columnId}`)?.focus();
 		return wasBulk;
 	}
@@ -278,6 +366,7 @@
 	function cancelEdit() {
 		editingCell = null;
 		editTargets = [];
+		pointAnchor = null;
 		if (activeCell) cellNodes.get(`${activeCell.rowId}-${activeCell.columnId}`)?.focus();
 	}
 
@@ -453,6 +542,30 @@
 
 	function handleEditorKeyDown(e: KeyboardEvent, rowIndex: number, colIndex: number) {
 		e.stopPropagation();
+
+		// The suggestion list owns these keys while it is open: Enter would otherwise
+		// commit `=SU` and Escape would throw the whole edit away.
+		if (hintMatches.length > 0) {
+			if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+				e.preventDefault();
+				const step = e.key === 'ArrowDown' ? 1 : hintMatches.length - 1;
+				hintIndex = (hintIndex + step) % hintMatches.length;
+				return;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				pickHint(hintMatches[hintIndex]);
+				return;
+			}
+			if (e.key === 'Escape') {
+				// Dismiss the list, keep the edit. A second Escape cancels the cell.
+				e.preventDefault();
+				hintDismissed = true;
+				hintIndex = 0;
+				return;
+			}
+		}
+
 		if (e.key === 'Enter') {
 			e.preventDefault();
 			const wasBulk = commitEdit();
@@ -474,6 +587,9 @@
 			} else if (colIndex < store.columns.length - 1) {
 				selectCell(store.filteredRows[rowIndex].id, store.columns[colIndex + 1].id, rowIndex, colIndex + 1);
 			}
+		} else {
+			// Arrow keys and typing move the caret after the event, not during it.
+			queueMicrotask(syncCaret);
 		}
 	}
 
@@ -586,11 +702,36 @@
 			>
 				<!-- Column Header Row -->
 				<thead>
+					<!-- Spreadsheet column letters. They are what a formula addresses a column
+					     by, so they sit above the names rather than beside them, and the active
+					     cell's letter lights up the way the row gutter does. Explicit height for
+					     the same Firefox reason as the row below. -->
+					<tr class="h-5">
+						<th
+							class="th-corner sticky top-0 z-20 w-10 min-w-10 bg-[var(--surface-2)] border-b border-[var(--border)] border-r border-[var(--border)] p-0 select-none"
+							scope="col"
+							aria-label="Column letters"
+						></th>
+						{#each store.columns as col, colIndex (col.id)}
+							{@const isActiveCol = activeCell?.colIndex === colIndex}
+							<th
+								class="th-letter sticky top-0 z-20 border-b border-[var(--border)] border-r border-[var(--table-grid-line)] p-0 text-center select-none font-mono text-[10.5px] font-semibold tracking-wider {isActiveCol
+									? 'bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]'
+									: 'bg-[var(--surface-2)] text-[var(--text-3)]'}"
+								style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px;"
+								scope="col"
+							>
+								{columnLetter(colIndex)}
+							</th>
+						{/each}
+						<th class="th-letter-blank sticky top-0 z-20 w-20 min-w-20 bg-[var(--surface-2)] border-b border-[var(--border)] p-0" scope="col"></th>
+					</tr>
+
 					<!-- Explicit height: the filler row must be the only unconstrained one, or
 					     Firefox dumps the table's leftover height into this header instead. -->
 					<tr class="h-8">
 						<!-- Index / Row number column -->
-						<th class="th-index sticky top-0 z-10 w-10 min-w-10 text-center bg-[var(--surface-2)] border-b border-[var(--border-strong)] border-r border-[var(--border)] p-0 select-none" scope="col">
+						<th class="th-index sticky top-5 z-10 w-10 min-w-10 text-center bg-[var(--surface-2)] border-b border-[var(--border-strong)] border-r border-[var(--border)] p-0 select-none" scope="col">
 							<span class="index-hdr-label font-mono text-[10.5px] font-bold text-[var(--text-3)] tracking-wider">#</span>
 						</th>
 
@@ -601,7 +742,7 @@
 							{@const sortDir = isSorted ? store.sortConfig?.direction : null}
 
 							<th
-								class="th-column sticky top-0 z-10 bg-[var(--surface-1)] border-b border-[var(--border-strong)] border-r border-[var(--table-grid-line)] p-0 select-none text-[var(--text-1)] group/col"
+								class="th-column sticky top-5 z-10 bg-[var(--surface-1)] border-b border-[var(--border-strong)] border-r border-[var(--table-grid-line)] p-0 select-none text-[var(--text-1)] group/col"
 								style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px;"
 								scope="col"
 								role="columnheader"
@@ -743,7 +884,7 @@
 						{/each}
 
 						<!-- Add New Column Header Button — pony: one-click, default Text, no modal -->
-						<th class="th-add-col sticky top-0 z-10 w-20 min-w-20 bg-[var(--surface-1)] border-b border-[var(--border-strong)] p-0" scope="col">
+						<th class="th-add-col sticky top-5 z-10 w-20 min-w-20 bg-[var(--surface-1)] border-b border-[var(--border-strong)] p-0" scope="col">
 							<button
 								class="add-col-btn flex items-center justify-center gap-1.5 w-full h-8 bg-transparent border-none text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] text-[12px] font-medium cursor-pointer transition-colors"
 								onclick={handleAddColumn}
@@ -807,22 +948,39 @@
 
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
 									{@const inRange = !isActive && isInSelection(rowIndex, colIndex)}
+									{@const isRef = highlightedRefs.has(`${rowIndex}::${colIndex}`)}
 									{@const align = store.alignFor(row.id, col.id, colType)}
 									{@const shadow = cellShadow(isActive, rowIndex, colIndex)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {shadow ? `box-shadow: ${shadow};` : ''} {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										aria-selected={isActive || inRange}
 										tabindex={isRovingActive ? 0 : -1}
 										use:registerCellNode={`${row.id}-${col.id}`}
-										onmousedown={(e) => (pointerExtend = e.shiftKey)}
+										onmousedown={(e) => {
+											// preventDefault keeps focus in the editor - without it the
+											// input blurs and commitEdit fires before the click lands.
+											if (pointAtCell(colIndex, rowIndex, e.shiftKey ? pointAnchor : null)) {
+												e.preventDefault();
+												if (!e.shiftKey) pointAnchor = cellAddress(colIndex, rowIndex);
+												return;
+											}
+											pointerExtend = e.shiftKey;
+										}}
+										onmouseenter={(e) => {
+											// Held button plus an open editor means the drag is drawing a
+											// range; `buttons` is the only way to know mid-move.
+											if (e.buttons === 1 && pointAnchor) pointAtCell(colIndex, rowIndex, pointAnchor);
+										}}
 										onfocus={() => {
+											if (editingCell) return;
 											if (!isActive) {
 												selectCell(row.id, col.id, rowIndex, colIndex, pointerExtend);
 											}
 										}}
 										onclick={(e) => {
+											if (pointAnchor) return;
 											// A double-click fires this first, so re-selecting the cell the range
 											// already focuses would collapse that range before startEditing reads
 											// it - the mouse path to a bulk replace. Matches the caret button and
@@ -903,7 +1061,13 @@
 													aria-label="Edit Date Value"
 													placeholder="e.g. 2025-03-01 or 03/15/2025"
 													bind:value={editValue}
-													onclick={(e) => e.stopPropagation()}
+													bind:this={editorInput}
+													onclick={(e) => {
+														e.stopPropagation();
+														syncCaret();
+													}}
+													oninput={syncCaret}
+													onselect={syncCaret}
 													use:autoFocus
 													onblur={commitEdit}
 													onkeydown={(e) => handleEditorKeyDown(e, rowIndex, colIndex)}
@@ -911,10 +1075,16 @@
 											{:else}
 												<input
 													type="text"
-													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0 {ALIGN_CLASS[align]} {isNumeric ? 'numeric-input font-mono tabular-nums' : ''}"
+													class="cell-input cell-input-editor w-full h-full bg-transparent border-none outline-none text-[13px] text-[var(--text-1)] font-inherit p-0 {editValue[0] === '=' ? 'text-left' : ALIGN_CLASS[align]} {isNumeric || editValue[0] === '=' ? 'numeric-input font-mono tabular-nums' : ''}"
 													aria-label="Edit Cell Value"
 													bind:value={editValue}
-													onclick={(e) => e.stopPropagation()}
+													bind:this={editorInput}
+													onclick={(e) => {
+														e.stopPropagation();
+														syncCaret();
+													}}
+													oninput={syncCaret}
+													onselect={syncCaret}
 													use:autoFocus
 													onblur={commitEdit}
 													onkeydown={(e) => handleEditorKeyDown(e, rowIndex, colIndex)}
@@ -999,3 +1169,5 @@
 
 	{/if}
 </div>
+
+<FormulaHintPopup matches={hintMatches} highlight={hintIndex} anchor={hintAnchor} onpick={pickHint} />

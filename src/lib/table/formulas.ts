@@ -25,6 +25,60 @@ export function sheetRowNumber(rowIndex: number): number {
 	return rowIndex + 1 + HEADER_ROWS;
 }
 
+/** The letter shown above column `colIndex` and used to address it: 0 -> `A`. */
+export const columnLetter = getExcelColumnName;
+
+/** The address of a grid cell, as a formula writes it: `B2`. */
+export function cellAddress(colIndex: number, rowIndex: number): string {
+	return `${columnLetter(colIndex)}${sheetRowNumber(rowIndex)}`;
+}
+
+/** `A2` / `$B$9` -> grid indices, or null when the address falls outside the grid. */
+export function addressToIndices(
+	address: string,
+	columnCount: number,
+	rowCount: number
+): { colIndex: number; rowIndex: number } | null {
+	const match = /^\$?([A-Za-z]{1,3})\$?(\d+)$/.exec(address);
+	if (!match) return null;
+
+	let colIndex = 0;
+	for (const ch of match[1].toUpperCase()) colIndex = colIndex * 26 + (ch.charCodeAt(0) - 64);
+	colIndex -= 1;
+	const rowIndex = Number(match[2]) - 1 - HEADER_ROWS;
+
+	if (colIndex < 0 || colIndex >= columnCount) return null;
+	if (rowIndex < 0 || rowIndex >= rowCount) return null;
+	return { colIndex, rowIndex };
+}
+
+/** Every `rowIndex::colIndex` a formula reads, so the grid can tint them while editing. */
+export function referencedCells(formula: string, columnCount: number, rowCount: number): Set<string> {
+	const cells = new Set<string>();
+	// Ranges first: `B2:B9` must not be read as two loose references.
+	const consumed = new Set<number>();
+	const rangeRe = /(\$?[A-Za-z]{1,3}\$?\d+):(\$?[A-Za-z]{1,3}\$?\d+)/g;
+	for (let m = rangeRe.exec(formula); m; m = rangeRe.exec(formula)) {
+		for (let i = m.index; i < m.index + m[0].length; i++) consumed.add(i);
+		const from = addressToIndices(m[1], columnCount, rowCount);
+		const to = addressToIndices(m[2], columnCount, rowCount);
+		if (!from || !to) continue;
+		for (let r = Math.min(from.rowIndex, to.rowIndex); r <= Math.max(from.rowIndex, to.rowIndex); r++) {
+			for (let c = Math.min(from.colIndex, to.colIndex); c <= Math.max(from.colIndex, to.colIndex); c++) {
+				cells.add(`${r}::${c}`);
+			}
+		}
+	}
+
+	const singleRe = /\$?[A-Za-z]{1,3}\$?\d+/g;
+	for (let m = singleRe.exec(formula); m; m = singleRe.exec(formula)) {
+		if (consumed.has(m.index)) continue;
+		const at = addressToIndices(m[0], columnCount, rowCount);
+		if (at) cells.add(`${at.rowIndex}::${at.colIndex}`);
+	}
+	return cells;
+}
+
 const ERROR_VALUE = '#ERROR!';
 
 function tableHasFormula(columns: Column[], rows: Row[]): boolean {

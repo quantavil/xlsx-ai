@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'bun:test';
 import type { Column, Row } from '../../src/lib/types';
-import { resolveFormulaRows, sheetRowNumber } from '../../src/lib/table/formulas';
+import {
+	addressToIndices,
+	cellAddress,
+	referencedCells,
+	resolveFormulaRows,
+	sheetRowNumber
+} from '../../src/lib/table/formulas';
+import {
+	applyFunction,
+	applyReference,
+	expectsReference,
+	FORMULA_FUNCTIONS,
+	matchFunctions
+} from '../../src/lib/table/formula-hints';
 import { isFormula, normalizeCellValue } from '../../src/lib/table/cells';
 import { buildXlsxSheetData } from '../../src/lib/data/export';
 
@@ -80,5 +93,71 @@ describe('sheetRowNumber', () => {
 	it('skips the header row so the gutter matches formula addressing', () => {
 		expect(sheetRowNumber(0)).toBe(2);
 		expect(sheetRowNumber(7)).toBe(9);
+	});
+});
+
+describe('addressing', () => {
+	it('round-trips a grid position through its spreadsheet address', () => {
+		expect(cellAddress(0, 0)).toBe('A2');
+		expect(cellAddress(27, 7)).toBe('AB9');
+		expect(addressToIndices('AB9', 30, 10)).toEqual({ colIndex: 27, rowIndex: 7 });
+		expect(addressToIndices('$B$2', 30, 10)).toEqual({ colIndex: 1, rowIndex: 0 });
+	});
+
+	it('rejects an address outside the grid, including the header row', () => {
+		expect(addressToIndices('A1', 3, 5)).toBeNull(); // row 1 is the header
+		expect(addressToIndices('Z2', 3, 5)).toBeNull();
+		expect(addressToIndices('A99', 3, 5)).toBeNull();
+		expect(addressToIndices('nonsense', 3, 5)).toBeNull();
+	});
+});
+
+describe('referencedCells', () => {
+	it('expands a range without also reading its ends as loose references', () => {
+		expect([...referencedCells('=SUM(A2:A4)', 3, 5)].sort()).toEqual(['0::0', '1::0', '2::0']);
+	});
+
+	it('collects single references and ranges together, skipping out-of-grid ones', () => {
+		expect([...referencedCells('=SUM(A2:A3)+C4', 3, 5)].sort()).toEqual(['0::0', '1::0', '2::2']);
+		expect([...referencedCells('=A2+Z9', 3, 5)]).toEqual(['0::0']);
+	});
+});
+
+describe('formula hints', () => {
+	it('completes a partial name and stops once it is exact', () => {
+		expect(matchFunctions('=SU', 3).map((f) => f.name)).toEqual(['SUBSTITUTE', 'SUM', 'SUMIF', 'SUMPRODUCT']);
+		expect(matchFunctions('=SUM', 4).map((f) => f.name)).toEqual(['SUM', 'SUMIF', 'SUMPRODUCT']);
+		expect(matchFunctions('=TODAY', 6)).toEqual([]); // exact and unique - nothing left to offer
+	});
+
+	it('offers nothing outside a formula', () => {
+		expect(matchFunctions('SUM', 3)).toEqual([]);
+		expect(matchFunctions('=', 1)).toEqual([]);
+	});
+
+	it('inserts the name with an open paren and the caret inside it', () => {
+		const fn = FORMULA_FUNCTIONS.find((f) => f.name === 'SUM')!;
+		expect(applyFunction('=SU', 3, fn)).toEqual({ text: '=SUM(', caret: 5 });
+		expect(applyFunction('=1+AV)', 5, FORMULA_FUNCTIONS.find((f) => f.name === 'AVERAGE')!)).toEqual({
+			text: '=1+AVERAGE()',
+			caret: 11
+		});
+	});
+});
+
+describe('point mode', () => {
+	it('takes a click only where a reference can go', () => {
+		expect(expectsReference('=', 1)).toBe(true);
+		expect(expectsReference('=SUM(', 5)).toBe(true);
+		expect(expectsReference('=A2+', 4)).toBe(true);
+		expect(expectsReference('=A2', 3)).toBe(true); // clicking again replaces it
+		expect(expectsReference('=SUM(A2:A4)', 11)).toBe(false); // closed - a click commits
+		expect(expectsReference('plain text', 10)).toBe(false);
+	});
+
+	it('appends after an operator and replaces a reference already typed', () => {
+		expect(applyReference('=', 1, 'B2')).toEqual({ text: '=B2', caret: 3 });
+		expect(applyReference('=A2', 3, 'B5')).toEqual({ text: '=B5', caret: 3 });
+		expect(applyReference('=SUM(A2:A4', 10, 'A2:A9')).toEqual({ text: '=SUM(A2:A9', caret: 10 });
 	});
 });
