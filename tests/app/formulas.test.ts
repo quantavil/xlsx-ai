@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { Column, Row } from '../../src/lib/types';
 import {
 	addressToIndices,
+	aggregatesOwnColumn,
 	cellAddress,
 	referencedCells,
 	resolveFormulaRows,
@@ -159,5 +160,39 @@ describe('point mode', () => {
 		expect(applyReference('=', 1, 'B2')).toEqual({ text: '=B2', caret: 3 });
 		expect(applyReference('=A2', 3, 'B5')).toEqual({ text: '=B5', caret: 3 });
 		expect(applyReference('=SUM(A2:A4', 10, 'A2:A9')).toEqual({ text: '=SUM(A2:A9', caret: 10 });
+	});
+});
+
+describe('aggregatesOwnColumn', () => {
+	it('spots a totals cell reading its own column, and lets a per-row formula through', () => {
+		// `=SUM(D2:D4)` sitting in column D (index 3) already contains those values.
+		expect(aggregatesOwnColumn('=SUM(D2:D4)', 3, 5, 4)).toBe(true);
+		// `=B2*C2` in column D reads elsewhere — an ordinary value to aggregate.
+		expect(aggregatesOwnColumn('=B2*C2', 3, 5, 4)).toBe(false);
+		// A mixed formula still touches its own column, so it still double-counts.
+		expect(aggregatesOwnColumn('=D2+B2', 3, 5, 4)).toBe(true);
+	});
+});
+
+describe('a broken formula', () => {
+	const c4 = cols('A', 'B', 'C', 'D');
+
+	it('does not take the rest of the sheet down with it', () => {
+		// xlsx-calc builds every expression before evaluating any, so one unparseable
+		// formula used to leave every computed cell in the grid blank.
+		const out = resolveFormulaRows(
+			c4,
+			rows([2, 10, '=A2*B2', '=X9+'], [3, 20, '=A3*B3', '=ALSOBAD('])
+		);
+		expect(out[0].c3).toBe(20);
+		expect(out[1].c3).toBe(60);
+		expect(out[0].c4).toBe('#ERROR!');
+		expect(out[1].c4).toBe('#ERROR!');
+	});
+
+	it('still computes what a circular reference does not touch', () => {
+		const out = resolveFormulaRows(c4, rows([2, 10, '=A2*B2', '=D2']));
+		expect(out[0].c3).toBe(20);
+		expect(out[0].c4).toBe('#ERROR!');
 	});
 });

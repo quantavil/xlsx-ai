@@ -79,10 +79,69 @@ export function referencedCells(formula: string, columnCount: number, rowCount: 
 	return cells;
 }
 
-const ERROR_VALUE = '#ERROR!';
+/** What a cell shows when its formula could not be computed. */
+export const ERROR_VALUE = '#ERROR!';
+
+/**
+ * Formula strings xlsx-calc cannot even parse.
+ *
+ * It builds the whole sheet's expression tree before evaluating any of it, so one
+ * malformed formula throws during the build and *nothing* gets a value — a single
+ * typo used to blank every computed cell in the grid. Whether a formula parses is a
+ * property of its text, not of where it sits, so a string proven bad once stays bad:
+ * the isolation pass below runs only when a new one appears.
+ */
+const unparseable = new Set<string>();
+
+/** Runs the sheet, returning false if xlsx-calc could not build it. */
+function tryCalc(sheet: Record<string, unknown>): boolean {
+	try {
+		XLSX_CALC({ SheetNames: ['S'], Sheets: { S: sheet } });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Finds which formulas broke the build by running each alone over the sheet's
+ * literals, and remembers them. Only reached when a formula the cache has not seen
+ * fails, so the ordinary path never pays for it.
+ */
+function quarantineUnparseable(sheet: Record<string, unknown>): void {
+	const literals: Record<string, unknown> = {};
+	const formulaCells: Array<[string, string]> = [];
+	for (const [addr, cell] of Object.entries(sheet)) {
+		const f = (cell as { f?: string } | null)?.f;
+		if (f === undefined) literals[addr] = cell;
+		else formulaCells.push([addr, f]);
+	}
+	for (const [addr, f] of formulaCells) {
+		if (!tryCalc({ ...literals, [addr]: { t: 'n', f } })) unparseable.add(f);
+	}
+}
 
 function tableHasFormula(columns: Column[], rows: Row[]): boolean {
 	return rows.some((row) => columns.some((col) => isFormula(row?.[col.id])));
+}
+
+/**
+ * Whether a formula reads any cell in the column it sits in.
+ *
+ * A totals cell — `=SUM(D2:D4)` in column D — already contains its column's other
+ * values, so adding it to that column's own SUM counts them twice. A per-row formula
+ * like `=B2*C2` reads elsewhere and is an ordinary value to aggregate.
+ */
+export function aggregatesOwnColumn(
+	formula: string,
+	colIndex: number,
+	columnCount: number,
+	rowCount: number
+): boolean {
+	for (const key of referencedCells(formula, columnCount, rowCount)) {
+		if (Number(key.slice(key.indexOf('::') + 2)) === colIndex) return true;
+	}
+	return false;
 }
 
 /**
@@ -106,7 +165,12 @@ export function resolveFormulaRows(columns: Column[], rows: Row[]): Row[] {
 			const raw = rows[r]?.[columns[c].id];
 			if (raw === null || raw === undefined || raw === '') continue;
 			const addr = `${colNames[c]}${sheetRowNumber(r)}`;
-			if (isFormula(raw)) sheet[addr] = { t: 'n', f: raw.slice(1) };
+			if (isFormula(raw)) {
+				const expression = raw.slice(1);
+				sheet[addr] = unparseable.has(expression)
+					? { t: 's', v: ERROR_VALUE }
+					: { t: 'n', f: expression };
+			}
 			else if (typeof raw === 'number') sheet[addr] = { t: 'n', v: raw };
 			else if (typeof raw === 'boolean') sheet[addr] = { t: 'b', v: raw };
 			else sheet[addr] = { t: 's', v: String(raw) };
@@ -114,13 +178,17 @@ export function resolveFormulaRows(columns: Column[], rows: Row[]): Row[] {
 	}
 	sheet['!ref'] = `A1:${colNames[colNames.length - 1]}${rows.length + HEADER_ROWS}`;
 
-	// A circular reference makes xlsx-calc throw mid-pass. Cells it already resolved
-	// keep their value, so the workbook is still worth reading back — the rest fall
-	// through to #ERROR! below.
-	try {
-		XLSX_CALC({ SheetNames: ['S'], Sheets: { S: sheet } });
-	} catch {
-		/* partial results are read back the same way */
+	// One unparseable formula takes the whole build down, so on failure find which
+	// ones they are, stand them down to #ERROR!, and compute everything else. A
+	// circular reference throws too but survives isolation, so it ends up here as
+	// well — as a single failed cell rather than a failed sheet.
+	if (!tryCalc(sheet)) {
+		quarantineUnparseable(sheet);
+		for (const [addr, cell] of Object.entries(sheet)) {
+			const f = (cell as { f?: string } | null)?.f;
+			if (f !== undefined && unparseable.has(f)) sheet[addr] = { t: 's', v: ERROR_VALUE };
+		}
+		tryCalc(sheet);
 	}
 
 	return rows.map((row, r) => {

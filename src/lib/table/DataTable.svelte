@@ -7,7 +7,7 @@
 	import { computeFloatingPosition } from '$lib/ui/position';
 	import { isNumericType, resolveDropdownOptionsForRows } from './cells';
 	import { resolveEditTargets, type EditTarget } from './range-edit';
-	import { cellAddress, columnLetter, referencedCells } from './formulas';
+	import { cellAddress, columnLetter, ERROR_VALUE, referencedCells } from './formulas';
 	import {
 		applyFunction,
 		applyReference,
@@ -949,10 +949,11 @@
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
 									{@const inRange = !isActive && isInSelection(rowIndex, colIndex)}
 									{@const isRef = highlightedRefs.has(`${rowIndex}::${colIndex}`)}
+									{@const isError = cellVal === ERROR_VALUE}
 									{@const align = store.alignFor(row.id, col.id, colType)}
 									{@const shadow = cellShadow(isActive, rowIndex, colIndex)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {shadow ? `box-shadow: ${shadow};` : ''} {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										aria-selected={isActive || inRange}

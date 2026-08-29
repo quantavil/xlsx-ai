@@ -22,8 +22,8 @@ import {
 	DEFAULT_TABLE_TITLE,
 	COLUMN_TYPE_CONFIG
 } from '$lib/constants';
-import { normalizeCellValue, numericCellValue, defaultAlignForType, isNumericType } from './cells';
-import { resolveFormulaRows, sheetRowNumber } from './formulas';
+import { normalizeCellValue, numericCellValue, defaultAlignForType, isFormula, isNumericType } from './cells';
+import { aggregatesOwnColumn, resolveFormulaRows, sheetRowNumber } from './formulas';
 import {
 	parseAndMigrateTableDocument,
 	sanitizeAndNormalizeTableData,
@@ -235,7 +235,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	const columnSummaries = $derived.by(() => {
 		const summaries: Record<string, ColumnSummary> = {};
 
-		for (const col of columns || []) {
+		for (const [colIndex, col] of (columns || []).entries()) {
 			if (!col || !col.id) continue;
 			const colType = col.type || 'text';
 			const colConfig = COLUMN_TYPE_CONFIG[colType] || COLUMN_TYPE_CONFIG.text;
@@ -243,20 +243,29 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 
 			let totalCount = 0;
 			let nonEmptyCount = 0;
+			/** How many values actually went into `sum` - the divisor `avg` needs. */
+			let summedCount = 0;
 			let sum = 0;
 			let min: number | undefined = undefined;
 			let max: number | undefined = undefined;
 
-			for (const row of resolvedRows) {
+			for (const [rowIndex, row] of resolvedRows.entries()) {
 				if (!row) continue;
 				totalCount++;
 				const val = row[col.id];
 				if (val !== null && val !== undefined && val !== '') {
 					nonEmptyCount++;
-					if (isSummable) {
+					// A totals row written as `=SUM(D2:D4)` is this column's own values
+					// already added up - counting it again reports double the truth.
+					const raw = rows[rowIndex]?.[col.id];
+					const isOwnTotal =
+						isFormula(raw) &&
+						aggregatesOwnColumn(raw, colIndex, (columns || []).length, rows.length);
+					if (isSummable && !isOwnTotal) {
 						const num = numericCellValue(colType, val);
 						if (num !== null) {
 							sum += num;
+							summedCount++;
 							if (min === undefined || num < min) min = num;
 							if (max === undefined || num > max) max = num;
 						}
@@ -269,9 +278,11 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 				countNonEmpty: nonEmptyCount
 			};
 
-			if (isSummable && nonEmptyCount > 0) {
+			if (isSummable && summedCount > 0) {
 				summary.sum = sum;
-				summary.avg = sum / nonEmptyCount;
+				// Divides by what was summed, not by what was non-empty: an excluded
+				// totals row, or text sitting in a numeric column, is not an addend.
+				summary.avg = sum / summedCount;
 				summary.min = min;
 				summary.max = max;
 			}
