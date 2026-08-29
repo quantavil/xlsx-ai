@@ -1,6 +1,6 @@
 # xlsx-ai — Fast, Modern AI Spreadsheet Workspace
 
-**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, and official **Google Gemini** generative models (`gemini-3.7-flash-lite` default, `gemini-3.7-flash`, `gemini-3.1-pro-preview`).
+**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, **xlsx-calc**, and official **Google Gemini** generative models (`gemini-3.7-flash-lite` default, `gemini-3.7-flash`, `gemini-3.1-pro-preview`).
 
 ---
 
@@ -10,13 +10,14 @@
 - **Multi-File Workspace**: A **Files** menu in the header holds every file — imported spreadsheets, new blank files, and tables produced by AI modules such as ICEGrid. Each file gets its own storage slot, so switching never overwrites another. Provenance is not tracked: once a file is in the workspace it is just a file.
 - **Excel-Grade Active Cell Navigation**: Roving tabindex (`tabindex="0"` on active cell, `-1` on others) with arrow-key hopping (`↑`, `↓`, `←`, `→`), `Tab` column cycling, `Delete` clearing, and direct typing/`F2` inline edit activation.
 - **Range Selection & Cell Alignment**: Shift-click or shift-arrow to select a rectangle, then set **left / center / right** alignment from the header control or `Ctrl+Shift+L/E/R`. Defaults follow Excel (numbers right, everything else left); overrides are per-cell, undoable, and saved with the document. `Delete` clears the whole range and `Ctrl+C` copies it as TSV. Alignment is carried into `.xlsx` export. Shift-selected cells in one column can be replaced together through the normal dropdown or typed editor, with one-step Undo/Redo.
+- **Excel Formulas**: Type `=SUM(B2:B9)` into any cell and the grid shows what it computes while the editor still shows the formula — the split Excel makes. Evaluated locally by `xlsx-calc`; nothing is sent anywhere. Column letters sit in their own sticky strip above the named header and the row gutter counts from 2, because **row 1 is the header** — so an address means the same cells in the workbook you download. Typing `=SU` opens a completion list of the functions the engine can actually evaluate, and clicking a cell mid-formula writes its address (drag for a range). Drag the fill handle to copy a formula down a column with every relative reference stepped; `$` pins one in place. Deleting a row re-aims the formulas that pointed past it and gives `#REF!` to any that named it, rather than silently summing different cells.
 - **Interactive Column Resizing & Auto-Fit**: Draggable right-edge resize handles (`.th-resize-handle`) on every column header with double-click content auto-fit.
 - **Accessible Floating Status Dropdowns**: Boundary-colliding, viewport-flipping status combobox with search, custom status creation, and single-click chevron trigger outside scroll overflow.
-- **Typed Column System**: First-class support for `text`, `number`, `currency`, `percent`, `dropdown`, and `date` with type-aware inline cell editors and centralized normalization (`src/lib/cells.ts`).
-- **Live Summary Calculations**: Pinned footer calculates real-time `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` metrics using plain JavaScript `reduce` directly on `filteredRows`.
+- **Typed Column System**: First-class support for `text`, `number`, `currency`, `percent`, `dropdown`, and `date` with type-aware inline cell editors and centralized normalization (`src/lib/table/cells.ts`).
+- **Live Summary Calculations**: Pinned footer calculates real-time `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` over computed values. A totals row written as `=SUM(D2:D9)` is excluded from its own column's sum — those values are already in there once — and `AVG` divides by what actually went into the sum.
 - **SheetJS Client File I/O & Dynamic Chunking**:
-  - **Import**: Drag & drop or upload `.xlsx`, `.xls`, `.csv`, and `.tsv` files with automatic column header deduplication, size limits (10 MB / 10k rows / 100 cols), and type inference heuristics.
-  - **Export**: One-click export to native Excel Workbooks (`.xlsx`, via `write-excel-file`) or CSV files (`.csv`) with automatic formula injection escaping (`=`, `+`, `-`, `@`, `\t`, `\r`) and unique header disambiguation. Exported workbooks keep per-cell alignment, column widths, a bold header row, and real Excel number formats for `number` / `currency` / `percent` columns.
+  - **Import**: Drag & drop or upload `.xlsx`, `.xls`, `.csv`, and `.tsv` files with automatic column header deduplication, size limits (10 MB / 10k rows / 100 cols), and type inference heuristics. Formulas a workbook carries are read back as formulas, not flattened to the numbers Excel last computed.
+  - **Export**: One-click export to native Excel Workbooks (`.xlsx`, via `write-excel-file`) or CSV files (`.csv`) with automatic formula injection escaping (`=`, `+`, `-`, `@`, `\t`, `\r`) and unique header disambiguation. Exported workbooks keep per-cell alignment, column widths, a bold header row, real Excel number formats for `currency` / `percent` columns, and **formulas as formulas** — `.csv`, which has no formula concept, carries the computed value instead.
 - **Google Gemini AI Assistant**:
   - **AI Grounding**: Contextually grounds the LLM on your active table schema, summary metrics, and data rows.
   - **Structured Data Operations (`generateObject`)**:
@@ -45,6 +46,9 @@
 | `Ctrl + C` / `Cmd + C` | Copy the selection as TSV |
 | `Ctrl + Shift + L` / `E` / `R` | Align selection left / center / right |
 | `Tab` / `Shift + Tab` | Navigate and edit cells horizontally |
+| `=` then `↑` / `↓`, `Enter` / `Tab` | Move through and accept a function suggestion |
+| `Escape` (suggestions open) | Close the suggestion list, keeping the edit |
+| Drag the fill handle | Copy the cell along a row or column, stepping its references |
 | `Ctrl + K` / `Cmd + K` | Focus instant search bar |
 | `Ctrl + N` / `Cmd + N` | Add new row |
 | `Ctrl + Z` / `Cmd + Z` | Undo last table edit |
@@ -176,12 +180,13 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 ```bash
 bun test
 ```
-Runs **247 unit tests across 18 files**, covering the table store, the multi-file document
-index, cell alignment, SheetJS import/export, the AI endpoint, structured dropdowns, and
-the ICEGrid extraction pipeline.
+Runs **343 unit tests across 20 files**, covering the table store, the multi-file document
+index, cell alignment, formula evaluation and reference remapping, SheetJS import/export,
+the AI endpoint, structured dropdowns, and the ICEGrid extraction pipeline.
 
 | Suite | Tests | Covers |
 | :--- | ---: | :--- |
+| `formulas` | 31 | Evaluation, `#ERROR!` containment, A1 addressing, completion, point mode, fill and structural reference remapping |
 | `icegrid-golden-fixtures` | 38 | The trusted workbook contract: 37 headers, row counts, blank `Accessories`, `Per = 1`, serial rules, literal IGST rates |
 | `icegrid-sanitize` | 26 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support |
 | `icegrid-derive` | 24 | Schedule lookups and formulas, asserted against every corpus RITC |
@@ -244,7 +249,10 @@ the deterministic code is tested with captured responses that carry evidence spa
 ```bash
 bun run test:e2e
 ```
-Runs 21 end-to-end user workflows in headless Chromium, including:
+Runs 44 end-to-end user workflows in headless Chromium, including:
+- The column-letter strip above the named header, and the row gutter counting from spreadsheet row 2.
+- Formula completion (`=SU` → `SUM(`), point mode writing a clicked cell's address, and the outline over what a formula reads.
+- Dragging the fill handle down a column, and deleting a row re-aiming the formulas that pointed past it.
 - Sticky headers and floor-pinned footer summaries on the restored active file.
 - Search filtering, column sorting, row addition, and inline cell editing.
 - Excel active-cell navigation, column resizing, and double-click column rename.
@@ -300,6 +308,7 @@ function is 170 KB gzipped, against a 3 MB limit.
 src/
 ├── app.html                  # HTML template with Google Fonts preconnect & theme script
 ├── app.css                   # Zen-brutalist design tokens, radius scales, accessibility
+├── app.d.ts                  # Ambient declaration for the untyped xlsx-calc module
 ├── routes/
 │   ├── +layout.svelte        # Root layout with Toast notifications
 │   ├── +layout.ts            # SSR disabled for every route (export const ssr = false)
@@ -315,9 +324,12 @@ src/
     ├── table/                # Complete Spreadsheet Engine
     │   ├── DataTable.svelte     # Semantic <table> with inline editing, keyboard nav, & sticky footer
     │   ├── DropdownCellEditor.svelte # Viewport-safe floating dropdown editor
+    │   ├── FormulaHintPopup.svelte   # Function suggestion list for the cell editor
     │   ├── store.svelte.ts      # Svelte 5 runes table store (CRUD, search, sort, summaries)
     │   ├── documents.svelte.ts  # Multi-file index: one storage slot per file
     │   ├── cells.ts             # Typed cell parsing and normalization
+    │   ├── formulas.ts          # xlsx-calc evaluation, A1 addressing, reference remapping
+    │   ├── formula-hints.ts     # Completion catalog and the caret rules point mode uses
     │   ├── commands.ts          # Reversible atomic mutations for undo/redo
     │   ├── schema.ts            # Zod V2 schema & table migrations
     │   └── persistence.ts       # Debounced localStorage persistence

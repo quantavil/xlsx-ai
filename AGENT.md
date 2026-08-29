@@ -4,7 +4,7 @@
 - SvelteKit 2 + Svelte 5 runes (`$state`, `$derived`, `$props`) running on Bun 1.4+. `src/routes/+layout.ts` owns `export const ssr = false` for every route.
 - Deploys to Cloudflare Pages via `@sveltejs/adapter-cloudflare` (output `.svelte-kit/cloudflare`, build command `bun run build`). Since nothing is server-rendered, the only code in the Pages Function is `/api/ai*`; the `nodejs_als` compatibility flag is required for the AI SDK (it uses `AsyncLocalStorage`). No environment variables — the Gemini key arrives per-request in the `x-ai-api-key` header.
 - Core Modules:
-  - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `store.svelte.ts`, `documents.svelte.ts` (multi-file index), `cells.ts`, `range-edit.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
+  - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `FormulaHintPopup.svelte`, `store.svelte.ts`, `documents.svelte.ts` (multi-file index), `cells.ts`, `formulas.ts` (evaluation + reference remapping), `formula-hints.ts` (completion catalog + caret logic), `range-edit.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
   - `src/lib/components/`: `Header.svelte` (Files switcher + title + search + alignment control), `RightRibbon.svelte` (AI, modules, add row, export, theme, settings — **not** file creation or import), `AiDrawer.svelte`, `Icons.svelte`, `settings/` (`AiSection.svelte`, `ModulesSection.svelte`, `ShortcutsSection.svelte`) — rendered on the `/settings` page behind a three-item section rail (`nav.settings-sidebar`), not a modal.
   - `src/lib/modules/`: `types.ts`, `registry.ts`, `module-store.svelte.ts`, `icegrid/` (`index.ts`, `pipeline.ts`, `columns.ts`, `readers.ts`, `schema.ts`, `extract.ts`, `ai.server.ts`, `evidence.ts`, `sanitize.ts`, `derive.ts`, `validate.ts`, `to-table.ts`, `profile.ts`, `IcegridSettings.svelte`, `catalogs/`).
   - `src/lib/server/`: `models.ts` (single source of truth for allowed Gemini model ids, shared by both API routes) and `modules/` (server-only AI handler types + static module action registry).
@@ -13,11 +13,12 @@
   - `src/lib/ui/`: `position.ts`, `combobox.ts`, `menu.ts`, `ToastHost.svelte`, `toast.svelte.ts`.
   - `src/lib/workspace.svelte.ts`: the single shared document/table/module/toast store + theme, owned above the router so `/settings` and `/` share one live workspace. `createFile`/`newBlankFile`/`openFile`/`deleteFile` are the only entry points that switch files.
   - Root: `src/lib/constants.ts`, `src/lib/types.ts`.
+- `src/app.d.ts` exists only to declare the untyped `xlsx-calc` module. Nothing else belongs in it.
 - Routes: `src/routes/+layout.svelte`, `src/routes/+page.svelte` (workspace), `src/routes/settings/+page.svelte` (settings; active section is local state, no URL param), `src/routes/api/ai/+server.ts`, `src/routes/api/ai/models/+server.ts`.
 - Styling: Tailwind CSS v4 (`@tailwindcss/vite`) in `src/app.css` providing utility classes, non-black ultra-thin scrollbars, and design tokens across dark/light themes.
 - Document shape: `TableData` is `{title, columns, rows, cellAlign?}`. `cellAlign` maps `rowId::columnId` to `left|center|right` and is part of the persisted v2 document, the undo history, and the document hash.
 - Storage layout: `xlsx-ai:docs:v1` holds `{docs:[{id,title,updatedAt}], activeId}`; each file's rows live at `xlsx-ai:doc:<id>`. The table store takes its storage key as a getter so the active file can change without rebuilding the adapter.
-- Tests: `tests/app/*.test.ts` (host app: table, documents, data, ai, modules framework) and `tests/icegrid/*.test.ts` (the ICEGrid module, with its corpus fixtures under `tests/icegrid/fixtures/`), run via `bun test`; `e2e/table.spec.ts` runs via `bun run test:e2e` (chromium only). One directory per module under `tests/` — keep module tests out of `tests/app/`.
+- Tests: `tests/app/*.test.ts` (host app: table, documents, data, formulas, ai, modules framework) and `tests/icegrid/*.test.ts` (the ICEGrid module, with its corpus fixtures under `tests/icegrid/fixtures/`), run via `bun test`; `e2e/table.spec.ts` runs via `bun run test:e2e` (chromium only). One directory per module under `tests/` — keep module tests out of `tests/app/`.
 
 
 
