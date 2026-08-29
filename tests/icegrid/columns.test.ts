@@ -33,8 +33,35 @@ describe('ICEGrid column metadata', () => {
 	});
 
 	it('makes exactly the 13 catalog-backed columns dropdowns', () => {
-		const dropdowns = ICEGRID_COLUMNS.filter((c) => c.type === 'dropdown').map((c) => c.header);
+		const dropdowns = ICEGRID_COLUMNS.filter(
+			(c) => c.type === 'dropdown' && !c.runtimeOptions
+		).map((c) => c.header);
 		expect(dropdowns.sort()).toEqual([...DROPDOWN_HEADERS].sort());
+	});
+
+	it('backs drawback_schno with per-run options rather than a catalog', () => {
+		// A catalog-backed value must resolve to a catalog entry or be cleared. A drawback
+		// serial the documents printed has to survive an unreachable lookup, so this column
+		// is a dropdown without a catalog.
+		const serial = ICEGRID_COLUMNS.find((c) => c.header === 'drawback_schno')!;
+		expect(serial.type).toBe('dropdown');
+		expect(serial.catalog).toBeUndefined();
+		expect(serial.runtimeOptions).toBe('drawback');
+		expect(serial.dependsOn).toBe('RITCCode');
+	});
+
+	it('scopes each row of the drawback dropdown to its own tariff code', () => {
+		const built = buildIcegridTableColumns(undefined, {
+			drawback: [
+				{ value: '940399B', label: '940399B — Others', parentValue: '94032090' },
+				{ value: '7318B', label: '7318B — Screws', parentValue: '73181500' }
+			]
+		}).find((c) => c.id === 'drawback_schno')!;
+
+		expect(built.dropdown?.dependsOnColumnId).toBe('RITCCode');
+		expect(built.dropdown?.options.map((o) => o.parentValue)).toEqual(['94032090', '73181500']);
+		// The live service can be down and a broker can be right against it.
+		expect(built.dropdown?.allowCustom).toBe(true);
 	});
 
 	it('keeps Accessories a plain text column with no catalog', () => {

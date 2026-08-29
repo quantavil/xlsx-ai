@@ -1,5 +1,5 @@
 import type { TableData, Row, CellValue } from '$lib/types';
-import { ICEGRID_COLUMNS, buildIcegridTableColumns } from './columns';
+import { ICEGRID_COLUMNS, buildIcegridTableColumns, type IcegridRuntimeOptions } from './columns';
 import { getCatalogSnapshot } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
 import type { IcegridRow, IcegridReport } from './schema';
@@ -48,9 +48,10 @@ export function applyMechanicalRules(rows: readonly IcegridRow[]): IcegridRow[] 
 
 export function mapReportToTableData(
 	report: IcegridReport,
-	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot()
+	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot(),
+	runtimeOptions: IcegridRuntimeOptions = {}
 ): TableData {
-	const columns = buildIcegridTableColumns(catalogs);
+	const columns = buildIcegridTableColumns(catalogs, runtimeOptions);
 	const rows = applyMechanicalRules(report.rows);
 
 	const primaryInvoice = rows.find((r) => r.InvoiceNo)?.InvoiceNo ?? undefined;

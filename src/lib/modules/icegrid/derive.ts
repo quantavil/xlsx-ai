@@ -5,6 +5,11 @@ import { lookupDrawback, lookupRodtep, uqcToUnit } from './catalogs/generated/sc
 import { SCHEDULES_PROVENANCE } from './catalogs/generated/provenance';
 import { EMPTY_PROFILE, PROFILE_FIELD_HEADERS, type IcegridProfile } from './profile';
 import type { IcegridRow } from './schema';
+import {
+	normalizeRitcCode,
+	selectDrawbackSerial,
+	type DutyLookupMap
+} from './duty-lookup';
 
 /**
  * How a populated cell came to be filled. Extracted values were already gated on a
@@ -12,7 +17,7 @@ import type { IcegridRow } from './schema';
  * other two routes produced it so the user can tell an invoice figure from a
  * schedule lookup from a formula.
  */
-export type Provenance = 'extracted' | 'schedule' | 'derived' | 'profile';
+export type Provenance = 'extracted' | 'schedule' | 'derived' | 'profile' | 'lookup';
 
 export type ProvenanceMap = Record<string, Record<string, Provenance>>;
 
@@ -43,6 +48,11 @@ export interface DeriveOptions {
 	sourceText?: string;
 	/** Exchange rate read off the invoice, which takes precedence over the profile. */
 	documentExchangeRate?: number | null;
+	/**
+	 * Live duty-structure answers keyed by RITC. Absent or missing a code simply means
+	 * the bundled schedule decides, which is what happened before this existed.
+	 */
+	lookups?: DutyLookupMap;
 }
 
 /**
@@ -55,11 +65,23 @@ export interface DeriveOptions {
  * anything uncertain adds a warning rather than being asserted silently.
  */
 export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions): DerivationResult {
-	const { catalogs, profile = EMPTY_PROFILE, sourceText = '', documentExchangeRate = null } = options;
+	const {
+		catalogs,
+		profile = EMPTY_PROFILE,
+		sourceText = '',
+		documentExchangeRate = null,
+		lookups
+	} = options;
 
 	const warnings: string[] = [];
 	const provenance: ProvenanceMap = {};
-	const filled: Record<Provenance, number> = { extracted: 0, schedule: 0, derived: 0, profile: 0 };
+	const filled: Record<Provenance, number> = {
+		extracted: 0,
+		schedule: 0,
+		derived: 0,
+		profile: 0,
+		lookup: 0
+	};
 
 	const gstinState = sourceText ? stateCodeFromGstin(sourceText) : null;
 	const exchangeRate = documentExchangeRate ?? profile.exchangeRate ?? null;
@@ -88,24 +110,67 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		}
 
 		// ---- 1. Schedule lookups, keyed by the tariff code ------------------------
-		const ritc = String(row.RITCCode ?? '').replace(/\D/g, '');
+		const ritc = normalizeRitcCode(row.RITCCode);
+		const live = lookups?.get(ritc);
+
 		if (ritc.length === 8) {
-			const rodtep = lookupRodtep(ritc);
+			// RoDTEP is per tariff item, so the live answer and the bundled schedule are
+			// asking the same question. Three states, not two: the schedule can say a code
+			// is eligible or that it never mentions the code, and an exporter can decline
+			// a claim on a code that is eligible. Only the invoice knows the third, which
+			// is why an extracted "No" is never overwritten - `set` is fill-only.
+			const rodtep = live ? live.rodtep : lookupRodtep(ritc);
 			if (rodtep) {
-				set('RODTEP', 'Yes', 'schedule');
+				set('RODTEP', 'Yes', live ? 'lookup' : 'schedule');
 				const unit = uqcToUnit(rodtep.uqc);
-				if (unit) set('SQCUnit', unit, 'schedule');
+				if (unit) set('SQCUnit', unit, live ? 'lookup' : 'schedule');
 			} else {
-				set('RODTEP', 'No', 'schedule');
+				// Absent from Appendix 4R means the question does not apply to this tariff
+				// item. Writing "No" here would claim it was considered and refused.
+				set('RODTEP', 'N/A', live ? 'lookup' : 'schedule');
 			}
 
-			const drawback = lookupDrawback(ritc);
-			if (drawback) {
-				set('drawback_schno', drawback.schno, 'schedule');
-				set('dbk_rate', drawback.rate, 'schedule');
-				if (drawback.residual && drawback.alternatives.length > 0) {
+			// Drawback is keyed on the four-digit heading, so a tariff item is routinely
+			// offered several serials. That is a classification the exporter makes: pick a
+			// starting point, record that it was a guess, and let the dropdown carry the rest.
+			if (live && live.drawback.length > 0) {
+				const choice = selectDrawbackSerial(live.drawback, row.drawback_schno);
+				if (choice.serial) set('drawback_schno', choice.serial, 'lookup');
+				if (choice.basis === 'suggested') {
 					residualDrawbackRows++;
-					if (sampleAlternatives.length === 0) sampleAlternatives = drawback.alternatives;
+					if (sampleAlternatives.length === 0) {
+						sampleAlternatives = live.drawback.map((c) => c.serial);
+					}
+				}
+
+				// Rate, description, cap and unit are consequences of whichever serial ends
+				// up in the cell - including one the documents printed that the service does
+				// not list, in which case there is nothing to copy and the fields stay blank.
+				const chosen = live.drawback.find(
+					(c) => c.serial.toUpperCase() === String(row.drawback_schno ?? '').trim().toUpperCase()
+				);
+				if (chosen) {
+					set('dbk_rate', chosen.rate, 'lookup');
+					set('dbk_desc', chosen.description, 'lookup');
+					set('ROSLRate', chosen.roslRate, 'lookup');
+					set('ROSLCapValue', chosen.roslCap, 'lookup');
+					// The schedule's own unit governs the cap when it prescribes one; otherwise
+					// the drawback is claimed in the unit the goods were invoiced in.
+					if (chosen.unit) set('dbk_unit', chosen.unit, 'lookup');
+				} else if (!blank(row.drawback_schno)) {
+					warnings.push(
+						`${label}: drawback serial "${row.drawback_schno}" is not one the duty lookup lists for RITC ${ritc}, so its rate, description and unit were left blank.`
+					);
+				}
+			} else {
+				const drawback = lookupDrawback(ritc);
+				if (drawback) {
+					set('drawback_schno', drawback.schno, 'schedule');
+					set('dbk_rate', drawback.rate, 'schedule');
+					if (drawback.residual && drawback.alternatives.length > 0) {
+						residualDrawbackRows++;
+						if (sampleAlternatives.length === 0) sampleAlternatives = drawback.alternatives;
+					}
 				}
 			}
 		} else if (!blank(row.RITCCode)) {
@@ -124,8 +189,10 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		if (blank(row.SQCQTY) && !blank(row.SQCUnit) && row.SQCUnit === row.QuantityUnit) {
 			set('SQCQTY', row.Quantity, 'derived');
 		}
-		// RoDTEP quantity tracks the SQC quantity, not the invoiced quantity.
-		set('RoDTEPQty', row.SQCQTY, 'derived');
+		// RoDTEP quantity tracks the SQC quantity, not the invoiced quantity - and only
+		// where a RoDTEP claim exists at all. A tariff item absent from the schedule has
+		// no quantity to declare against it.
+		if (row.RODTEP !== 'N/A') set('RoDTEPQty', row.SQCQTY, 'derived');
 
 		if (gstinState) set('StateOrigin', gstinState, 'derived');
 

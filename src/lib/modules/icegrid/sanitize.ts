@@ -26,8 +26,13 @@ const MECHANICAL = new Set<string>(MECHANICAL_HEADERS);
  * description cell, so no single printed run ever contains the whole value. These
  * fields are judged on overlap instead. Nothing that reaches a customs filing as a
  * code or an amount belongs in this set.
+ *
+ * `dbk_desc` deliberately is not in it. It reads like prose but it is drawback
+ * schedule wording, now supplied by the duty lookup for whichever serial the row
+ * carries. Because derivation never overwrites an extracted value, a loosely
+ * verified guess here would outrank the authoritative text.
  */
-const TRUSTED_TEXT = new Set<string>(['Description', 'dbk_desc']);
+const TRUSTED_TEXT = new Set<string>(['Description']);
 
 /** One string contains the other, after evidence-grade folding. */
 function overlaps(quote: string, value: string): boolean {

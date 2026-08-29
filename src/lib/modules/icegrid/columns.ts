@@ -1,4 +1,4 @@
-import type { Column, ColumnType } from '$lib/types';
+import type { Column, ColumnType, DropdownOption } from '$lib/types';
 import { getCatalogSnapshot } from './catalogs';
 import type { IcegridCatalogId, IcegridCatalogSnapshot } from './catalogs/types';
 
@@ -10,6 +10,14 @@ export interface IcegridColumnSpec {
 	required?: boolean;
 	/** Which trusted catalog backs this column's in-app dropdown, if any. */
 	catalog?: IcegridCatalogId;
+	/**
+	 * Options supplied per import run rather than by a bundled catalog.
+	 *
+	 * Deliberately not `catalog`: a catalog-backed value must resolve to a catalog
+	 * entry or be cleared, and a drawback serial the documents printed has to survive
+	 * even when the live lookup is unreachable. This drives the dropdown only.
+	 */
+	runtimeOptions?: 'drawback';
 	/** Header of the column this dropdown filters against, e.g. district -> state. */
 	dependsOn?: string;
 }
@@ -35,7 +43,7 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'productAmount', header: 'ProductAmount', type: 'number', description: 'Total item amount as stated on the source document' },
 	{ id: 'per', header: 'Per', type: 'number', description: 'Unit price denominator; defaults to 1' },
 	{ id: 'perUnit', header: 'PerUnit', type: 'dropdown', description: 'Unit for the price denominator', catalog: 'unit' },
-	{ id: 'drawbackSchNo', header: 'drawback_schno', type: 'text', description: 'Duty drawback schedule serial number' },
+	{ id: 'drawbackSchNo', header: 'drawback_schno', type: 'dropdown', description: 'Duty drawback schedule serial number', runtimeOptions: 'drawback', dependsOn: 'RITCCode' },
 	{ id: 'dbkQty', header: 'dbk_qty', type: 'number', description: 'Drawback eligible quantity' },
 	{ id: 'dbkRate', header: 'dbk_rate', type: 'number', description: 'Duty drawback rate' },
 	{ id: 'dbkUnit', header: 'dbk_unit', type: 'dropdown', description: 'Drawback unit', catalog: 'unit' },
@@ -61,8 +69,12 @@ export const ICEGRID_HEADERS = ICEGRID_COLUMNS.map((c) => c.header);
 /** Headers the module owns mechanically; AI values for these are always discarded. */
 export const MECHANICAL_HEADERS = ['InvoiceSNo', 'ItemSNo', 'Per', 'Accessories'] as const;
 
+/** Dropdown options a single run supplies, keyed by `IcegridColumnSpec.runtimeOptions`. */
+export type IcegridRuntimeOptions = Partial<Record<'drawback', readonly DropdownOption[]>>;
+
 export function buildIcegridTableColumns(
-	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot()
+	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot(),
+	runtimeOptions: IcegridRuntimeOptions = {}
 ): Column[] {
 	return ICEGRID_COLUMNS.map((col) => {
 		const width =
@@ -75,6 +87,22 @@ export function buildIcegridTableColumns(
 					  col.id === 'gstCessAmount'
 					? 140
 					: 130;
+
+		if (col.runtimeOptions) {
+			return {
+				id: col.header,
+				name: col.header,
+				type: col.type,
+				width,
+				dropdown: {
+					options: [...(runtimeOptions[col.runtimeOptions] ?? [])],
+					// The live service can be unreachable and a broker can be right when it
+					// disagrees with it, so a serial always stays typeable.
+					allowCustom: true,
+					...(col.dependsOn ? { dependsOnColumnId: col.dependsOn } : {})
+				}
+			};
+		}
 
 		if (!col.catalog) {
 			return { id: col.header, name: col.header, type: col.type, width };

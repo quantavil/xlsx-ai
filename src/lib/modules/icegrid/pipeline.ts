@@ -6,6 +6,8 @@ import { validateIcegridReport } from './validate';
 import { mapReportToTableData } from './to-table';
 import { getCatalogSnapshot } from './catalogs';
 import { deriveRows, findExchangeRate } from './derive';
+import { buildDrawbackOptions, distinctRitcCodes, type DutyLookupEntry } from './duty-lookup';
+import { requestDutyLookups } from './duty-lookup.client';
 import { loadProfile } from './profile';
 
 export async function runIcegridPipeline(files: File[], context: ModuleContext): Promise<ModuleResult> {
@@ -30,12 +32,25 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 		catalogs
 	);
 
+	// One request per distinct tariff code, not per row. The answers scope the drawback
+	// dropdown per row and settle RoDTEP eligibility; when they do not arrive the bundled
+	// schedules answer exactly as they did before, so an outage costs detail, not the run.
+	const ritcs = distinctRitcCodes(report.rows);
+	let lookupEntries: DutyLookupEntry[] = [];
+	let lookupWarnings: string[] = [];
+	if (ritcs.length > 0) {
+		context.onProgress(`Looking up ${ritcs.length} tariff code(s)...`);
+		({ entries: lookupEntries, warnings: lookupWarnings } = await requestDutyLookups(ritcs));
+	}
+	const lookups = new Map(lookupEntries.map((entry) => [entry.ritc, entry]));
+
 	context.onProgress('Filling schedule and derived values...');
 	const derived = deriveRows(report.rows, {
 		catalogs,
 		profile: loadProfile(),
 		sourceText: extraction.content,
-		documentExchangeRate: findExchangeRate(extraction.content)
+		documentExchangeRate: findExchangeRate(extraction.content),
+		lookups
 	});
 	const filledReport = { ...report, rows: derived.rows };
 
@@ -49,16 +64,25 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 	}
 
 	context.onProgress('Preparing table...');
-	const table = mapReportToTableData(filledReport, catalogs);
+	const table = mapReportToTableData(filledReport, catalogs, {
+		drawback: buildDrawbackOptions(lookups)
+	});
 
 	const summary =
 		`Filled ${derived.filled.extracted} cell(s) from the documents, ` +
 		`${derived.filled.schedule} from the customs schedules, ` +
+		`${derived.filled.lookup} from the live duty lookup, ` +
 		`${derived.filled.derived} by formula, ` +
 		`${derived.filled.profile} from your ICEGrid profile.`;
 
 	return {
 		table,
-		warnings: [summary, ...sanitizationWarnings, ...derived.warnings, ...validation.warnings]
+		warnings: [
+			summary,
+			...sanitizationWarnings,
+			...lookupWarnings,
+			...derived.warnings,
+			...validation.warnings
+		]
 	};
 }

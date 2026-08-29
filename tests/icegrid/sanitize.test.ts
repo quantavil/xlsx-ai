@@ -438,14 +438,15 @@ describe('trusted AI descriptions', () => {
 		);
 	});
 
-	it('keeps a trusted dbk_desc on the same overlap rule', () => {
+	it('holds dbk_desc to strict value support, unlike Description', () => {
+		// It reads like prose but it is schedule wording, and the duty lookup supplies it.
 		const { report } = run([
 			candidateRow({
 				dbk_desc: 'SIDE TABLE LARGE WOODEN FINISH',
 				evidence: [span({ fields: ['dbk_desc'], quote: 'SIDE TABLE LARGE' })]
 			})
 		]);
-		expect(report.rows[0].dbk_desc).toBe('SIDE TABLE LARGE WOODEN FINISH');
+		expect(report.rows[0].dbk_desc).toBeNull();
 	});
 
 	it('rejects a description whose verified quote is about something else', () => {
