@@ -249,8 +249,8 @@
 			{@const newStyle = getDropdownStyle(search.trim())}
 			<button
 				type="button"
-				class="dropdown-opt-btn create-btn flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-[var(--border)] cursor-pointer text-left w-full text-[12.5px] font-medium rounded transition-colors {highlightIndex === filteredOptions.length ? 'highlighted brightness-110' : ''}"
-				style="background: {newStyle.bg}; color: {newStyle.text}; border-color: {newStyle.border};"
+				class="dropdown-opt-btn create-btn flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-[var(--border)] cursor-pointer text-left w-full text-[12.5px] font-medium rounded transition-colors {highlightIndex === filteredOptions.length ? 'highlighted' : ''}"
+				style="background: {newStyle.bg}; color: {newStyle.text}; border-color: {highlightIndex === filteredOptions.length ? 'var(--border-focus)' : newStyle.border}; {highlightIndex === filteredOptions.length ? 'box-shadow: inset 0 0 0 1px var(--border-focus);' : ''}"
 				role="option"
 				aria-selected={false}
 				onclick={(e) => {

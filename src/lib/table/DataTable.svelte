@@ -297,6 +297,29 @@
 	// reset the anchor and a shift-click would collapse the range to a single cell.
 	let pointerExtend = false;
 
+	/**
+	 * The selection's outline, Excel-style.
+	 *
+	 * A range reads as one region because a single border runs around its perimeter, not
+	 * because every cell in it is tinted. Each cell contributes only the edges that sit
+	 * on that perimeter, so the interior grid lines stay untouched. Returned as inset
+	 * shadows because a real border would resize the cell.
+	 */
+	function cellShadow(isActive: boolean, rowIndex: number, colIndex: number): string {
+		const parts: string[] = [];
+		if (isActive) parts.push('inset 0 0 0 2px var(--border-focus)');
+
+		const rect = store.selectionRect;
+		if (rect && isInSelection(rowIndex, colIndex)) {
+			if (rowIndex === rect.r0) parts.push('inset 0 2px 0 0 var(--border-focus)');
+			if (rowIndex === rect.r1) parts.push('inset 0 -2px 0 0 var(--border-focus)');
+			if (colIndex === rect.c0) parts.push('inset 2px 0 0 0 var(--border-focus)');
+			if (colIndex === rect.c1) parts.push('inset -2px 0 0 0 var(--border-focus)');
+		}
+
+		return parts.join(', ');
+	}
+
 	function isInSelection(rowIndex: number, colIndex: number): boolean {
 		const rect = store.selectionRect;
 		if (!rect) return false;
@@ -784,9 +807,10 @@
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
 									{@const inRange = !isActive && isInSelection(rowIndex, colIndex)}
 									{@const align = store.alignFor(row.id, col.id, colType)}
+									{@const shadow = cellShadow(isActive, rowIndex, colIndex)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] shadow-[inset_0_0_0_2px_var(--border-focus)]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
-										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {shadow ? `box-shadow: ${shadow};` : ''} {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										aria-selected={isActive || inRange}
 										tabindex={isRovingActive ? 0 : -1}
