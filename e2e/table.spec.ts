@@ -110,6 +110,76 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(row2TierCell).toContainText('Active');
 	});
 
+	test('replaces a Shift-selected text range and undoes it in one step', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const first = rows.nth(0).locator('td.td-cell').nth(0);
+		const third = rows.nth(2).locator('td.td-cell').nth(0);
+
+		await first.click();
+		await third.click({ modifiers: ['Shift'] });
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(3);
+
+		await page.keyboard.press('U');
+		const input = third.locator('input.cell-input');
+		await input.fill('Unified plan');
+		await input.press('Enter');
+
+		for (let index = 0; index < 3; index++) {
+			await expect(rows.nth(index).locator('td.td-cell').nth(0)).toContainText('Unified plan');
+		}
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(3);
+
+		await page.locator('button[aria-label="Undo"]').click();
+		await expect(rows.nth(0).locator('td.td-cell').nth(0)).toContainText('Starter Cloud');
+		await expect(rows.nth(1).locator('td.td-cell').nth(0)).toContainText('Developer Sandbox');
+		await expect(rows.nth(2).locator('td.td-cell').nth(0)).toContainText('Plan 3');
+
+		await page.locator('button[aria-label="Redo"]').click();
+		for (let index = 0; index < 3; index++) {
+			await expect(rows.nth(index).locator('td.td-cell').nth(0)).toContainText('Unified plan');
+		}
+	});
+
+	test('choosing one dropdown option replaces the selected dropdown range', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const first = rows.nth(0).locator('td.td-cell').nth(1);
+		const third = rows.nth(2).locator('td.td-cell').nth(1);
+
+		await first.click();
+		await third.click({ modifiers: ['Shift'] });
+		await third.locator('button[aria-label="Open dropdown options"]').click();
+		const popover = third.locator('.custom-dropdown-popover');
+		await expect(popover.locator('[role="option"][aria-selected="true"]')).toHaveCount(0);
+		await popover.locator('button.dropdown-opt-btn', { hasText: 'Trial' }).click();
+
+		for (let index = 0; index < 3; index++) {
+			await expect(rows.nth(index).locator('td.td-cell').nth(1)).toContainText('Trial');
+		}
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(3);
+
+		await page.locator('button[aria-label="Undo"]').click();
+		await expect(rows.nth(0).locator('td.td-cell').nth(1)).toContainText('Active');
+		await expect(rows.nth(1).locator('td.td-cell').nth(1)).toContainText('Trial');
+		await expect(rows.nth(2).locator('td.td-cell').nth(1)).toContainText('Pending');
+	});
+
+	test('a custom dropdown value replaces the selected dropdown range', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const first = rows.nth(0).locator('td.td-cell').nth(1);
+		const second = rows.nth(1).locator('td.td-cell').nth(1);
+
+		await first.click();
+		await second.click({ modifiers: ['Shift'] });
+		await page.keyboard.press('Enter');
+		const search = second.locator('input.dropdown-search-input');
+		await search.fill('Archived');
+		await search.press('Enter');
+
+		await expect(first).toContainText('Archived');
+		await expect(second).toContainText('Archived');
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(2);
+	});
+
 	test('renames a column by double-clicking its header, not via a menu item', async ({ page }) => {
 		const firstHeader = page.locator('thead th.th-column').first();
 		await firstHeader.locator('button.th-title-btn').dblclick();

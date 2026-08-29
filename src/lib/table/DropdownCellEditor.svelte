@@ -8,6 +8,7 @@
 
 	interface Props {
 		value: string | null;
+		mixed?: boolean;
 		options: DropdownOption[];
 		/** When false, no `+ Add` is offered and an unknown typed value cannot commit. */
 		allowCustom?: boolean;
@@ -18,6 +19,7 @@
 
 	let {
 		value,
+		mixed = false,
 		options,
 		allowCustom = true,
 		triggerEl = null,
@@ -149,6 +151,7 @@
 			placeholder="Search or type new..."
 			aria-label="Search or add option"
 			bind:value={search}
+			onclick={(e) => e.stopPropagation()}
 			onkeydown={handleKeyDown}
 		/>
 		<span class="status-arrow-indicator text-[9px] text-[var(--text-3)] select-none opacity-40 ml-1 font-mono" aria-hidden="true">{isFlipped ? '▲' : '▼'}</span>
@@ -161,8 +164,11 @@
 			type="button"
 			class="dropdown-opt-btn clear-opt-btn flex items-center justify-between px-2.5 py-1.5 border-none bg-transparent cursor-pointer text-left w-full text-[12.5px] text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-hover)] transition-colors {highlightIndex === -1 ? 'highlighted bg-[var(--surface-hover)] !text-[var(--text-1)]' : ''}"
 			role="option"
-			aria-selected={value === '' || value === null}
-			onclick={() => onCommit('')}
+			aria-selected={!mixed && (value === '' || value === null)}
+			onclick={(e) => {
+				e.stopPropagation();
+				onCommit('');
+			}}
 		>
 			<span class="dropdown-opt-text empty-text">Clear</span>
 			<span class="clear-icon text-[11px] opacity-40" aria-hidden="true">✕</span>
@@ -170,7 +176,7 @@
 
 		{#each filteredOptions as opt, idx (opt.value)}
 			{@const style = getDropdownStyle(opt.value)}
-			{@const isSelected = (value || '').toLowerCase() === opt.value.toLowerCase()}
+			{@const isSelected = !mixed && (value || '').toLowerCase() === opt.value.toLowerCase()}
 			{@const isHighlighted = highlightIndex === idx}
 
 			<button
@@ -179,7 +185,10 @@
 				style="background: {style.bg}; color: {style.text}; border-color: {style.border};"
 				role="option"
 				aria-selected={isSelected}
-				onclick={() => onCommit(opt.value)}
+				onclick={(e) => {
+					e.stopPropagation();
+					onCommit(opt.value);
+				}}
 				onmouseenter={() => (highlightIndex = idx)}
 			>
 				<span class="truncate">{dropdownOptionLabel(opt)}</span>
@@ -197,7 +206,10 @@
 				style="background: {newStyle.bg}; color: {newStyle.text}; border-color: {newStyle.border};"
 				role="option"
 				aria-selected={false}
-				onclick={() => onCommit(search.trim())}
+				onclick={(e) => {
+					e.stopPropagation();
+					onCommit(search.trim());
+				}}
 				onmouseenter={() => (highlightIndex = filteredOptions.length)}
 			>
 				<span class="create-label text-[11px] font-bold shrink-0" style="color: {newStyle.text};">+ Add</span>

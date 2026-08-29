@@ -5,7 +5,8 @@
 	import type { CellAlign, Column, ColumnType, CellValue, Row } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
 	import { computeFloatingPosition } from '$lib/ui/position';
-	import { resolveDropdownOptions } from './cells';
+	import { resolveDropdownOptionsForRows } from './cells';
+	import { resolveEditTargets, type EditTarget } from './range-edit';
 
 	let {
 		store,
@@ -42,6 +43,7 @@
 		if (next !== cell) store.setSelection(next);
 	});
 	let editingCell = $state<{ rowId: string; columnId: string } | null>(null);
+	let editTargets = $state<EditTarget[]>([]);
 	let cellNodes = new Map<string, HTMLElement>();
 
 	let editValue = $state<string>('');
@@ -192,14 +194,6 @@
 		store.updateColumnWidth(colId, fitWidth);
 	}
 
-	function getCellDropdownOptions(col: Column, rowId: string) {
-		return resolveDropdownOptions(
-			col,
-			store.rows.find((r) => r.id === rowId),
-			store.rows
-		);
-	}
-
 	function selectCell(
 		rowId: string,
 		columnId: string,
@@ -218,32 +212,76 @@
 		}
 	}
 
+	function rowsForEditTargets(): Row[] {
+		const rowMap = new Map(store.rows.map((row) => [row.id, row]));
+		return editTargets.flatMap((target) => {
+			const row = rowMap.get(target.rowId);
+			return row ? [row] : [];
+		});
+	}
+
+	function getCellDropdownOptions(col: Column, rowId: string) {
+		const activeRow = store.rows.find((row) => row.id === rowId);
+		return resolveDropdownOptionsForRows(col, activeRow, rowsForEditTargets(), store.rows);
+	}
+
+	function dropdownEditorValue(columnId: string): string {
+		const selectedRows = rowsForEditTargets();
+		if (selectedRows.length <= 1) return editValue;
+		const first = selectedRows[0]?.[columnId] ?? null;
+		return selectedRows.every((row) => Object.is(row[columnId] ?? null, first))
+			? String(first ?? '')
+			: '';
+	}
+
+	function dropdownEditorIsMixed(columnId: string): boolean {
+		const selectedRows = rowsForEditTargets();
+		if (selectedRows.length <= 1) return false;
+		const first = selectedRows[0]?.[columnId] ?? null;
+		return !selectedRows.every((row) => Object.is(row[columnId] ?? null, first));
+	}
+
 	function startEditing(rowId: string, columnId: string, initialVal: unknown) {
-		store.setSelection({
+		const requestedCell = {
 			rowId,
 			columnId,
-			rowIndex: store.filteredRows.findIndex((r) => r.id === rowId),
-			colIndex: store.columns.findIndex((c) => c.id === columnId)
-		});
+			rowIndex: store.filteredRows.findIndex((row) => row.id === rowId),
+			colIndex: store.columns.findIndex((column) => column.id === columnId)
+		};
+		const targets = resolveEditTargets(
+			store.selectionRect,
+			store.activeCell,
+			requestedCell,
+			store.filteredRows,
+			store.columns
+		);
+		if (targets.length === 1) store.setSelection(requestedCell);
+		editTargets = targets;
 		editingCell = { rowId, columnId };
 		editValue = initialVal !== null && initialVal !== undefined ? String(initialVal) : '';
 	}
 
-	function commitEdit() {
-		if (!editingCell) return;
+	function commitEdit(): boolean {
+		if (!editingCell) return false;
+		const wasBulk = editTargets.length > 1;
+		store.applyCellPatches(
+			editTargets.map((target) => ({
+				rowId: target.rowId,
+				columnId: target.columnId,
+				newValue: editValue
+			}))
+		);
 		const { rowId, columnId } = editingCell;
-		store.setCell(rowId, columnId, editValue);
 		editingCell = null;
-		const key = `${rowId}-${columnId}`;
-		cellNodes.get(key)?.focus();
+		editTargets = [];
+		cellNodes.get(`${rowId}-${columnId}`)?.focus();
+		return wasBulk;
 	}
 
 	function cancelEdit() {
 		editingCell = null;
-		if (activeCell) {
-			const key = `${activeCell.rowId}-${activeCell.columnId}`;
-			cellNodes.get(key)?.focus();
-		}
+		editTargets = [];
+		if (activeCell) cellNodes.get(`${activeCell.rowId}-${activeCell.columnId}`)?.focus();
 	}
 
 	const ALIGN_CLASS: Record<CellAlign, string> = {
@@ -394,8 +432,8 @@
 		e.stopPropagation();
 		if (e.key === 'Enter') {
 			e.preventDefault();
-			commitEdit();
-			if (rowIndex < store.filteredRows.length - 1) {
+			const wasBulk = commitEdit();
+			if (!wasBulk && rowIndex < store.filteredRows.length - 1) {
 				const nextRow = store.filteredRows[rowIndex + 1];
 				selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + 1, colIndex);
 			}
@@ -404,15 +442,14 @@
 			cancelEdit();
 		} else if (e.key === 'Tab') {
 			e.preventDefault();
-			commitEdit();
+			const wasBulk = commitEdit();
+			if (wasBulk) return;
 			if (e.shiftKey) {
 				if (colIndex > 0) {
 					selectCell(store.filteredRows[rowIndex].id, store.columns[colIndex - 1].id, rowIndex, colIndex - 1);
 				}
-			} else {
-				if (colIndex < store.columns.length - 1) {
-					selectCell(store.filteredRows[rowIndex].id, store.columns[colIndex + 1].id, rowIndex, colIndex + 1);
-				}
+			} else if (colIndex < store.columns.length - 1) {
+				selectCell(store.filteredRows[rowIndex].id, store.columns[colIndex + 1].id, rowIndex, colIndex + 1);
 			}
 		}
 	}
@@ -788,7 +825,7 @@
 														aria-label="Open dropdown options"
 														onclick={(e) => {
 															e.stopPropagation();
-															selectCell(row.id, col.id, rowIndex, colIndex);
+															if (!isActive) selectCell(row.id, col.id, rowIndex, colIndex);
 															startEditing(row.id, col.id, cellVal);
 														}}
 													>▾</button>
@@ -797,7 +834,8 @@
 											{#if isEditing}
 												{@const cellKey = `${row.id}-${col.id}`}
 												<DropdownCellEditor
-													value={editValue}
+													value={dropdownEditorValue(col.id)}
+													mixed={dropdownEditorIsMixed(col.id)}
 													options={getCellDropdownOptions(col, row.id)}
 													allowCustom={col.dropdown?.allowCustom ?? true}
 													triggerEl={cellNodes.get(cellKey)}
@@ -805,9 +843,7 @@
 														editValue = newVal;
 														commitEdit();
 													}}
-													onCancel={() => {
-														cancelEdit();
-													}}
+													onCancel={cancelEdit}
 												/>
 											{/if}
 										{:else if isEditing}
