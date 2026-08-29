@@ -348,7 +348,8 @@ test.describe('xlsx-ai E2E Workflow', () => {
 
 		const drawer = page.locator('aside.ai-drawer');
 		await expect(drawer).toHaveClass(/open/);
-		await expect(drawer).toContainText('Gemini 3.7 Flash');
+		// The model now lives only in the composer's switcher, not in the header too.
+		await expect(drawer.locator('select.model-switcher-select')).toHaveValue('gemini-3.5-flash-lite');
 		await expect(drawer.locator('.quick-btn')).toHaveCount(3);
 		await expect(drawer.locator('.drawer-close-btn')).toHaveCount(0);
 
@@ -390,7 +391,7 @@ test.describe('xlsx-ai E2E Workflow', () => {
 
 		const keyInput = settingsPage.locator('input.api-key-input');
 		await keyInput.fill('AIzaSyTestKeyForPlaywrightE2E12345');
-		await settingsPage.locator('button:has-text("Save API Key")').click();
+		await settingsPage.locator('button[aria-label="Save API key"]').click();
 		await expect(settingsPage.locator('.status-pill.status-active')).toBeVisible();
 
 		await settingsPage.locator('.settings-close-btn').click();
@@ -679,5 +680,160 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(page.locator('aside.ai-drawer.open')).toBeVisible();
 		await page.keyboard.press('Escape');
 		await expect(page.locator('aside.ai-drawer')).toHaveClass(/closed/);
+	});
+
+	test('replaces a Shift-selected range opened by double-click', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const first = rows.nth(0).locator('td.td-cell').nth(0);
+		const third = rows.nth(2).locator('td.td-cell').nth(0);
+
+		await first.click();
+		await third.click({ modifiers: ['Shift'] });
+		// The mouse path: a double-click's first click must not collapse the range.
+		await third.dblclick();
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(3);
+
+		const input = third.locator('input.cell-input');
+		await input.fill('Range By Mouse');
+		await input.press('Enter');
+
+		for (let index = 0; index < 3; index++) {
+			await expect(rows.nth(index).locator('td.td-cell').nth(0)).toContainText('Range By Mouse');
+		}
+	});
+
+	test('stores several API keys and switches between them', async ({ page }) => {
+		await page.locator('.right-tool-ribbon button.settings-toggle-btn').click();
+		const settingsPage = page.locator('.settings-page');
+		const keyInput = settingsPage.locator('input.api-key-input');
+		const save = settingsPage.locator('button[aria-label="Save API key"]');
+
+		await keyInput.fill('AIzaSyPlaywrightKeyAAAA1111');
+		await save.click();
+		await keyInput.fill('AIzaSyPlaywrightKeyBBBB2222');
+		await save.click();
+
+		const keyRows = settingsPage.locator('.api-key-list li');
+		await expect(keyRows).toHaveCount(2);
+		await expect(settingsPage.locator('.status-pill.status-active')).toContainText('2 keys');
+		// The most recently saved key is the one in use.
+		await expect(keyRows.nth(1)).toContainText('••••2222');
+		await expect(keyRows.nth(1)).toContainText('In use');
+
+		await keyRows.nth(0).locator('button[aria-pressed]').click();
+		await expect(keyRows.nth(0)).toContainText('In use');
+		await expect(keyRows.nth(1)).not.toContainText('In use');
+
+		// Removing the inactive key leaves the active one selected.
+		await keyRows.nth(1).locator('.remove-key-btn').click();
+		await expect(settingsPage.locator('.api-key-list li')).toHaveCount(1);
+		await expect(settingsPage.locator('.api-key-list li').first()).toContainText('••••1111');
+	});
+
+	test('the chat composer grows with its text and switches model in place', async ({ page }) => {
+		await page.locator('.right-tool-ribbon button[aria-label="Toggle AI Assistant"]').click();
+		const drawer = page.locator('aside.ai-drawer.open');
+		await expect(drawer).toBeVisible();
+
+		const composer = drawer.locator('textarea');
+		const startHeight = (await composer.boundingBox())!.height;
+		await composer.fill('one\ntwo\nthree\nfour\nfive');
+		expect((await composer.boundingBox())!.height).toBeGreaterThan(startHeight);
+
+		// Nothing starred yet, so the switcher offers only the model actually in use.
+		const switcher = drawer.locator('select.model-switcher-select');
+		await expect(switcher.locator('option')).toHaveCount(1);
+		await expect(switcher).toHaveValue('gemini-3.5-flash-lite');
+	});
+
+	test('the chat switcher offers exactly the models starred in Settings', async ({ page }) => {
+		await page.locator('.right-tool-ribbon button.settings-toggle-btn').click();
+		const settingsPage = page.locator('.settings-page');
+		await settingsPage.locator('button[aria-label="Favorite Gemini 3.7 Flash"]').click();
+		await settingsPage.locator('button[aria-label="Favorite Gemini 3.1 Pro"]').click();
+		await settingsPage.locator('.settings-close-btn').click();
+
+		await page.locator('.right-tool-ribbon button[aria-label="Toggle AI Assistant"]').click();
+		const switcher = page.locator('aside.ai-drawer.open select.model-switcher-select');
+		// The active model is not starred, so it leads; ids only, one writing style.
+		await expect(switcher.locator('option')).toHaveText([
+			'gemini-3.5-flash-lite',
+			'gemini-3.7-flash',
+			'gemini-3.1-pro-preview'
+		]);
+
+		await switcher.selectOption('gemini-3.7-flash');
+		await expect(switcher).toHaveValue('gemini-3.7-flash');
+	});
+
+	test('a filled dropdown cell shows the range highlight like every other column', async ({
+		page
+	}) => {
+		const rows = page.locator('tbody tr.data-row');
+		const textCell = rows.nth(1).locator('td.td-cell').nth(0);
+		const dropdownCell = rows.nth(0).locator('td.td-cell').nth(1);
+
+		await rows.nth(0).locator('td.td-cell').nth(0).click();
+		await rows.nth(1).locator('td.td-cell').nth(1).click({ modifiers: ['Shift'] });
+
+		// The dropdown paints its own colour inline; the selection tint has to survive it.
+		await expect(textCell).toHaveClass(/in-range/);
+		await expect(dropdownCell).toHaveClass(/in-range/);
+		await expect(dropdownCell).toHaveAttribute('style', /linear-gradient/);
+	});
+
+	test('a selected range is outlined on its perimeter, not boxed cell by cell', async ({
+		page
+	}) => {
+		const rows = page.locator('tbody tr.data-row');
+		// A 2x2 rectangle: rows 0-1 across the first two columns.
+		await rows.nth(0).locator('td.td-cell').nth(0).click();
+		await rows.nth(1).locator('td.td-cell').nth(1).click({ modifiers: ['Shift'] });
+
+		const topLeft = rows.nth(0).locator('td.td-cell').nth(0);
+		const topRight = rows.nth(0).locator('td.td-cell').nth(1);
+		const bottomLeft = rows.nth(1).locator('td.td-cell').nth(0);
+
+		// Top-left owns the top and left edges, and neither of the other two.
+		await expect(topLeft).toHaveAttribute('style', /inset 0 2px 0 0/);
+		await expect(topLeft).toHaveAttribute('style', /inset 2px 0 0 0/);
+		await expect(topLeft).not.toHaveAttribute('style', /inset -2px 0 0 0/);
+		await expect(topLeft).not.toHaveAttribute('style', /inset 0 -2px 0 0/);
+
+		// Top-right closes the right edge; bottom-left closes the bottom.
+		await expect(topRight).toHaveAttribute('style', /inset -2px 0 0 0/);
+		await expect(bottomLeft).toHaveAttribute('style', /inset 0 -2px 0 0/);
+
+		// A single cell gets the active ring only, never a range outline.
+		await rows.nth(2).locator('td.td-cell').nth(0).click();
+		const single = rows.nth(2).locator('td.td-cell').nth(0);
+		await expect(single).toHaveAttribute('style', /inset 0 0 0 2px/);
+		await expect(single).not.toHaveAttribute('style', /inset 2px 0 0 0/);
+	});
+
+	test('typing on a dropdown cell keeps the keystroke as the search query', async ({ page }) => {
+		const tierCell = page.locator('tbody tr.data-row').nth(0).locator('td.td-cell').nth(1);
+		await tierCell.click();
+		await page.keyboard.press('t');
+
+		const search = tierCell.locator('input.dropdown-search-input');
+		await expect(search).toHaveValue('t');
+		// Filtered down by that character, so Enter picks the match rather than option one.
+		await page.keyboard.press('Enter');
+		await expect(tierCell).toContainText('Trial');
+	});
+
+	test('opening a dropdown highlights its current value so Enter is not a silent edit', async ({
+		page
+	}) => {
+		const tierCell = page.locator('tbody tr.data-row').nth(0).locator('td.td-cell').nth(1);
+		await expect(tierCell).toContainText('Active');
+
+		await tierCell.click();
+		await page.keyboard.press('Enter');
+		await expect(tierCell.locator('.custom-dropdown-popover')).toBeVisible();
+		await page.keyboard.press('Enter');
+
+		await expect(tierCell).toContainText('Active');
 	});
 });

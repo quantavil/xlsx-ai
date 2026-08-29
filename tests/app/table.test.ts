@@ -212,13 +212,13 @@ describe('Table Store (Svelte 5 Runes)', () => {
 
 	it('manages API key and model selection state and provides toggleAi', () => {
 		expect(store.apiKey).toBe('');
-		store.setApiKey('AIzaSyTestKey12345');
+		store.addApiKey('AIzaSyTestKey12345');
 		expect(store.apiKey).toBe('AIzaSyTestKey12345');
 
-		store.setApiKey('');
+		store.removeApiKey(0);
 		expect(store.apiKey).toBe('');
 
-		expect(store.aiModel).toBe('gemini-3.7-flash-lite');
+		expect(store.aiModel).toBe('gemini-3.5-flash-lite');
 		store.setAiModel('gemini-3.7-flash');
 		expect(store.aiModel).toBe('gemini-3.7-flash');
 
@@ -356,5 +356,90 @@ describe('Document replacement is recoverable', () => {
 		const store = createTableStore(undefined, { persist: false });
 		store.loadTable(doc);
 		expect(store.canUndo).toBe(false);
+	});
+});
+
+describe('API key ring', () => {
+	let store: ReturnType<typeof createTableStore>;
+
+	beforeEach(() => {
+		store = createTableStore({ title: 'T', columns: [], rows: [] }, { persist: false });
+		store.addApiKey('AIzaSyKeyOne');
+		store.addApiKey('AIzaSyKeyTwo');
+		store.addApiKey('AIzaSyKeyThree');
+	});
+
+	it('makes each newly added key the active one', () => {
+		expect(store.apiKeys).toEqual(['AIzaSyKeyOne', 'AIzaSyKeyTwo', 'AIzaSyKeyThree']);
+		expect(store.apiKey).toBe('AIzaSyKeyThree');
+	});
+
+	it('re-adding a stored key selects it instead of duplicating it', () => {
+		store.addApiKey('  AIzaSyKeyOne  ');
+		expect(store.apiKeys.length).toBe(3);
+		expect(store.apiKey).toBe('AIzaSyKeyOne');
+	});
+
+	it('ignores a blank key', () => {
+		store.addApiKey('   ');
+		expect(store.apiKeys.length).toBe(3);
+	});
+
+	it('switches to the key at an index', () => {
+		store.useApiKey(0);
+		expect(store.apiKey).toBe('AIzaSyKeyOne');
+		store.useApiKey(9);
+		expect(store.apiKey).toBe('AIzaSyKeyOne');
+	});
+
+	it('keeps the active key active when an earlier one is removed', () => {
+		store.useApiKey(2);
+		store.removeApiKey(0);
+		expect(store.apiKey).toBe('AIzaSyKeyThree');
+	});
+
+	it('falls back to a neighbour when the active key is the one removed', () => {
+		store.useApiKey(2);
+		store.removeApiKey(2);
+		expect(store.apiKeys).toEqual(['AIzaSyKeyOne', 'AIzaSyKeyTwo']);
+		expect(store.apiKey).toBe('AIzaSyKeyTwo');
+	});
+
+	it('reports no key once the last one is removed', () => {
+		store.removeApiKey(2);
+		store.removeApiKey(1);
+		store.removeApiKey(0);
+		expect(store.apiKeys).toEqual([]);
+		expect(store.apiKey).toBe('');
+	});
+});
+
+describe('model migration on hydrate', () => {
+	it('moves a workspace off a model id this app shipped but Google never served', () => {
+		localStorage.setItem('xlsx-ai:gemini-model', 'gemini-3.7-flash-lite');
+		const store = createTableStore({ title: 'T', columns: [], rows: [] }, { storageKey: 'test:retired' });
+		store.hydrate();
+		expect(store.aiModel).toBe('gemini-3.5-flash-lite');
+	});
+
+	it('keeps a model id that is still real', () => {
+		localStorage.setItem('xlsx-ai:gemini-model', 'gemini-3.7-flash');
+		const store = createTableStore({ title: 'T', columns: [], rows: [] }, { storageKey: 'test:kept' });
+		store.hydrate();
+		expect(store.aiModel).toBe('gemini-3.7-flash');
+	});
+});
+
+describe('favourite models', () => {
+	it('toggles a model id in and out of the favourites list', () => {
+		const store = createTableStore({ title: 'T', columns: [], rows: [] }, { persist: false });
+		expect(store.favoriteModels).toEqual([]);
+
+		store.toggleFavoriteModel('gemini-3.7-flash');
+		store.toggleFavoriteModel('gemini-3.1-pro-preview');
+		expect(store.favoriteModels).toEqual(['gemini-3.7-flash', 'gemini-3.1-pro-preview']);
+
+		store.toggleFavoriteModel('gemini-3.7-flash');
+		expect(store.favoriteModels).toEqual(['gemini-3.1-pro-preview']);
 	});
 });

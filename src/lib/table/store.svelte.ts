@@ -14,6 +14,9 @@ import {
 	MAX_HISTORY,
 	LS_KEY,
 	LS_API_KEY,
+	RETIRED_AI_MODELS,
+	LS_API_KEYS,
+	LS_FAV_MODELS,
 	LS_AI_MODEL,
 	DEFAULT_AI_MODEL,
 	DEFAULT_TABLE_TITLE,
@@ -86,8 +89,13 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	let selectionAnchor = $state<CellRef | null>(null);
 	let selectionFocus = $state<CellRef | null>(null);
 	let isAiOpen = $state<boolean>(false);
-	let apiKey = $state<string>('');
+	// Several keys, one active. Free Gemini keys hit their daily quota mid-job, and the
+	// fix at that moment is to switch, not to re-paste a key from a password manager.
+	let apiKeys = $state<string[]>([]);
+	let activeKeyIndex = $state<number>(0);
+	const apiKey = $derived(apiKeys[activeKeyIndex] ?? '');
 	let aiModel = $state<string>(DEFAULT_AI_MODEL);
+	let favoriteModels = $state<string[]>([]);
 	let history = $state<HistoryEntry[]>([]);
 	let future = $state<HistoryEntry[]>([]);
 	let hydrated = $state<boolean>(false);
@@ -581,19 +589,22 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 				}
 			}
 
-			// Hydrate API Key from localStorage
-			const savedApiKey = localStorage.getItem(LS_API_KEY);
-			if (savedApiKey) {
-				apiKey = savedApiKey;
+			hydrateApiKeys();
+
+			const savedFavorites = localStorage.getItem(LS_FAV_MODELS);
+			if (savedFavorites) {
+				const parsed: unknown = JSON.parse(savedFavorites);
+				if (Array.isArray(parsed)) favoriteModels = parsed.filter((id) => typeof id === 'string');
 			}
 
 			// Hydrate AI Model from localStorage (migrate obsolete/shut-down models)
 			const savedModel = localStorage.getItem(LS_AI_MODEL);
-			if (savedModel && !savedModel.includes('gemini-2.0') && !savedModel.includes('undefined')) {
-				aiModel = savedModel;
-			} else {
-				aiModel = DEFAULT_AI_MODEL;
-			}
+			const retired =
+				!savedModel ||
+				savedModel.includes('gemini-2.0') ||
+				savedModel.includes('undefined') ||
+				RETIRED_AI_MODELS.includes(savedModel);
+			aiModel = retired ? DEFAULT_AI_MODEL : savedModel;
 		} catch (e) {
 			console.error('Failed to hydrate from localStorage', e);
 			result = { status: 'invalid' };
@@ -604,14 +615,74 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		return result;
 	}
 
-	function setApiKey(newKey: string) {
-		apiKey = newKey.trim();
-		if (typeof localStorage !== 'undefined') {
-			if (apiKey) {
-				localStorage.setItem(LS_API_KEY, apiKey);
-			} else {
-				localStorage.removeItem(LS_API_KEY);
+	/** Reads the key list, folding in the single key older builds stored. */
+	function hydrateApiKeys() {
+		const saved = localStorage.getItem(LS_API_KEYS);
+		if (saved) {
+			const parsed: unknown = JSON.parse(saved);
+			if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { keys?: unknown }).keys)) {
+				const { keys, active } = parsed as { keys: unknown[]; active?: unknown };
+				apiKeys = keys.filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
+				activeKeyIndex = typeof active === 'number' ? clampKeyIndex(active) : 0;
 			}
+		}
+
+		const legacy = localStorage.getItem(LS_API_KEY);
+		if (legacy && !apiKeys.includes(legacy)) {
+			apiKeys = [legacy, ...apiKeys];
+			activeKeyIndex = 0;
+			persistApiKeys();
+		}
+		localStorage.removeItem(LS_API_KEY);
+	}
+
+	function clampKeyIndex(index: number): number {
+		return apiKeys.length === 0 ? 0 : Math.min(Math.max(0, Math.trunc(index)), apiKeys.length - 1);
+	}
+
+	function persistApiKeys() {
+		if (typeof localStorage === 'undefined') return;
+		if (apiKeys.length === 0) {
+			localStorage.removeItem(LS_API_KEYS);
+			return;
+		}
+		localStorage.setItem(LS_API_KEYS, JSON.stringify({ keys: apiKeys, active: activeKeyIndex }));
+	}
+
+	/** Adds a key and makes it active; re-adding a stored key just selects it. */
+	function addApiKey(newKey: string) {
+		const clean = newKey.trim();
+		if (!clean) return;
+		const existing = apiKeys.indexOf(clean);
+		if (existing >= 0) {
+			activeKeyIndex = existing;
+		} else {
+			apiKeys = [...apiKeys, clean];
+			activeKeyIndex = apiKeys.length - 1;
+		}
+		persistApiKeys();
+	}
+
+	function removeApiKey(index: number) {
+		if (index < 0 || index >= apiKeys.length) return;
+		apiKeys = apiKeys.filter((_, i) => i !== index);
+		// Keep whichever key was active still active, unless it was the one removed.
+		activeKeyIndex = clampKeyIndex(index < activeKeyIndex ? activeKeyIndex - 1 : activeKeyIndex);
+		persistApiKeys();
+	}
+
+	function useApiKey(index: number) {
+		if (index < 0 || index >= apiKeys.length) return;
+		activeKeyIndex = index;
+		persistApiKeys();
+	}
+
+	function toggleFavoriteModel(modelId: string) {
+		favoriteModels = favoriteModels.includes(modelId)
+			? favoriteModels.filter((id) => id !== modelId)
+			: [...favoriteModels, modelId];
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem(LS_FAV_MODELS, JSON.stringify(favoriteModels));
 		}
 	}
 
@@ -652,6 +723,15 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		},
 		get apiKey() {
 			return apiKey;
+		},
+		get apiKeys() {
+			return apiKeys;
+		},
+		get activeKeyIndex() {
+			return activeKeyIndex;
+		},
+		get favoriteModels() {
+			return favoriteModels;
 		},
 		get aiModel() {
 			return aiModel;
@@ -703,7 +783,10 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		alignFor,
 		alignSelection,
 		toggleAi,
-		setApiKey,
+		addApiKey,
+		removeApiKey,
+		useApiKey,
+		toggleFavoriteModel,
 		setAiModel,
 		loadTable,
 		newSheet,

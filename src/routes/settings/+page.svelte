@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto, preloadData } from '$app/navigation';
 	import Icon from '$lib/components/Icons.svelte';
-	import { LS_API_KEY, AI_MODELS, type AiModelConfig } from '$lib/constants';
+	import { AI_MODELS, maskApiKey, type AiModelConfig } from '$lib/constants';
 	import { store, moduleStore, notify } from '$lib/workspace.svelte';
 
 	import AiSection from '$lib/components/settings/AiSection.svelte';
@@ -76,36 +76,42 @@
 
 	function saveApiKey() {
 		const clean = apiKey.trim();
-		if (!clean) {
-			clearApiKey();
-			return;
-		}
-		store.setApiKey(clean);
+		if (!clean) return;
+		store.addApiKey(clean);
+		apiKey = '';
 		isSaved = true;
 		notify('success', 'API key saved.');
 		fetchModelsFromGoogle(clean);
 	}
 
-	function clearApiKey() {
+	/** Drops one saved key. Whatever key is active afterwards decides the model list. */
+	function removeApiKey(index: number) {
 		activeFetchController?.abort();
 		activeFetchController = null;
 		fetchRequestId++;
-		apiKey = '';
+		store.removeApiKey(index);
 		isSaved = false;
-		store.setApiKey('');
-		availableModels = AI_MODELS;
-		modelsFetchError = '';
 		isLoadingModels = false;
+		if (store.apiKey) {
+			fetchModelsFromGoogle(store.apiKey);
+		} else {
+			availableModels = AI_MODELS;
+			modelsFetchError = '';
+		}
 		notify('info', 'API key removed.');
 	}
 
+	function switchApiKey(index: number) {
+		store.useApiKey(index);
+		modelsFetchError = '';
+		if (store.apiKey) fetchModelsFromGoogle(store.apiKey);
+		notify('info', `Switched to key ${maskApiKey(store.apiKey)}.`);
+	}
+
 	onMount(() => {
-		const saved = store.apiKey || localStorage.getItem(LS_API_KEY) || '';
-		if (saved) {
-			apiKey = saved;
+		if (store.apiKey) {
 			isSaved = true;
-			if (!store.apiKey) store.setApiKey(saved);
-			fetchModelsFromGoogle(saved);
+			fetchModelsFromGoogle(store.apiKey);
 		}
 
 		function handleKeyDown(e: KeyboardEvent) {
@@ -206,7 +212,8 @@
 						{modelsFetchError}
 						onFetchModels={() => fetchModelsFromGoogle()}
 						onSaveKey={saveApiKey}
-						onClearKey={clearApiKey}
+						onRemoveKey={removeApiKey}
+						onSwitchKey={switchApiKey}
 					/>
 				{:else if activeSection === 'modules'}
 					<ModulesSection {moduleStore} />

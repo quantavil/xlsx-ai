@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
-	import type { AiModelConfig } from '$lib/constants';
+	import { maskApiKey, type AiModelConfig } from '$lib/constants';
 
 	let {
 		store,
@@ -13,7 +13,8 @@
 		modelsFetchError,
 		onFetchModels,
 		onSaveKey,
-		onClearKey
+		onRemoveKey,
+		onSwitchKey
 	}: {
 		store: ReturnType<typeof createTableStore>;
 		apiKey: string;
@@ -24,7 +25,8 @@
 		modelsFetchError: string;
 		onFetchModels: () => void;
 		onSaveKey: () => void;
-		onClearKey: () => void;
+		onRemoveKey: (index: number) => void;
+		onSwitchKey: (index: number) => void;
 	} = $props();
 
 	let modelSearch = $state('');
@@ -48,13 +50,13 @@
 	<div class="card-setting bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3.5">
 		<div class="flex items-center justify-between gap-2">
 			<div class="flex flex-col gap-0.5 min-w-0">
-				<label for="gemini-api-key" class="text-[13.5px] font-semibold text-[var(--text-1)]">API Key</label>
-				<span class="text-[11.5px] text-[var(--text-3)]">Stored in this browser only — never sent anywhere but Google.</span>
+				<label for="gemini-api-key" class="text-[13.5px] font-semibold text-[var(--text-1)]">API Keys</label>
+				<span class="text-[11.5px] text-[var(--text-3)]">Stored in this browser only — never sent anywhere but Google. Add several and switch when one runs out of quota.</span>
 			</div>
 			{#if store.apiKey}
 				<span class="status-pill status-active inline-flex items-center shrink-0 gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] border border-[var(--accent-primary-border)]">
 					<Icon name="check" size={11} />
-					<span>Configured</span>
+					<span>{store.apiKeys.length > 1 ? `${store.apiKeys.length} keys` : 'Configured'}</span>
 				</span>
 			{:else}
 				<span class="inline-flex items-center shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--surface-3)] text-[var(--text-2)] border border-[var(--border)]">Not set</span>
@@ -83,30 +85,53 @@
 				</button>
 			</div>
 
-			<div class="flex items-center gap-1.5 shrink-0">
-				<button
-					type="button"
-					class="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-[var(--text-inverse)] cursor-pointer transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-					onclick={onSaveKey}
-					disabled={!apiKey.trim()}
-				>
-					<Icon name="save" size={13} />
-					<span>{isSaved ? 'Saved!' : 'Save API Key'}</span>
-				</button>
-
-				{#if store.apiKey}
-					<button
-						type="button"
-						class="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-[12.5px] font-medium rounded-lg bg-[var(--surface-3)] text-[var(--text-2)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer transition-colors"
-						onclick={onClearKey}
-						title="Remove stored API key"
-					>
-						<Icon name="trash" size={13} />
-						<span>Remove</span>
-					</button>
-				{/if}
-			</div>
+			<button
+				type="button"
+				class="save-key-btn inline-flex items-center justify-center shrink-0 w-9 h-9 rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-[var(--text-inverse)] cursor-pointer transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+				onclick={onSaveKey}
+				disabled={!apiKey.trim()}
+				aria-label="Save API key"
+				title="Save API key"
+			>
+				<Icon name={isSaved && !apiKey.trim() ? 'check' : 'save'} size={15} />
+			</button>
 		</div>
+
+		{#if store.apiKeys.length > 0}
+			<ul class="api-key-list flex flex-col gap-1 m-0 p-0 list-none" aria-label="Saved API keys">
+				{#each store.apiKeys as key, index (key)}
+					{@const isActiveKey = index === store.activeKeyIndex}
+					<li class="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 {isActiveKey ? 'border-[var(--accent-primary-border)] bg-[var(--accent-primary-bg)]' : 'border-[var(--border)] bg-[var(--surface-1)]'}">
+						<button
+							type="button"
+							class="flex-1 flex items-center gap-2 min-w-0 bg-transparent border-none p-0 text-left cursor-pointer"
+							onclick={() => onSwitchKey(index)}
+							aria-pressed={isActiveKey}
+							title={isActiveKey ? 'Already in use' : 'Use this key'}
+						>
+							<Icon
+								name={isActiveKey ? 'check' : 'key'}
+								size={13}
+								class={isActiveKey ? 'text-[var(--accent-primary)]' : 'text-[var(--text-3)]'}
+							/>
+							<span class="font-mono text-[12px] text-[var(--text-1)] truncate">{maskApiKey(key)}</span>
+							{#if isActiveKey}
+								<span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[var(--accent-primary)] text-[var(--text-inverse)] shrink-0">In use</span>
+							{/if}
+						</button>
+						<button
+							type="button"
+							class="remove-key-btn w-6 h-6 shrink-0 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer transition-colors"
+							onclick={() => onRemoveKey(index)}
+							aria-label="Remove API key {maskApiKey(key)}"
+							title="Remove this key"
+						>
+							<Icon name="trash" size={13} />
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 
 		<div class="flex items-center gap-1 text-[11.5px] text-[var(--text-3)]">
 			<span>Need an API key?</span>
@@ -133,7 +158,7 @@
 				type="button"
 				class="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium rounded-lg bg-[var(--surface-1)] border border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text-2)] hover:text-[var(--text-1)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
 				onclick={onFetchModels}
-				disabled={isLoadingModels || !apiKey.trim()}
+				disabled={isLoadingModels || !store.apiKey}
 				title="Fetch live models from Google API"
 			>
 				<Icon name={isLoadingModels ? 'loader' : 'sparkles'} size={12} class={isLoadingModels ? 'animate-spin text-[var(--accent-primary)]' : ''} />
@@ -174,16 +199,18 @@
 			<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="radiogroup" aria-label="Available Google Gemini Models">
 				{#each filteredModels as model (model.id)}
 					{@const isSelected = store.aiModel === model.id}
+					{@const isFavorite = store.favoriteModels.includes(model.id)}
+					<div class="relative">
 					<button
 						type="button"
-						class="text-left p-3 rounded-lg bg-[var(--surface-1)] border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] flex flex-col gap-1 cursor-pointer transition-all {isSelected ? '!border-[var(--accent-primary)] !bg-[var(--accent-primary-bg)] ring-1 ring-[var(--accent-primary-border)]' : ''}"
+						class="w-full text-left p-3 rounded-lg bg-[var(--surface-1)] border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] flex flex-col gap-1 cursor-pointer transition-all {isSelected ? '!border-[var(--accent-primary)] !bg-[var(--accent-primary-bg)] ring-1 ring-[var(--accent-primary-border)]' : ''}"
 						onclick={() => store.setAiModel(model.id)}
 						role="radio"
 						aria-checked={isSelected}
 					>
 						<div class="flex items-center justify-between gap-1">
 							<span class="font-semibold text-[12.5px] text-[var(--text-1)] truncate">{model.name}</span>
-							<div class="flex items-center gap-1 shrink-0">
+							<div class="flex items-center gap-1 shrink-0 mr-6">
 								{#if model.badge}
 									<span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]">{model.badge}</span>
 								{/if}
@@ -200,6 +227,17 @@
 							<span class="shrink-0">{model.contextWindow}</span>
 						</div>
 					</button>
+					<button
+						type="button"
+						class="favorite-model-btn absolute top-2 right-2 w-6 h-6 rounded flex items-center justify-center cursor-pointer transition-colors {isFavorite ? 'text-[var(--accent-amber)]' : 'text-[var(--text-3)] opacity-0 hover:opacity-100 focus-visible:opacity-100'}"
+						onclick={() => store.toggleFavoriteModel(model.id)}
+						aria-pressed={isFavorite}
+						aria-label="{isFavorite ? 'Unfavorite' : 'Favorite'} {model.name}"
+						title={isFavorite ? 'Remove from the chat switcher' : 'Show in the chat switcher'}
+					>
+						<Icon name={isFavorite ? 'star-filled' : 'star'} size={13} />
+					</button>
+					</div>
 				{/each}
 			</div>
 

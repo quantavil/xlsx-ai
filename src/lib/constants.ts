@@ -11,8 +11,21 @@ export const LS_KEY = 'xlsx-ai:v1';
 export const LS_THEME_KEY = 'xlsx-ai:theme';
 export const LS_API_KEY = 'xlsx-ai:gemini-key';
 export const LS_AI_MODEL = 'xlsx-ai:gemini-model';
+/** `{ keys: string[]; active: number }`. Supersedes LS_API_KEY, which is migrated in. */
+export const LS_API_KEYS = 'xlsx-ai:gemini-keys';
+/** Model ids starred in Settings; the chat switcher offers these instead of the full list. */
+export const LS_FAV_MODELS = 'xlsx-ai:gemini-favorites';
 
-export const DEFAULT_AI_MODEL = 'gemini-3.7-flash-lite';
+/** Last 4 characters, enough to tell two saved keys apart without showing either. */
+export function maskApiKey(key: string): string {
+	return key.length <= 4 ? '••••' : `••••${key.slice(-4)}`;
+}
+
+export const DEFAULT_AI_MODEL = 'gemini-3.5-flash-lite';
+
+// Ids this app once shipped that Google never served. A workspace still holding one of
+// these gets moved to the default rather than 404ing on its next request.
+export const RETIRED_AI_MODELS = ['gemini-3.7-flash-lite'];
 
 export interface AiModelConfig {
 	id: string;
@@ -27,8 +40,8 @@ export interface AiModelConfig {
 // Generative Language API model — "Fetch Live Models" replaces this list once a key exists.
 export const AI_MODELS: AiModelConfig[] = [
 	{
-		id: 'gemini-3.7-flash-lite',
-		name: 'Gemini 3.7 Flash Lite',
+		id: 'gemini-3.5-flash-lite',
+		name: 'Gemini 3.5 Flash Lite',
 		description: 'Cheapest ultra low-latency option for bulk document parsing and fast table transforms.',
 		badge: 'Default',
 		speed: 'Ultra-Fast',
