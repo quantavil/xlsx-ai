@@ -95,6 +95,39 @@ export function resolveDropdownOptions(
 	return merged;
 }
 
+/**
+ * Options safe to apply to every row in one dropdown range.
+ * Only a closed dependent catalog needs intersection; ordinary and custom dropdowns
+ * retain their active-row behavior.
+ */
+export function resolveDropdownOptionsForRows(
+	column: Column,
+	activeRow: Row | undefined,
+	selectedRows: readonly Row[],
+	allRows: readonly Row[]
+): DropdownOption[] {
+	const activeOptions = resolveDropdownOptions(column, activeRow, allRows);
+	const config = column.dropdown;
+	const dependsOn = config?.dependsOnColumnId;
+	if (selectedRows.length <= 1 || !config || !dependsOn || config.allowCustom !== false) {
+		return activeOptions;
+	}
+
+	return activeOptions.filter((candidate) =>
+		selectedRows.every((row) => {
+			const parentKey = normalizeParentKey(
+				typeof row[dependsOn] === 'string' ? String(row[dependsOn]) : undefined
+			);
+			if (!parentKey) return false;
+			return config.options.some(
+				(option) =>
+					option.value.toLowerCase() === candidate.value.toLowerCase() &&
+					normalizeParentKey(option.parentValue) === parentKey
+			);
+		})
+	);
+}
+
 /** ICEGATE writes a state as `08` but a district's parent as `8`; both mean state 8. */
 function normalizeParentKey(value: string | undefined): string {
 	const trimmed = (value ?? '').trim();

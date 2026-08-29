@@ -5,7 +5,11 @@ import {
 	parseAndMigrateTableDocument,
 	PersistedTableDocumentV2Schema
 } from '../../src/lib/table/schema';
-import { resolveDropdownOptions, dropdownOptionLabel } from '../../src/lib/table/cells';
+import {
+	resolveDropdownOptions,
+	resolveDropdownOptionsForRows,
+	dropdownOptionLabel
+} from '../../src/lib/table/cells';
 import type { Column, Row } from '../../src/lib/types';
 
 const stateCol: Column = {
@@ -184,6 +188,53 @@ describe('resolveDropdownOptions', () => {
 	it('does not leak arbitrary table values into a closed catalog', () => {
 		const dirty: Row[] = [{ id: 'r1', StateOrigin: '08' }, { id: 'r2', StateOrigin: 'MADE UP' }];
 		expect(resolveDropdownOptions(stateCol, dirty[0], dirty).map((o) => o.value)).toEqual(['08', '09']);
+	});
+});
+
+describe('resolveDropdownOptionsForRows', () => {
+	const sharedDistrictCol: Column = {
+		id: 'DistrictOrigin',
+		name: 'DistrictOrigin',
+		type: 'dropdown',
+		dropdown: {
+			options: [
+				{ value: 'ANY', label: 'ALL DISTRICTS', parentValue: '8' },
+				{ value: '102', label: 'JAIPUR', parentValue: '8' },
+				{ value: 'ANY', label: 'ALL DISTRICTS', parentValue: '9' },
+				{ value: '171', label: 'GHAZIABAD', parentValue: '9' }
+			],
+			allowCustom: false,
+			dependsOnColumnId: 'StateOrigin'
+		}
+	};
+
+	const rows: Row[] = [
+		{ id: 'r1', StateOrigin: '08', DistrictOrigin: '102' },
+		{ id: 'r2', StateOrigin: '09', DistrictOrigin: '171' }
+	];
+
+	it('keeps only configured values valid for every selected parent', () => {
+		expect(
+			resolveDropdownOptionsForRows(sharedDistrictCol, rows[0], rows, rows).map((o) => o.value)
+		).toEqual(['ANY']);
+	});
+
+	it('returns no options when closed dependent rows share no valid value', () => {
+		expect(resolveDropdownOptionsForRows(districtCol, rows[0], rows, rows)).toEqual([]);
+	});
+
+	it('does not treat the same stale current value as a valid shared option', () => {
+		const staleRows: Row[] = [
+			{ id: 'r1', StateOrigin: '08', DistrictOrigin: 'STALE' },
+			{ id: 'r2', StateOrigin: '09', DistrictOrigin: 'STALE' }
+		];
+		expect(resolveDropdownOptionsForRows(districtCol, staleRows[0], staleRows, staleRows)).toEqual([]);
+	});
+
+	it('keeps ordinary dropdown behavior when the catalog is not closed and dependent', () => {
+		expect(
+			resolveDropdownOptionsForRows(stateCol, rows[0], rows, rows).map((o) => o.value)
+		).toEqual(['08', '09']);
 	});
 });
 
