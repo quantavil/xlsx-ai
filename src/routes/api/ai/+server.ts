@@ -10,6 +10,20 @@ import { isSupportedModelId } from '$lib/server/models';
 // escaping of tab/newline-dense TSV plus multi-byte glyphs can roughly double that on the
 // wire, so the transport ceiling has to sit well above the content ceiling.
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+
+// Without a deadline a slow or over-subscribed model just leaves the drawer spinning
+// with no way to tell "thinking" from "never coming back". Measured on the live API:
+// a flash-lite table answer lands in ~1.5s, so a minute is not a real ceiling for a
+// working model - it is the point past which something is wrong and should say so.
+const TABLE_OP_TIMEOUT_MS = 60_000;
+// Document extraction reads several files and writes a row per invoice line, so it
+// earns a longer budget than a chat turn.
+const MODULE_OP_TIMEOUT_MS = 180_000;
+
+/** The caller's own cancellation, plus a deadline of our own. */
+function deadline(signal: AbortSignal, ms: number): AbortSignal {
+	return AbortSignal.any([signal, AbortSignal.timeout(ms)]);
+}
 const _CellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 export { isSupportedModelId as _isSupportedModelId };
@@ -155,7 +169,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				apiKey,
 				modelId: targetModel,
 				model,
-				signal: request.signal
+				signal: deadline(request.signal, MODULE_OP_TIMEOUT_MS)
 			});
 			if (result instanceof Response) return result;
 
@@ -184,7 +198,7 @@ Title: "${tableContext.title || 'Data Table'}"
 Total Rows in Dataset: ${tableContext.rows.length}
 Columns: ${columnSchemas}
 
-DATA (tab-separated, first column is the row id):
+DATA (tab-separated, first column is the row id, NULL means the cell is empty):
 ${_renderTsv(tableContext.columns, tableContext.rows)}
 
 INSTRUCTIONS:
@@ -206,7 +220,7 @@ INSTRUCTIONS:
 				instructions: systemPrompt,
 				prompt,
 				schema: _CleanFillSchema,
-				abortSignal: request.signal
+				abortSignal: deadline(request.signal, TABLE_OP_TIMEOUT_MS)
 			});
 
 			return json({
@@ -247,13 +261,24 @@ EDIT REQUESTS:
 				content: m.content
 			})),
 			schema: _ChatSchema,
-			abortSignal: request.signal
+			abortSignal: deadline(request.signal, TABLE_OP_TIMEOUT_MS)
 		});
 
 		return json({ success: true, kind: 'chat', data: chat.object });
 	} catch (err: unknown) {
 		console.error('AI SDK Generation Error:', err);
 		const e = (err ?? {}) as Record<string, unknown>;
+
+		// The caller went away - nothing to report to.
+		if (request.signal.aborted) return json({ error: 'Request cancelled.' }, { status: 499 });
+		if (isTimeout(err)) {
+			return json(
+				{
+					error: `"${targetModel}" did not respond in time. Some Gemini models are far slower than others - try a Flash model, or pick another in Settings.`
+				},
+				{ status: 504 }
+			);
+		}
 		// The AI SDK reports the provider's HTTP status as `statusCode`, not `status`.
 		const providerStatus =
 			typeof e.statusCode === 'number' ? e.statusCode : typeof e.status === 'number' ? e.status : 500;
@@ -303,11 +328,25 @@ export function _renderTsv(
 	columns: Array<{ id: string; name: string }>,
 	rows: Array<Record<string, unknown>>
 ): string {
+	// An empty cell is written NULL rather than left blank. Two adjacent tabs read as one
+	// separator often enough that a populated neighbour goes missing: on the live API,
+	// bare TSV answered a "sum this column" question correctly 0 times out of 3 and the
+	// NULL-marked form 3 out of 3, for eight extra characters.
 	const cell = (v: unknown) =>
-		v === null || v === undefined ? '' : String(v).replace(/[\t\r\n]+/g, ' ');
+		v === null || v === undefined || v === '' ? 'NULL' : String(v).replace(/[\t\r\n]+/g, ' ');
 	const lines = [['rowId', ...columns.map((c) => c.id)].join('\t')];
 	for (const row of rows) {
-		lines.push([cell(row.id), ...columns.map((c) => cell(row[c.id]))].join('\t'));
+		lines.push([String(row.id), ...columns.map((c) => cell(row[c.id]))].join('\t'));
 	}
 	return lines.join('\n');
+}
+
+/** A deadline surfaces as a TimeoutError, possibly wrapped by the SDK's retry layer. */
+function isTimeout(err: unknown): boolean {
+	for (let e: unknown = err, hops = 0; e && hops < 5; hops++) {
+		const node = e as { name?: unknown; cause?: unknown };
+		if (node.name === 'TimeoutError') return true;
+		e = node.cause;
+	}
+	return false;
 }

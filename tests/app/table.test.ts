@@ -219,8 +219,8 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		expect(store.apiKey).toBe('');
 
 		expect(store.aiModel).toBe('gemini-3.5-flash-lite');
-		store.setAiModel('gemini-3.7-flash');
-		expect(store.aiModel).toBe('gemini-3.7-flash');
+		store.setAiModel('gemini-3.6-flash');
+		expect(store.aiModel).toBe('gemini-3.6-flash');
 
 		expect(store.isAiOpen).toBe(false);
 		store.toggleAi(true);
@@ -423,10 +423,10 @@ describe('model migration on hydrate', () => {
 	});
 
 	it('keeps a model id that is still real', () => {
-		localStorage.setItem('xlsx-ai:gemini-model', 'gemini-3.7-flash');
+		localStorage.setItem('xlsx-ai:gemini-model', 'gemini-3.6-flash');
 		const store = createTableStore({ title: 'T', columns: [], rows: [] }, { storageKey: 'test:kept' });
 		store.hydrate();
-		expect(store.aiModel).toBe('gemini-3.7-flash');
+		expect(store.aiModel).toBe('gemini-3.6-flash');
 	});
 });
 
@@ -435,11 +435,11 @@ describe('favourite models', () => {
 		const store = createTableStore({ title: 'T', columns: [], rows: [] }, { persist: false });
 		expect(store.favoriteModels).toEqual([]);
 
-		store.toggleFavoriteModel('gemini-3.7-flash');
+		store.toggleFavoriteModel('gemini-3.6-flash');
 		store.toggleFavoriteModel('gemini-3.1-pro-preview');
-		expect(store.favoriteModels).toEqual(['gemini-3.7-flash', 'gemini-3.1-pro-preview']);
+		expect(store.favoriteModels).toEqual(['gemini-3.6-flash', 'gemini-3.1-pro-preview']);
 
-		store.toggleFavoriteModel('gemini-3.7-flash');
+		store.toggleFavoriteModel('gemini-3.6-flash');
 		expect(store.favoriteModels).toEqual(['gemini-3.1-pro-preview']);
 	});
 });

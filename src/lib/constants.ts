@@ -48,10 +48,10 @@ export const AI_MODELS: AiModelConfig[] = [
 		contextWindow: '1M tokens'
 	},
 	{
-		id: 'gemini-3.7-flash',
-		name: 'Gemini 3.7 Flash',
-		description: 'Latest Flash-class workhorse — strongest document extraction and tabular reasoning per second.',
-		speed: 'Ultra-Fast',
+		id: 'gemini-3.6-flash',
+		name: 'Gemini 3.6 Flash',
+		description: 'Flash-class workhorse — stronger document extraction and tabular reasoning, still a few seconds a call.',
+		speed: 'Fast',
 		contextWindow: '1M tokens'
 	},
 	{
