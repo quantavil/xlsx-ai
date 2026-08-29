@@ -1,7 +1,7 @@
 import { ICEGRID_COLUMNS, MECHANICAL_HEADERS } from './columns';
 import { getCatalogSnapshot, resolveCatalogValue } from './catalogs';
 import type { IcegridCatalogId, IcegridCatalogSnapshot } from './catalogs/types';
-import { verifyEvidenceSpan, quoteSupportsValue } from './evidence';
+import { verifyEvidenceSpan, quoteSupportsValue, normalizeEvidenceText } from './evidence';
 import type { CombinedExtractionResult } from './readers';
 import type {
 	IcegridAiReport,
@@ -18,6 +18,22 @@ export interface SanitizationResult {
 
 /** Headers the module fills mechanically, so AI evidence is neither needed nor trusted. */
 const MECHANICAL = new Set<string>(MECHANICAL_HEADERS);
+
+/**
+ * Free-text prose the model reconstructs rather than copies.
+ *
+ * PDF table layout puts quantities and prices between the wrapped lines of one
+ * description cell, so no single printed run ever contains the whole value. These
+ * fields are judged on overlap instead. Nothing that reaches a customs filing as a
+ * code or an amount belongs in this set.
+ */
+const TRUSTED_TEXT = new Set<string>(['Description', 'dbk_desc']);
+
+/** One string contains the other, after evidence-grade folding. */
+function overlaps(quote: string, value: string): boolean {
+	const [q, v] = [normalizeEvidenceText(quote), normalizeEvidenceText(value)];
+	return !!q && !!v && (q.includes(v) || v.includes(q));
+}
 
 const CATALOG_BY_HEADER = new Map<string, IcegridCatalogId>(
 	ICEGRID_COLUMNS.filter((c) => c.catalog).map((c) => [c.header, c.catalog!])
@@ -60,17 +76,22 @@ export function sanitizeIcegridExtraction(
 
 			const value = typeof raw === 'number' || typeof raw === 'string' ? raw : String(raw);
 
-			// 1. A span must name this field AND quote text that supports the value.
-			const supporting = verifiedSpans.find(
-				(span) => span.fields.includes(header) && quoteSupportsValue(span.quote, value)
-			);
+			// Reconstructed prose only has to overlap a real source fragment; every customs
+			// code and amount still needs the quote to contain the value character for
+			// character. A wrong description costs an edit, a wrong RITC costs a penalty.
+			const fieldSpans = verifiedSpans.filter((span) => span.fields.includes(header));
+			const supporting = TRUSTED_TEXT.has(header)
+				? fieldSpans.find((span) => overlaps(span.quote, String(value)))
+				: fieldSpans.find((span) => quoteSupportsValue(span.quote, value));
 
 			if (!supporting) {
 				const named = spans.some((span) => span.fields.includes(header));
 				warnings.push(
-					named
-						? `Row ${rowNo}: ${header} cleared - the cited source text does not contain "${value}".`
-						: `Row ${rowNo}: ${header} cleared - no source evidence was provided for "${value}".`
+					!named
+						? `Row ${rowNo}: ${header} cleared - no source evidence was provided for "${value}".`
+						: TRUSTED_TEXT.has(header)
+							? `Row ${rowNo}: ${header} cleared - the cited source evidence could not be verified.`
+							: `Row ${rowNo}: ${header} cleared - the cited source text does not contain "${value}".`
 				);
 				continue;
 			}

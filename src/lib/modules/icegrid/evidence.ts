@@ -23,14 +23,33 @@ export function normalizeEvidenceText(value: string): string {
 export interface EvidenceCheck {
 	ok: boolean;
 	reason?: 'unknown_file' | 'quote_not_found' | 'empty_quote';
-	/** The extracted text of the file the span named, when that file was selected. */
-	documentText?: string;
+}
+
+/** Alphanumeric-only form of a token, so `1,440.00` and `1440.00` compare equal. */
+const squash = (token: string) => token.replace(/[^a-z0-9]/g, '');
+
+/**
+ * Every token of the quote appears in the document, ignoring order.
+ *
+ * PDF extraction is the unreliable half of this pipeline: it reorders table columns,
+ * splits a visual row across the text stream, and interleaves neighbouring cells. A
+ * model that copied the printed row correctly then fails the contiguous check through
+ * no fault of its own. Tokens are matched by exact squashed equality, never substring,
+ * so `48` can never be found inside `1,448.00`; a fabricated quote still fails, because
+ * its invented words and numbers are tokens the document does not contain.
+ */
+function tokensPresent(quote: string, documentText: string): boolean {
+	const wanted = quote.split(' ').map(squash).filter(Boolean);
+	if (wanted.length < 3) return false;
+	const have = new Set(documentText.split(' ').map(squash).filter(Boolean));
+	return wanted.every((token) => have.has(token));
 }
 
 /**
  * Confirm a span points at a selected file and quotes text that file actually
- * contains. A fabricated quote fails here, which is what stops a fabricated value
- * from being legitimized by fabricated evidence.
+ * contains, either contiguously or as the same set of tokens. A fabricated quote fails
+ * here, which is what stops a fabricated value from being legitimized by fabricated
+ * evidence.
  */
 export function verifyEvidenceSpan(
 	span: IcegridEvidenceSpan,
@@ -45,12 +64,12 @@ export function verifyEvidenceSpan(
 	const matches = extraction.documents.filter((d) => normalizeEvidenceText(d.filename) === wanted);
 	if (matches.length === 0) return { ok: false, reason: 'unknown_file' };
 
-	for (const doc of matches) {
-		const text = normalizeEvidenceText(doc.content);
-		if (text.includes(quote)) return { ok: true, documentText: text };
-	}
+	const texts = matches.map((doc) => normalizeEvidenceText(doc.content));
+	if (texts.some((text) => text.includes(quote))) return { ok: true };
+	// Fall back to order-free tokens before blaming the model for our extractor's layout.
+	if (texts.some((text) => tokensPresent(quote, text))) return { ok: true };
 
-	return { ok: false, reason: 'quote_not_found', documentText: normalizeEvidenceText(matches[0].content) };
+	return { ok: false, reason: 'quote_not_found' };
 }
 
 /**

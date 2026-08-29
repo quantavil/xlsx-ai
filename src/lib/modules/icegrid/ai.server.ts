@@ -29,6 +29,7 @@ EVIDENCE IS MANDATORY
 - For every field you set to a non-null value, include an evidence span that lists that field.
 - A span must contain the exact source filename and a short quote copied VERBATIM from that file.
 - The quote must actually contain the text or number you used. Copy it character for character; do not paraphrase, reformat, translate or reconstruct it.
+- For a wrapped Description, cite at least one exact fragment from its Description cell; keep the reconstructed full value in Description, not in the quote.
 - One span may support several fields from the same passage.
 - Every quote is checked against the extracted file text. A field whose quote cannot be found is discarded, so inventing a quote only loses you the field.
 
@@ -45,7 +46,7 @@ VALUE FORMAT
 - RewardItem is exactly "Yes" or "No". IGST_PaymentStatus is exactly "NA", "LUT" or "P". RODTEP is exactly "Yes", "No" or "N/A".
 - ApplicableExpSchemes: copy the scheme exactly as printed, whether that is "19" or "19-Drawback (DBK)".
 - There is no currency output column, and no InvoiceSNo, ItemSNo, Per or Accessories column; do not report any of them.
-- Description: keep the full goods wording the document prints. Many invoices print a goods-class phrase and then the item, e.g. "HANDICRAFTS OF IRON ARTWARES - PLANTER S HAMM GOLD" - report the whole string, not just the item name. Never invent a goods class the document does not print.
+- Description: report only the text printed inside that line's own Description cell. When the cell wraps across several printed rows it is still one value: join its continuation lines, in printed order, separated by single spaces. Two things never belong in it. First, a heading that spans more than one line item - a page title, a section banner, or a goods-class phrase printed once above a block of rows - however close it sits to the cell. Second, data that belongs to another column even when the layout prints it in the same block: PO numbers, HSN or tariff lines, carton dimensions, net or gross weights, and packaging notes. Dimensions and sizes that are part of the article's own printed name do belong.
 - Any field not present in the documents must be null. Missing data is expected and correct.`;
 
 export const icegridExtractAiHandler: ModuleAiHandler = {

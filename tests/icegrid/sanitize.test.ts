@@ -143,7 +143,11 @@ describe('sanitizeIcegridExtraction', () => {
 			})
 		]);
 		expect(report.rows[0].Description).toBeNull();
-		expect(warnings.some((w) => w.includes('Description'))).toBe(true);
+		expect(
+			warnings.some(
+				(w) => w.includes('Description') && w.includes('cited source evidence could not be verified')
+			)
+		).toBe(true);
 	});
 
 	it('blanks a field the evidence span did not list', () => {
@@ -350,5 +354,109 @@ describe('quoteSupportsValue: separators in the document, not the value', () => 
 
 	it('still refuses a value the quote simply does not contain', () => {
 		expect(quoteSupportsValue('HSN:8505.11.10', '94038900')).toBe(false);
+	});
+});
+
+describe('verifyEvidenceSpan: the extractor is the unreliable half', () => {
+	it('accepts a printed row our extractor split and reordered', () => {
+		// The model copied the visual row; pdf text extraction emitted the columns
+		// in a different order and on separate lines.
+		const scrambled = 'SIDE TABLE LARGE\n30.00\n1,440.00\n48 PCS';
+		const local: CombinedExtractionResult = {
+			sourceFiles: ['invoice.pdf'],
+			content: scrambled,
+			documents: [{ filename: 'invoice.pdf', content: scrambled, charCount: scrambled.length }],
+			totalChars: 0,
+			totalBytes: 0
+		};
+		expect(
+			verifyEvidenceSpan(
+				{ sourceFile: 'invoice.pdf', quote: 'SIDE TABLE LARGE 48 PCS 30.00 1,440.00', fields: ['Quantity'] },
+				local
+			).ok
+		).toBe(true);
+	});
+
+	it('still rejects a quote whose tokens the document never printed', () => {
+		expect(
+			verifyEvidenceSpan(
+				{ sourceFile: 'invoice.pdf', quote: 'GHOST ITEM 99 PCS', fields: ['Description'] },
+				extraction
+			).ok
+		).toBe(false);
+	});
+
+	it('never lets a fabricated number pass as a reordered quote', () => {
+		// Every word is in the document, but 9,999.00 is not.
+		expect(
+			verifyEvidenceSpan(
+				{ sourceFile: 'invoice.pdf', quote: 'SIDE TABLE LARGE 9,999.00', fields: ['ProductAmount'] },
+				extraction
+			).ok
+		).toBe(false);
+	});
+
+	it('refuses to vouch for a one- or two-word quote on tokens alone', () => {
+		expect(
+			verifyEvidenceSpan(
+				{ sourceFile: 'invoice.pdf', quote: '48 LARGE', fields: ['Quantity'] },
+				extraction
+			).ok
+		).toBe(false);
+	});
+});
+
+describe('trusted AI descriptions', () => {
+	it('keeps an AI description when one genuine source fragment names the field', () => {
+		const docText =
+			'1\t200327\t250435\tS/2 EGG TABLE ENS DE 2 BDC HENRIK H-\t601 SET\t49.00\t29449.00\n40cm L-55 W-70cm';
+		const local: CombinedExtractionResult = {
+			sourceFiles: ['invoice.pdf'],
+			content: docText,
+			documents: [{ filename: 'invoice.pdf', content: docText, charCount: docText.length }],
+			totalChars: docText.length,
+			totalBytes: docText.length
+		};
+		const { report } = sanitizeIcegridExtraction(
+			aiReport([
+				candidateRow({
+					Description: 'S/2 EGG TABLE ENS DE 2 BDC HENRIK H- 40cm L-55 W-70cm',
+					evidence: [
+						{
+							sourceFile: 'invoice.pdf',
+							quote: 'S/2 EGG TABLE ENS DE 2 BDC HENRIK H-',
+							fields: ['Description']
+						}
+					]
+				})
+			]),
+			local
+		);
+
+		expect(report.rows[0].Description).toBe(
+			'S/2 EGG TABLE ENS DE 2 BDC HENRIK H- 40cm L-55 W-70cm'
+		);
+	});
+
+	it('keeps a trusted dbk_desc on the same overlap rule', () => {
+		const { report } = run([
+			candidateRow({
+				dbk_desc: 'SIDE TABLE LARGE WOODEN FINISH',
+				evidence: [span({ fields: ['dbk_desc'], quote: 'SIDE TABLE LARGE' })]
+			})
+		]);
+		expect(report.rows[0].dbk_desc).toBe('SIDE TABLE LARGE WOODEN FINISH');
+	});
+
+	it('rejects a description whose verified quote is about something else', () => {
+		// The quote is real and names the field, but shares nothing with the value.
+		const { report, warnings } = run([
+			candidateRow({
+				Description: 'SOLID GOLD ROLEX SUBMARINER 18K',
+				evidence: [span({ fields: ['Description'], quote: 'HS Code 94038900   Destination: United States' })]
+			})
+		]);
+		expect(report.rows[0].Description).toBeNull();
+		expect(warnings.some((w) => w.includes('Description'))).toBe(true);
 	});
 });
