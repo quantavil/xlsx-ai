@@ -2,6 +2,7 @@
 
 ## Structure
 - SvelteKit 2 + Svelte 5 runes (`$state`, `$derived`, `$props`) running on Bun 1.4+. `src/routes/+layout.ts` owns `export const ssr = false` for every route.
+- Deploys to Cloudflare Pages via `@sveltejs/adapter-cloudflare` (output `.svelte-kit/cloudflare`, build command `bun run build`). Since nothing is server-rendered, the only code in the Pages Function is `/api/ai*`; the `nodejs_als` compatibility flag is required for the AI SDK. No environment variables — the Gemini key arrives per-request in the `x-ai-api-key` header.
 - Core Modules:
   - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `store.svelte.ts`, `documents.svelte.ts` (multi-file index), `cells.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
   - `src/lib/components/`: `Header.svelte` (Files switcher + title + search + alignment control), `RightRibbon.svelte` (AI, modules, add row, export, theme, settings — **not** file creation or import), `AiDrawer.svelte`, `Icons.svelte`, `settings/` (`AiSection.svelte`, `ModulesSection.svelte`, `ShortcutsSection.svelte`) — rendered on the `/settings` page behind a three-item section rail (`nav.settings-sidebar`), not a modal.

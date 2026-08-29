@@ -260,6 +260,36 @@ bun run build     # Production build with async chunk verification
 bun audit         # Dependency security audit (0 high vulnerabilities)
 ```
 
+---
+
+## Deployment — Cloudflare Pages
+
+`@sveltejs/adapter-cloudflare` builds to `.svelte-kit/cloudflare`. Every route sets
+`ssr = false`, so the entire app ships as static assets and the only code that reaches
+the Pages Function is `/api/ai` and `/api/ai/models`.
+
+Connect the GitHub repo in the Cloudflare dashboard and set:
+
+| Setting | Value |
+| --- | --- |
+| Framework preset | `SvelteKit` |
+| Build command | `bun run build` |
+| Build output directory | `.svelte-kit/cloudflare` |
+| Production branch | `main` |
+
+Then, under **Settings → Runtime**, add the `nodejs_als` compatibility flag to both the
+production and preview environments. The AI SDK needs Node's `AsyncLocalStorage`, and the
+function throws at runtime without it. Every push to `main` deploys; pull requests get
+preview URLs.
+
+**No environment variables are needed.** The Gemini key is supplied by the browser on each
+request via the `x-ai-api-key` header and is never stored server-side, so the function
+holds no secret.
+
+Free-tier fit: static asset requests are free and unlimited, so only AI calls count against
+the 100,000/day Workers quota that Pages Functions share. The 10 ms CPU ceiling excludes
+time awaiting `fetch`, so streaming a Gemini response costs almost no CPU. The bundled
+function is 184 KB gzipped, against a 3 MB limit.
 
 ---
 

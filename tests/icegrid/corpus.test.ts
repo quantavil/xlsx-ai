@@ -395,8 +395,8 @@ describe('ICEGrid corpus fixtures — output contract', () => {
 					if (!invoiceSerials.has(invoice)) invoiceSerials.set(invoice, invoiceSerials.size + 1);
 					itemCounters.set(invoice, (itemCounters.get(invoice) ?? 0) + 1);
 
-					expect(asNumber(row.InvoiceSNo)).toBe(invoiceSerials.get(invoice));
-					expect(asNumber(row.ItemSNo)).toBe(itemCounters.get(invoice));
+					expect(asNumber(row.InvoiceSNo)).toBe(invoiceSerials.get(invoice)!);
+					expect(asNumber(row.ItemSNo)).toBe(itemCounters.get(invoice)!);
 				}
 			});
 
@@ -435,7 +435,7 @@ describe('ICEGrid corpus fixtures — output contract', () => {
 						continue;
 					}
 					if (isBlank(row.SQCQTY)) continue;
-					expect(rodtepQty, `row ${index + 1}`).toBe(asNumber(row.SQCQTY));
+					expect(rodtepQty, `row ${index + 1}`).toBe(asNumber(row.SQCQTY)!);
 				}
 			});
 
