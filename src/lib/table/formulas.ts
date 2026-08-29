@@ -125,6 +125,74 @@ function tableHasFormula(columns: Column[], rows: Row[]): boolean {
 	return rows.some((row) => columns.some((col) => isFormula(row?.[col.id])));
 }
 
+/** What a reference becomes when a fill or a deletion pushes it off the grid. */
+export const REF_ERROR = '#REF!';
+
+/**
+ * Every `A1`-style reference in a formula, with the spans they occupy.
+ *
+ * Skips anything inside double quotes, and anything whose neighbours make it part of
+ * a longer word — so a function that ends in digits is never mistaken for a cell.
+ */
+function scanReferences(
+	formula: string
+): Array<{ start: number; end: number; colAbs: boolean; col: string; rowAbs: boolean; row: string }> {
+	const out: Array<{ start: number; end: number; colAbs: boolean; col: string; rowAbs: boolean; row: string }> = [];
+	let inString = false;
+	const re = /(\$?)([A-Za-z]{1,3})(\$?)(\d+)/g;
+	const quotes = new Set<number>();
+	for (let i = 0; i < formula.length; i++) {
+		if (formula[i] === '"') inString = !inString;
+		if (inString || formula[i] === '"') quotes.add(i);
+	}
+	for (let m = re.exec(formula); m; m = re.exec(formula)) {
+		const start = m.index;
+		const end = start + m[0].length;
+		if (quotes.has(start)) continue;
+		const before = start > 0 ? formula[start - 1] : '';
+		const after = formula[end] ?? '';
+		// `A1B` is not a reference, and `LOG10(` is a function whose name ends in
+		// digits — an open paren after it is what tells the two apart.
+		if (/[A-Za-z0-9._]/.test(before) || /[A-Za-z0-9._(]/.test(after)) continue;
+		out.push({ start, end, colAbs: m[1] === '$', col: m[2], rowAbs: m[3] === '$', row: m[4] });
+	}
+	return out;
+}
+
+/**
+ * A formula moved by `dRow` rows and `dCol` columns, the way Excel rewrites one you
+ * fill or drag. `$` pins a part in place; a reference pushed off the grid becomes
+ * `#REF!`, as it must — silently clamping it would report a confident wrong number.
+ */
+export function offsetFormulaRefs(
+	formula: string,
+	dRow: number,
+	dCol: number,
+	columnCount: number,
+	rowCount: number
+): string {
+	let out = '';
+	let cursor = 0;
+	for (const ref of scanReferences(formula)) {
+		out += formula.slice(cursor, ref.start);
+		cursor = ref.end;
+
+		let colIndex = 0;
+		for (const ch of ref.col.toUpperCase()) colIndex = colIndex * 26 + (ch.charCodeAt(0) - 64);
+		colIndex -= 1;
+		const rowIndex = Number(ref.row) - 1 - HEADER_ROWS;
+
+		const nextCol = ref.colAbs ? colIndex : colIndex + dCol;
+		const nextRow = ref.rowAbs ? rowIndex : rowIndex + dRow;
+		if (nextCol < 0 || nextCol >= columnCount || nextRow < 0 || nextRow >= rowCount) {
+			out += REF_ERROR;
+			continue;
+		}
+		out += `${ref.colAbs ? '$' : ''}${columnLetter(nextCol)}${ref.rowAbs ? '$' : ''}${sheetRowNumber(nextRow)}`;
+	}
+	return out + formula.slice(cursor);
+}
+
 /**
  * Whether a formula reads any cell in the column it sits in.
  *

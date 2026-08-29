@@ -932,4 +932,37 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await editor.press('Enter');
 		await expect(rows.nth(0).locator('td.td-cell').nth(3)).toContainText('174');
 	});
+
+	test('dragging the fill handle copies a formula down, stepping its references', async ({
+		page
+	}) => {
+		const rows = page.locator('tbody tr.data-row');
+		// Twice Monthly Price (column C), written into Active Accounts (column D).
+		const source = rows.nth(0).locator('td.td-cell').nth(3);
+		await source.dblclick();
+		await page.locator('input.cell-input-editor').fill('=C2*2');
+		await page.locator('input.cell-input-editor').press('Enter');
+
+		await source.click();
+		const handle = source.locator('.active-cell-handle');
+		const box = await handle.boundingBox();
+		const target = await rows.nth(3).locator('td.td-cell').nth(3).boundingBox();
+		await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, {
+			steps: 6
+		});
+		// The dashed preview covers the source plus the three cells dragged over.
+		await expect(page.locator('td.in-fill')).toHaveCount(4);
+		await page.mouse.up();
+
+		// Row 2 is C2*2 = 200; each filled row steps its reference one row down.
+		for (const [i, expected] of [['0', '200'], ['1', '38'], ['2', '348'], ['3', '422']]) {
+			await expect(rows.nth(Number(i)).locator('td.td-cell').nth(3)).toContainText(expected);
+		}
+
+		// The formula was rewritten, not merely copied.
+		await rows.nth(2).locator('td.td-cell').nth(3).dblclick();
+		await expect(page.locator('input.cell-input-editor')).toHaveValue('=C4*2');
+	});
 });

@@ -3,6 +3,7 @@ import type { Column, Row } from '../../src/lib/types';
 import {
 	addressToIndices,
 	aggregatesOwnColumn,
+	offsetFormulaRefs,
 	cellAddress,
 	referencedCells,
 	resolveFormulaRows,
@@ -194,5 +195,46 @@ describe('a broken formula', () => {
 		const out = resolveFormulaRows(c4, rows([2, 10, '=A2*B2', '=D2']));
 		expect(out[0].c3).toBe(20);
 		expect(out[0].c4).toBe('#ERROR!');
+	});
+});
+
+describe('offsetFormulaRefs', () => {
+	it('moves relative references and pins absolute ones', () => {
+		expect(offsetFormulaRefs('=B2*C2', 1, 0, 5, 5)).toBe('=B3*C3');
+		expect(offsetFormulaRefs('=B2*C2', 0, 1, 5, 5)).toBe('=C2*D2');
+		expect(offsetFormulaRefs('=$B$2*C2', 1, 1, 5, 5)).toBe('=$B$2*D3');
+		expect(offsetFormulaRefs('=B$2*$C2', 1, 1, 5, 5)).toBe('=C$2*$C3');
+		expect(offsetFormulaRefs('=SUM(A2:A4)', 1, 0, 5, 5)).toBe('=SUM(A3:A5)');
+	});
+
+	it('reports a reference pushed off the grid instead of clamping it', () => {
+		expect(offsetFormulaRefs('=A2+B2', -1, 0, 5, 5)).toBe('=#REF!+#REF!');
+		expect(offsetFormulaRefs('=A2', 0, 9, 5, 5)).toBe('=#REF!');
+	});
+
+	it('leaves function names and quoted text alone', () => {
+		// A name that ends in digits is one word, not a function plus a row.
+		expect(offsetFormulaRefs('=LOG10(A2)', 1, 0, 5, 5)).toBe('=LOG10(A3)');
+		expect(offsetFormulaRefs('=IF(A2>1,"B2","C2")', 1, 0, 5, 5)).toBe('=IF(A3>1,"B2","C2")');
+		expect(offsetFormulaRefs('=COVARIANCE.P(A2:A4,B2:B4)', 1, 0, 5, 5)).toBe(
+			'=COVARIANCE.P(A3:A5,B3:B5)'
+		);
+	});
+});
+
+describe('fill', () => {
+	// The drag itself is covered by the e2e suite; this pins the rewriting rule it
+	// applies to each target — the part that decides whether the numbers are right.
+	it('steps a formula by the distance from the cell it was filled from', () => {
+		const source = '=B2*C2';
+		const filled = [1, 2, 3].map((d) => offsetFormulaRefs(source, d, 0, 5, 5));
+		expect(filled).toEqual(['=B3*C3', '=B4*C4', '=B5*C5']);
+	});
+
+	it('keeps a pinned rate cell fixed while the row moves', () => {
+		expect([1, 2].map((d) => offsetFormulaRefs('=D2*$G$2', d, 0, 8, 5))).toEqual([
+			'=D3*$G$2',
+			'=D4*$G$2'
+		]);
 	});
 });

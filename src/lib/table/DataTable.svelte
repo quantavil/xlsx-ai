@@ -5,9 +5,15 @@
 	import type { CellAlign, Column, ColumnType, CellValue, Row } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
 	import { computeFloatingPosition } from '$lib/ui/position';
-	import { isNumericType, resolveDropdownOptionsForRows } from './cells';
+	import { isFormula, isNumericType, resolveDropdownOptionsForRows } from './cells';
 	import { resolveEditTargets, type EditTarget } from './range-edit';
-	import { cellAddress, columnLetter, ERROR_VALUE, referencedCells } from './formulas';
+	import {
+		cellAddress,
+		columnLetter,
+		ERROR_VALUE,
+		offsetFormulaRefs,
+		referencedCells
+	} from './formulas';
 	import {
 		applyFunction,
 		applyReference,
@@ -316,6 +322,80 @@
 		const address = cellAddress(colIndex, rowIndex);
 		writeEditor(applyReference(editValue, editorCaret, extendFrom ? `${extendFrom}:${address}` : address));
 		return true;
+	}
+
+	// ── Fill handle ────────────────────────────────────────────────────────────────
+	/** The cell a fill drag started from, held for as long as the button is down. */
+	let fillFrom = $state<{ rowIndex: number; colIndex: number } | null>(null);
+	/** Where the drag has reached, so the grid can outline what is about to be filled. */
+	let fillTo = $state<{ rowIndex: number; colIndex: number } | null>(null);
+
+	/**
+	 * The rectangle a fill covers: one axis only, whichever the drag went further in.
+	 * Excel fills a line, not a block, and a diagonal drag has to resolve to one.
+	 */
+	const fillRect = $derived.by(() => {
+		if (!fillFrom || !fillTo) return null;
+		const dRow = fillTo.rowIndex - fillFrom.rowIndex;
+		const dCol = fillTo.colIndex - fillFrom.colIndex;
+		if (dRow === 0 && dCol === 0) return null;
+		const vertical = Math.abs(dRow) >= Math.abs(dCol);
+		const to = vertical
+			? { rowIndex: fillTo.rowIndex, colIndex: fillFrom.colIndex }
+			: { rowIndex: fillFrom.rowIndex, colIndex: fillTo.colIndex };
+		return {
+			r0: Math.min(fillFrom.rowIndex, to.rowIndex),
+			r1: Math.max(fillFrom.rowIndex, to.rowIndex),
+			c0: Math.min(fillFrom.colIndex, to.colIndex),
+			c1: Math.max(fillFrom.colIndex, to.colIndex)
+		};
+	});
+
+	function isInFill(rowIndex: number, colIndex: number): boolean {
+		const r = fillRect;
+		return !!r && rowIndex >= r.r0 && rowIndex <= r.r1 && colIndex >= r.c0 && colIndex <= r.c1;
+	}
+
+	/**
+	 * Copies the source cell across the dragged line, stepping every relative
+	 * reference by how far each target sits from the source — Excel's fill. A plain
+	 * value is copied as it stands; only formulas are rewritten.
+	 */
+	function commitFill() {
+		const rect = fillRect;
+		const from = fillFrom;
+		fillFrom = null;
+		fillTo = null;
+		if (!rect || !from) return;
+
+		const sourceRow = store.filteredRows[from.rowIndex];
+		const sourceCol = store.columns[from.colIndex];
+		if (!sourceRow || !sourceCol) return;
+		const source = store.rawCell(sourceRow.id, sourceCol.id);
+
+		const patches = [];
+		for (let r = rect.r0; r <= rect.r1; r++) {
+			for (let c = rect.c0; c <= rect.c1; c++) {
+				if (r === from.rowIndex && c === from.colIndex) continue;
+				const row = store.filteredRows[r];
+				const col = store.columns[c];
+				if (!row || !col) continue;
+				patches.push({
+					rowId: row.id,
+					columnId: col.id,
+					newValue: isFormula(source)
+						? offsetFormulaRefs(
+								source,
+								r - from.rowIndex,
+								c - from.colIndex,
+								store.columns.length,
+								store.filteredRows.length
+							)
+						: source
+				});
+			}
+		}
+		if (patches.length > 0) store.applyCellPatches(patches);
 	}
 
 	function startEditing(rowId: string, columnId: string, initialVal: unknown, typedChar = '') {
@@ -656,7 +736,7 @@
 	}
 </script>
 
-<svelte:window onclick={handleDocumentClick} />
+<svelte:window onclick={handleDocumentClick} onmouseup={() => fillFrom && commitFill()} />
 
 <!-- Main DataTable Container -->
 <div class="data-table-container flex-1 flex flex-col h-full bg-[var(--bg)] overflow-hidden relative select-none" role="region" aria-label="Interactive Spreadsheet">
@@ -950,10 +1030,11 @@
 									{@const inRange = !isActive && isInSelection(rowIndex, colIndex)}
 									{@const isRef = highlightedRefs.has(`${rowIndex}::${colIndex}`)}
 									{@const isError = cellVal === ERROR_VALUE}
+									{@const inFill = isInFill(rowIndex, colIndex)}
 									{@const align = store.alignFor(row.id, col.id, colType)}
 									{@const shadow = cellShadow(isActive, rowIndex, colIndex)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {inFill ? 'in-fill outline outline-1 -outline-offset-1 outline-dashed outline-[var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {shadow ? `box-shadow: ${shadow};` : ''} {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										aria-selected={isActive || inRange}
@@ -970,6 +1051,10 @@
 											pointerExtend = e.shiftKey;
 										}}
 										onmouseenter={(e) => {
+											if (fillFrom && e.buttons === 1) {
+												fillTo = { rowIndex, colIndex };
+												return;
+											}
 											// Held button plus an open editor means the drag is drawing a
 											// range; `buttons` is the only way to know mid-move.
 											if (e.buttons === 1 && pointAnchor) pointAtCell(colIndex, rowIndex, pointAnchor);
@@ -1098,7 +1183,20 @@
 										{/if}
 
 										{#if isActive && !isEditing}
-											<span class="active-cell-handle absolute right-[-2px] bottom-[-2px] w-1.5 h-1.5 bg-[var(--border-focus)] pointer-events-none" aria-hidden="true"></span>
+											<!-- Excel's fill handle: drag it to copy this cell along a row or
+											     column, stepping every relative reference as it goes. -->
+											<span
+												class="active-cell-handle absolute right-[-3px] bottom-[-3px] w-2 h-2 bg-[var(--border-focus)] cursor-crosshair"
+												role="button"
+												tabindex="-1"
+												aria-label="Fill from this cell"
+												onmousedown={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													fillFrom = { rowIndex, colIndex };
+													fillTo = { rowIndex, colIndex };
+												}}
+											></span>
 										{/if}
 									</td>
 								{/each}
