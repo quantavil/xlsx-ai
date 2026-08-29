@@ -4,7 +4,7 @@
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import type { createModuleStore } from '$lib/modules/module-store.svelte';
 	import type { WorkspaceModule } from '$lib/modules/types';
-	import { exportTableToExcel, exportTableToCsv } from '$lib/data/index';
+	import { downloadTableAsXlsx, exportTableToCsv } from '$lib/data/index';
 	import { handleMenuKeydown } from '$lib/ui/menu';
 	import type { NotifyFn } from '$lib/ui/toast.svelte';
 	import type { TableData } from '$lib/types';
@@ -85,11 +85,12 @@
 		if (isExporting) return;
 		isExporting = true;
 		try {
-			await exportTableToExcel(
+			await downloadTableAsXlsx(
 				{
 					title: store.title,
 					columns: store.columns,
-					rows: store.rows
+					rows: store.rows,
+					cellAlign: store.cellAlign
 				},
 				store.title
 			);

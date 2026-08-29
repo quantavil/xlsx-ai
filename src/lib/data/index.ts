@@ -9,9 +9,9 @@ export {
 	sanitizeCsvValue,
 	tableToRecords,
 	tableToCsv,
+	buildXlsxSheetData,
 	exportTableToXlsx,
 	downloadTableAsXlsx,
 	downloadTableAsCsv,
-	exportTableToExcel,
 	exportTableToCsv
 } from './export';

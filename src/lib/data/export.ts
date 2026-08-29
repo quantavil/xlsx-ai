@@ -1,4 +1,6 @@
-import type { TableData, Column, CellValue } from '$lib/types';
+import type { Cell, SheetData } from 'write-excel-file/browser';
+import type { CellAlignMap, CellValue, Column, ColumnType, Row, TableData } from '$lib/types';
+import { defaultAlignForType, numericCellValue } from '$lib/table/cells';
 
 export function sanitizeFilename(raw?: string): string {
 	const clean = (raw || 'table-export')
@@ -73,34 +75,68 @@ export function tableToCsv(table: TableData, options: { safeFormulaEscape?: bool
 	return lines.join('\r\n');
 }
 
-export async function exportTableToXlsx(table: TableData): Promise<Uint8Array> {
-	const XLSX = await import('xlsx');
-	const headerMap = buildUniqueExportHeaders(table.columns || []);
-	const headers = headerMap.map((h) => h.header);
+/** Excel number formats mirroring the grid's Intl formatters in `constants.ts`. */
+const NUMBER_FORMAT: Partial<Record<ColumnType, string>> = {
+	number: '#,##0.##',
+	currency: '"$"#,##0.00',
+	percent: '0.0#%'
+};
 
-	const dataRows: (CellValue | undefined)[][] = [headers];
+/** Resize handles store widths in px; Excel counts them in characters. */
+function widthInChars(px: number | undefined): number | undefined {
+	if (!px) return undefined;
+	return Math.min(80, Math.max(4, Math.round(px / 7)));
+}
 
-	for (const row of table.rows || []) {
-		const line = headerMap.map(({ id }) => (row ? row[id] : null));
-		dataRows.push(line);
+function toSheetCell(column: Column, row: Row | undefined, cellAlign: CellAlignMap): Cell {
+	const align = cellAlign[`${row?.id}::${column.id}`] ?? defaultAlignForType(column.type);
+	const raw = row?.[column.id];
+
+	if (raw === null || raw === undefined || raw === '') return null;
+	if (typeof raw === 'boolean') return { value: raw, type: Boolean, align };
+
+	const format = NUMBER_FORMAT[column.type];
+	if (format) {
+		const num = numericCellValue(column.type, raw);
+		// Unparseable text sitting in a numeric column still has to survive the export.
+		if (num !== null) return { value: num, type: Number, format, align };
 	}
 
-	const ws = XLSX.utils.aoa_to_sheet(dataRows);
-	const wb = XLSX.utils.book_new();
-	XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+	// Dates stay strings on purpose — the grid never reparses them either, so a
+	// DD-MM-YYYY table exports exactly as typed instead of being guessed at.
+	return { value: String(raw), type: String, align };
+}
 
-	const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-	return new Uint8Array(buffer);
+/** Exported for tests: the sheet matrix, without the zip step. */
+export function buildXlsxSheetData(table: TableData): SheetData {
+	const columns = table.columns || [];
+	const cellAlign = table.cellAlign ?? {};
+	const sheetData: SheetData = [
+		buildUniqueExportHeaders(columns).map(({ header }) => ({
+			value: header,
+			type: String,
+			fontWeight: 'bold' as const
+		}))
+	];
+
+	for (const row of table.rows || []) {
+		sheetData.push(columns.map((col) => toSheetCell(col, row, cellAlign)));
+	}
+
+	return sheetData;
+}
+
+export async function exportTableToXlsx(table: TableData): Promise<Blob> {
+	const writeXlsxFile = (await import('write-excel-file/browser')).default;
+	return writeXlsxFile(buildXlsxSheetData(table), {
+		sheet: 'Sheet1',
+		columns: (table.columns || []).map((col) => ({ width: widthInChars(col.width) }))
+	}).toBlob();
 }
 
 export async function downloadTableAsXlsx(table: TableData, customFilename?: string): Promise<void> {
-	const bytes = await exportTableToXlsx(table);
-	const filename = `${sanitizeFilename(customFilename || table.title)}.xlsx`;
-	const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-	const blob = new Blob([arrayBuffer], {
-		type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-	});
-	triggerBrowserDownload(blob, filename);
+	const blob = await exportTableToXlsx(table);
+	triggerBrowserDownload(blob, `${sanitizeFilename(customFilename || table.title)}.xlsx`);
 }
 
 
@@ -109,13 +145,6 @@ export function downloadTableAsCsv(table: TableData, customFilename?: string): v
 	const filename = `${sanitizeFilename(customFilename || table.title)}.csv`;
 	const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
 	triggerBrowserDownload(blob, filename);
-}
-
-export async function exportTableToExcel(table: TableData, filename?: string): Promise<Uint8Array> {
-	if (typeof window !== 'undefined') {
-		await downloadTableAsXlsx(table, filename);
-	}
-	return exportTableToXlsx(table);
 }
 
 export async function exportTableToCsv(table: TableData, filename?: string): Promise<string> {

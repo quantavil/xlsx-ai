@@ -8,7 +8,7 @@ import {
 import type { TableData } from '../../src/lib/types';
 import { formatCellValue } from '../../src/lib/constants';
 import { normalizeCellValue, numericCellValue } from '../../src/lib/table/cells';
-import { sanitizeFilename, tableToRecords } from '../../src/lib/data/export';
+import { buildXlsxSheetData, sanitizeFilename, tableToRecords } from '../../src/lib/data/export';
 
 
 
@@ -173,6 +173,56 @@ describe('Data Management & SheetJS I/O', () => {
 
 		const records = tableToRecords(duplicateColTable);
 		expect(records).toEqual([{ Status: 'Open', 'Status (1)': 'Closed' }]);
+	});
+
+	it('carries cell alignment and typed number formats into the xlsx sheet', () => {
+		const table: TableData = {
+			title: 'Styled',
+			columns: [
+				{ id: 'c1', name: 'Item', type: 'text' },
+				{ id: 'c2', name: 'Price', type: 'currency' },
+				{ id: 'c3', name: 'Share', type: 'percent' },
+				{ id: 'c4', name: 'Due', type: 'date' }
+			],
+			rows: [{ id: 'r1', c1: 'Widget', c2: '$1,250.50', c3: '12.5%', c4: '05-04-2026' }],
+			// The user centered one text cell; everything else falls back to the type default.
+			cellAlign: { 'r1::c1': 'center' }
+		};
+
+		const [header, row] = buildXlsxSheetData(table);
+
+		expect(header).toEqual([
+			{ value: 'Item', type: String, fontWeight: 'bold' },
+			{ value: 'Price', type: String, fontWeight: 'bold' },
+			{ value: 'Share', type: String, fontWeight: 'bold' },
+			{ value: 'Due', type: String, fontWeight: 'bold' }
+		]);
+
+		expect(row).toEqual([
+			{ value: 'Widget', type: String, align: 'center' },
+			{ value: 1250.5, type: Number, format: '"$"#,##0.00', align: 'right' },
+			{ value: 0.125, type: Number, format: '0.0#%', align: 'right' },
+			// Dates stay verbatim strings so a DD-MM-YYYY table survives the round trip.
+			{ value: '05-04-2026', type: String, align: 'left' }
+		]);
+	});
+
+	it('writes empty cells as null and keeps unparseable numeric text', () => {
+		const table: TableData = {
+			title: 'Gaps',
+			columns: [
+				{ id: 'c1', name: 'Qty', type: 'number' },
+				{ id: 'c2', name: 'Note', type: 'text' }
+			],
+			rows: [{ id: 'r1', c1: null, c2: '' }, { id: 'r2', c1: 'n/a', c2: 'ok' }]
+		};
+
+		const [, blank, fallback] = buildXlsxSheetData(table);
+		expect(blank).toEqual([null, null]);
+		expect(fallback).toEqual([
+			{ value: 'n/a', type: String, align: 'right' },
+			{ value: 'ok', type: String, align: 'left' }
+		]);
 	});
 
 	it('exports 0-row header-only table without crashing', async () => {
