@@ -7,6 +7,7 @@ import { EMPTY_PROFILE, PROFILE_FIELD_HEADERS, type IcegridProfile } from './pro
 import type { IcegridRow } from './schema';
 import {
 	normalizeRitcCode,
+	sameSerial,
 	selectDrawbackSerial,
 	type DutyLookupMap
 } from './duty-lookup';
@@ -146,9 +147,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 				// Rate, description, cap and unit are consequences of whichever serial ends
 				// up in the cell - including one the documents printed that the service does
 				// not list, in which case there is nothing to copy and the fields stay blank.
-				const chosen = live.drawback.find(
-					(c) => c.serial.toUpperCase() === String(row.drawback_schno ?? '').trim().toUpperCase()
-				);
+				const chosen = live.drawback.find((c) => sameSerial(c.serial, row.drawback_schno));
 				if (chosen) {
 					set('dbk_rate', chosen.rate, 'lookup');
 					set('dbk_desc', chosen.description, 'lookup');

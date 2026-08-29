@@ -3,6 +3,7 @@ import {
 	buildDrawbackOptions,
 	distinctRitcCodes,
 	normalizeRitcCode,
+	sameSerial,
 	selectDrawbackSerial,
 	type DutyDrawbackCandidate,
 	type DutyLookupEntry
@@ -51,6 +52,15 @@ describe('normalizeRitcCode', () => {
 		expect(normalizeRitcCode('9403.20.90')).toBe('94032090');
 		expect(normalizeRitcCode('HSN: 9403 2090')).toBe('94032090');
 		expect(normalizeRitcCode(null)).toBe('');
+	});
+});
+
+describe('sameSerial', () => {
+	it('ignores case and surrounding space, and never matches a blank', () => {
+		expect(sameSerial('940301B', ' 940301b ')).toBe(true);
+		expect(sameSerial('940301B', '940399B')).toBe(false);
+		expect(sameSerial(null, null)).toBe(false);
+		expect(sameSerial('', '')).toBe(false);
 	});
 });
 

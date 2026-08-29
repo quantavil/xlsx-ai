@@ -1,5 +1,6 @@
 import type {
 	DutyDrawbackCandidate,
+	DutyLookupBatch,
 	DutyLookupEntry,
 	DutyRodtepEntry
 } from './duty-lookup';
@@ -42,6 +43,16 @@ function text(value: unknown): string {
 	return String(value ?? '').trim();
 }
 
+/**
+ * A cap of zero is how both schedules say "no cap".
+ *
+ * Rates are not folded this way: `9403B` genuinely carries a drawback rate of zero,
+ * and turning that into a blank would lose a real answer.
+ */
+function cap(value: unknown): number | null {
+	return num(value) || null;
+}
+
 async function post(path: string, mode: string, ritc: string): Promise<unknown[]> {
 	const response = await fetch(`${BASE}/${path}`, {
 		method: 'POST',
@@ -61,27 +72,24 @@ async function post(path: string, mode: string, ritc: string): Promise<unknown[]
 function toCandidate(raw: Record<string, unknown>): DutyDrawbackCandidate | null {
 	const serial = text(raw.ActualDBK_SERNo);
 	if (!serial) return null;
-	const cap = num(raw.ActualDBKSPRate);
 	return {
 		serial,
 		description: text(raw.ActualDBK_Desc),
 		rate: num(raw.ActualDBKRate),
-		// A cap of zero is the service's way of saying there is no cap.
-		cap: cap === 0 ? null : cap,
+		cap: cap(raw.ActualDBKSPRate),
 		unit: text(raw.ActualUnit) || null,
 		roslRate: num(raw.ActualROSLRate),
-		roslCap: num(raw.ActualROSLCap)
+		roslCap: cap(raw.ActualROSLCap)
 	};
 }
 
 function toRodtep(rows: unknown[]): DutyRodtepEntry | null {
 	const raw = rows[0] as Record<string, unknown> | undefined;
 	if (!raw) return null;
-	const cap = num(raw.RoDTEPCapRate);
 	return {
 		description: text(raw.RoDTEPDesc),
 		rate: num(raw.RoDTEPRatePer),
-		cap: cap === 0 ? null : cap,
+		cap: cap(raw.RoDTEPCapRate),
 		uqc: text(raw.RoDTEPUQC)
 	};
 }
@@ -108,12 +116,6 @@ export async function fetchDutyLookup(ritc: string): Promise<DutyLookupEntry> {
 	};
 	cache.set(ritc, entry);
 	return entry;
-}
-
-export interface DutyLookupBatch {
-	entries: DutyLookupEntry[];
-	/** One line per tariff code that could not be reached, for the run's warnings. */
-	warnings: string[];
 }
 
 /**

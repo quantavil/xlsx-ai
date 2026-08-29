@@ -99,11 +99,12 @@ A cell is populated only if one of these can answer *"where did this come from?"
 | :--- | :--- |
 | **Extracted** | The model returned a verbatim source quote; the quote is confirmed to exist in that file, to name that field, and to contain the value. A fabricated quote loses the field. |
 | **Schedule** | A lookup keyed by the 8-digit RITC in a bundled snapshot of a published customs schedule, cited with its notification number and effective date. |
+| **Lookup** | The live duty-structure service, queried per tariff code. Supplies the drawback candidates a human chooses between, plus the description, cap and unit the bundled snapshot does not carry. Layered over the schedules, never replacing them. |
 | **Derived** | A formula over fields already established, confirmed against every row of the reference corpus. Never overwrites an extracted value. |
 | **Profile** | The exporter typed it once in Settings → Modules → ICEGrid. |
 
-Precedence is **extracted > schedule > derived > profile**. Nothing overwrites a value a
-document supported. Every run opens its warnings with a count per provenance.
+Precedence is **extracted > lookup > schedule > derived > profile**. Nothing overwrites a
+value a document supported. Every run opens its warnings with a count per provenance.
 
 Bundled schedules (`catalogs/generated/schedules.ts`, never fetched at runtime):
 
@@ -113,11 +114,43 @@ Bundled schedules (`catalogs/generated/schedules.ts`, never fetched at runtime):
 Both are **dated snapshots and change by notification**. The UI shows the effective date;
 verify against the current notification before filing.
 
+### Live duty lookup
+
+The bundled snapshots store `serial:rate` alone, so they had to *guess* which drawback
+serial applies and never carried the description, cap or unit columns of the notification.
+`impexcube.in` publishes all four. One request per **distinct tariff code** — not per row —
+goes out through `/api/icegrid/duty-lookup`, which exists only because the service sends no
+CORS headers.
+
+| | Drawback (`FillDBK`) | RoDTEP (`GetDetails`, `Mode: RODEP`) |
+| :--- | :--- | :--- |
+| Keyed on | the **4-digit heading** | all **8 digits** |
+| So | `94032090` and `94038900` return the same three serials | the same two codes give `KGS` and `NOS` |
+| Therefore | a human chooses — the module suggests and warns | it stays a derivation |
+
+**It agrees with the reference corpus exactly.** Replaying every distinct RITC the
+17-shipment corpus carries against the live service reproduces the hand-verified values:
+RoDTEP membership **20/20**, `SQCUnit` **20/20**, `drawback_schno` **13/13**, `dbk_rate`
+**13/13** — the same figures the bundled schedule scores, from an independent source.
+
+Nothing depends on it staying up. Failures are per tariff code, become a warning, and fall
+back to the bundled schedule — the behaviour every import had before this existed. Its own
+disclaimer says its contents carry no legal force, which is why every cell it fills is
+marked `lookup` rather than silently asserted.
+
 ### Column fill rates
 
 Measured by replaying the finished pipeline against the 17-shipment reference corpus and
 comparing every cell to the trusted output — **8,513 of 10,249 cells match (83.1%)**.
 Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
+
+> These figures predate the live duty lookup and are **not recomputed here**: the replay
+> needs a live model run, which no test performs. Measured against the corpus tariff codes,
+> the lookup moves three columns and leaves the rest untouched — `dbk_desc` now fills where
+> the legacy output left it blank (a deliberate divergence, like `Total_Package`), while
+> `dbk_unit`, `ROSLRate` and `ROSLCapValue` barely move because the service prescribes a
+> unit for 1 of 20 codes and ROSL values for none. `RODTEP` gains an `N/A` state that never
+> fires on this corpus, since all 20 codes are in Appendix 4R.
 
 | # | Column | Source | Fill | Why not 100% |
 | ---: | :--- | :--- | ---: | :--- |
@@ -141,13 +174,13 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 | 18 | `ProductAmount` | extracted | 89% | Some invoices print only a grouped total. Never computed from `Quantity × UnitPrice` — that mismatch is reported as a warning instead. |
 | 19 | `Per` | derived | 100% | — |
 | 20 | `PerUnit` | derived | 90% | Copies `QuantityUnit`, so it inherits that column's gaps. |
-| 21 | `drawback_schno` | schedule | **43%** | Gated by `RITCCode`. Where present, resolves **13/13 exactly**. The `B` suffix is the schedule's column B, *"drawback when Cenvat facility has been availed"*. |
+| 21 | `drawback_schno` | lookup / schedule | **43%** | Gated by `RITCCode`. Resolves **13/13 exactly** from either source. **14 of the corpus's 20 tariff codes carry more than one eligible serial** — the module now offers them as a per-row dropdown and warns that the residual line is a suggestion, instead of guessing silently. The `B` suffix is the schedule's column B, *"drawback when Cenvat facility has been availed"*. |
 | 22 | `dbk_qty` | derived | 90% | Copies `Quantity` wherever it exists; 23 trusted rows leave it blank because no drawback is claimed on that line. |
-| 23 | `dbk_rate` | schedule | **43%** | Gated by `RITCCode`. Where present, resolves **13/13 exactly**. |
-| 24 | `dbk_unit` | derived | 79% | Copies `QuantityUnit`; 28 trusted rows leave it blank on lines with no drawback claim. |
-| 25 | `dbk_desc` | — | 77% | **Deliberately not filled.** The drawback PDF's description column bleeds across entries when parsed, and the field is blank in 212 of 277 trusted rows — a bad parse would cost more than a blank. |
-| 26 | `ROSLRate` | — | 71% | The RoSCTL schedule is not bundled. Trusted output writes a literal `0` in 81 rows; the module leaves them blank rather than assert an unsourced zero. |
-| 27 | `ROSLCapValue` | — | 100% | **Always blank in trusted output.** |
+| 23 | `dbk_rate` | lookup / schedule | **43%** | Gated by `RITCCode`. Resolves **13/13 exactly** from either source. Follows whichever serial the row carries, so changing the serial changes the rate. |
+| 24 | `dbk_unit` | lookup / derived | 79% | The schedule's unit for the chosen serial when it prescribes one — true for 1 of 20 corpus codes — otherwise copies `QuantityUnit`. 28 trusted rows leave it blank on lines with no drawback claim. |
+| 25 | `dbk_desc` | lookup | 77% | Was deliberately blank: the drawback PDF's description column bleeds across entries when parsed. The lookup publishes it cleanly, and **all 20 corpus codes return one**, so it now fills wherever a serial resolves. It is blank in 212 of 277 trusted rows, so **expect this column to diverge downward** against the legacy output — a deliberate improvement, like `Total_Package`. |
+| 26 | `ROSLRate` | lookup | 71% | The RoSCTL schedule is not bundled; the lookup carries a ROSL column but returns nothing for any of the 20 corpus codes, so this is unchanged in practice. Trusted output writes a literal `0` in 81 rows; the module leaves them blank rather than assert an unsourced zero. |
+| 27 | `ROSLCapValue` | lookup | 100% | **Always blank in trusted output**, and the lookup returns no ROSL cap for any corpus code, so it stays blank. |
 | 28 | `CountryDestination` | extracted | 97% | 7 rows where the destination is implied by the consignee address rather than named, so it stays blank. |
 | 29 | `FTACode` | profile | 100% | — |
 | 30 | `StateOrigin` | derived | 100% | First two digits of the exporter's GSTIN — correct in **17/17** shipments. |
@@ -156,7 +189,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 | 33 | `IGST_Rate` | extracted / derived | 100% | — |
 | 34 | `IGST_Amount` | derived | 82% | `Taxable_Value × IGST_Rate ÷ 100`, so it inherits the exchange-rate gap above. |
 | 35 | `GSTCCessAmount` | — | 55% | Trusted output writes a literal `0` in 124 rows; the module leaves them blank rather than assert an unsourced zero. |
-| 36 | `RODTEP` | schedule | **39%** | Gated by `RITCCode`. Where present, Appendix 4R membership answers it **20/20**. |
+| 36 | `RODTEP` | lookup / schedule / extracted | **39%** | Gated by `RITCCode`. Appendix 4R membership answers it **20/20** from either source. Three states, not two: `No` only when the documents declare a declined claim, `Yes` when the tariff item is listed, `N/A` when it is absent — previously an absent code was written `No`, which claimed the question had been considered and refused. All 20 corpus codes are listed, so `N/A` does not fire here. |
 | 37 | `RoDTEPQty` | derived | 89% | Tracks `SQCQTY` — *not* `Quantity`, which is wrong in 169 of 277 rows — so it inherits the net-weight gap. |
 
 **Columns blank in the trusted output:** `HAWBL_No`, `Accessories`, `ROSLCapValue`, and
@@ -169,7 +202,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 - Default `FTACode` to `NCPTI`, despite it appearing in 277/277 trusted rows and 0 input files.
 - Fuzzy-match, substring-match, or nearest-match a catalog value. Unknown values are blanked with a warning.
 - Classify `EndUse` from the goods. The corpus refutes it directly: motor-vehicle parts are `GNX100` in cases 6 and 16 but `GNX200` in case 15, because the code describes what the *buyer* does. A classifier would score ~80% and be confidently wrong on the rest.
-- Call ICEGATE, DGFT, or CBIC during an import.
+- Call ICEGATE, DGFT, or CBIC during an import. The one outbound call is the duty-structure lookup above, to a commercial mirror of published schedules — it is advisory, marked `lookup`, and an import completes without it.
 
 
 ---
@@ -180,19 +213,21 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 ```bash
 bun test
 ```
-Runs **343 unit tests across 20 files**, covering the table store, the multi-file document
+Runs **370 unit tests across 21 files**, covering the table store, the multi-file document
 index, cell alignment, formula evaluation and reference remapping, SheetJS import/export,
-the AI endpoint, structured dropdowns, and the ICEGrid extraction pipeline.
+the AI endpoint, structured dropdowns, the duty-structure lookup, and the ICEGrid
+extraction pipeline.
 
 | Suite | Tests | Covers |
 | :--- | ---: | :--- |
 | `formulas` | 31 | Evaluation, `#ERROR!` containment, A1 addressing, completion, point mode, fill and structural reference remapping |
 | `icegrid-golden-fixtures` | 38 | The trusted workbook contract: 37 headers, row counts, blank `Accessories`, `Per = 1`, serial rules, literal IGST rates |
-| `icegrid-sanitize` | 26 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support |
+| `icegrid-sanitize` | 37 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support, reordered extraction, trusted prose |
 | `icegrid-derive` | 24 | Schedule lookups and formulas, asserted against every corpus RITC |
+| `icegrid-duty-lookup` | 18 | Serial selection and its basis, per-tariff-code dropdown scoping, the three `RODTEP` states, and fallback to the bundled schedule |
 | `icegrid-catalogs` | 21 | Catalog shape and exact-only resolution, including negative fuzzy-match tests |
 | `icegrid-pipeline` | 16 | `icegridModule.run` end to end with a mocked AI response |
-| `icegrid-columns` | 15 | Column types, dropdown wiring, mechanical rules |
+| `icegrid-columns` | 17 | Column types, catalog vs per-run dropdown wiring, mechanical rules |
 | `table-dropdown` | 15 | Generic structured/dependent dropdowns and their persistence |
 | `icegrid-readers` | 9 | PDF/spreadsheet text extraction and boundary markers |
 | `icegrid-mapping`, `icegrid-schema`, `icegrid-e2e-workflow` | 15 | Validation, Zod contracts, and the export round-trip |
@@ -242,7 +277,9 @@ that sheet rather than retyping 180 strings. The 40 states and 725 districts com
 ICEGATE state/district list, each district scoped to its state by `parentValue` so a district
 can never resolve under the wrong one.
 
-No test calls a live Gemini model. AI quality is evaluated manually against the real files;
+No test calls a live Gemini model or the live duty-structure service — the duty tests run
+against recorded response shapes, so the suite stays offline and deterministic.
+AI quality is evaluated manually against the real files;
 the deterministic code is tested with captured responses that carry evidence spans.
 
 ### Run Playwright E2E Tests

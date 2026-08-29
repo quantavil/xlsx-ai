@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { fetchDutyLookups } from '$lib/modules/icegrid/duty-lookup.server';
+import { MAX_LOOKUP_CODES } from '$lib/modules/icegrid/duty-lookup';
 
 /**
  * Proxy the duty-structure lookups the browser cannot make itself.
@@ -10,12 +11,8 @@ import { fetchDutyLookups } from '$lib/modules/icegrid/duty-lookup.server';
  * action on `/api/ai`: that route requires both before it will do anything.
  */
 
-// A shipment carries a handful of distinct tariff codes. The cap is here so a
-// malformed caller cannot turn one request into hundreds of outbound ones.
-const MAX_CODES = 50;
-
 const RequestSchema = z.object({
-	ritcs: z.array(z.string().regex(/^\d{8}$/)).max(MAX_CODES)
+	ritcs: z.array(z.string().regex(/^\d{8}$/)).max(MAX_LOOKUP_CODES)
 });
 
 export const POST: RequestHandler = async ({ request }) => {

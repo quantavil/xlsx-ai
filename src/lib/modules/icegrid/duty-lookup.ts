@@ -39,6 +39,29 @@ export interface DutyLookupEntry {
 /** Lookups for one import run, keyed by the eight-digit RITC that produced them. */
 export type DutyLookupMap = ReadonlyMap<string, DutyLookupEntry>;
 
+export interface DutyLookupBatch {
+	entries: DutyLookupEntry[];
+	/** One line per tariff code that could not be reached, for the run's warnings. */
+	warnings: string[];
+}
+
+/**
+ * Outbound requests one run may make.
+ *
+ * A shipment carries a handful of distinct tariff codes; this exists so a malformed
+ * caller cannot turn one import into hundreds of outbound requests. The client trims
+ * to it and says so, rather than letting the server reject the batch and lose every
+ * lookup over one code too many.
+ */
+export const MAX_LOOKUP_CODES = 50;
+
+/** Schedule serials are compared case- and space-insensitively, never re-spelled. */
+export function sameSerial(a: unknown, b: unknown): boolean {
+	const fold = (v: unknown) => String(v ?? '').trim().toUpperCase();
+	const left = fold(a);
+	return left !== '' && left === fold(b);
+}
+
 /** Digits only. A tariff code is printed as `9403.20.90` about as often as `94032090`. */
 export function normalizeRitcCode(value: unknown): string {
 	return String(value ?? '').replace(/\D/g, '');
@@ -73,10 +96,9 @@ export function selectDrawbackSerial(
 	candidates: readonly DutyDrawbackCandidate[],
 	extracted: unknown
 ): { serial: string | null; basis: 'extracted' | 'only-candidate' | 'suggested' | 'none' } {
+	// A serial the documents printed wins whether or not the service lists it: a broker
+	// can be right against a third party, and discarding a printed value would lose it.
 	const printed = String(extracted ?? '').trim().toUpperCase();
-	if (printed && candidates.some((c) => c.serial.toUpperCase() === printed)) {
-		return { serial: printed, basis: 'extracted' };
-	}
 	if (printed) return { serial: printed, basis: 'extracted' };
 	if (candidates.length === 0) return { serial: null, basis: 'none' };
 	if (candidates.length === 1) return { serial: candidates[0].serial, basis: 'only-candidate' };
