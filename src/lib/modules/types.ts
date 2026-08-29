@@ -1,3 +1,4 @@
+import type { Component } from 'svelte';
 import type { TableData } from '$lib/types';
 import type { IconName } from '$lib/components/Icons.svelte';
 import type { AiApi } from '$lib/ai/client';
@@ -32,5 +33,10 @@ export interface WorkspaceModule {
 		gemini: boolean;
 	};
 	ribbon: ModuleRibbonAction;
+	/** Optional panel rendered inside this module's Settings card. */
+	settings?: {
+		label: string;
+		component: Component;
+	};
 	run(files: File[], context: ModuleContext): Promise<ModuleResult>;
 }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { IcegridReportSchema, IcegridRowSchema } from '../src/lib/modules/icegrid/schema';
+import {
+	IcegridReportSchema,
+	IcegridAiReportSchema,
+	IcegridRowSchema
+} from '../src/lib/modules/icegrid/schema';
 
 describe('ICEGrid Schema Validation', () => {
 	const validRow = {
@@ -31,7 +35,7 @@ describe('ICEGrid Schema Validation', () => {
 		ROSLRate: null,
 		ROSLCapValue: null,
 		CountryDestination: 'DE',
-		FTACode: 'NONE',
+		FTACode: 'NCPTI',
 		StateOrigin: 'Maharashtra',
 		DistrictOrigin: 'Pune',
 		Taxable_Value: 12250.0,
@@ -67,7 +71,7 @@ describe('ICEGrid Schema Validation', () => {
 		expect(result.success).toBe(false);
 	});
 
-	it('rejects reports with zero rows', () => {
+	it('rejects AI responses with zero rows', () => {
 		const emptyReport = {
 			reportVersion: 1,
 			sourceFiles: ['invoice.xlsx'],
@@ -75,8 +79,11 @@ describe('ICEGrid Schema Validation', () => {
 			warnings: []
 		};
 
-		const result = IcegridReportSchema.safeParse(emptyReport);
-		expect(result.success).toBe(false);
+		// The AI-facing schema requires at least one row: an empty Gemini response is a
+		// failed extraction. The post-sanitization report deliberately permits zero rows,
+		// because blocking on "no rows" is validate.ts's job and carries a clear message.
+		expect(IcegridAiReportSchema.safeParse(emptyReport).success).toBe(false);
+		expect(IcegridReportSchema.safeParse(emptyReport).success).toBe(true);
 	});
 
 	it('rejects invalid report versions', () => {

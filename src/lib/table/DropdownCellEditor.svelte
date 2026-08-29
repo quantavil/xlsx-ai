@@ -3,16 +3,27 @@
 	import { computeFloatingPosition } from '$lib/ui/position';
 	import { handleComboboxKeydown } from '$lib/ui/combobox';
 	import { getDropdownStyle } from '$lib/constants';
+	import { dropdownOptionLabel } from './cells';
+	import type { DropdownOption } from '$lib/types';
 
 	interface Props {
 		value: string | null;
-		options: string[];
+		options: DropdownOption[];
+		/** When false, no `+ Add` is offered and an unknown typed value cannot commit. */
+		allowCustom?: boolean;
 		triggerEl?: HTMLElement | null;
 		onCommit: (val: string) => void;
 		onCancel: () => void;
 	}
 
-	let { value, options, triggerEl = null, onCommit, onCancel }: Props = $props();
+	let {
+		value,
+		options,
+		allowCustom = true,
+		triggerEl = null,
+		onCommit,
+		onCancel
+	}: Props = $props();
 
 	let search = $state('');
 	let highlightIndex = $state(0);
@@ -24,15 +35,16 @@
 
 	let filteredOptions = $derived.by(() => {
 		const q = search.trim().toLowerCase();
-		const list = options.filter((opt) => opt && opt.trim().length > 0);
+		const list = options.filter((opt) => opt?.value && opt.value.trim().length > 0);
 		if (!q) return list;
-		return list.filter((opt) => opt.toLowerCase().includes(q));
+		// Search matches the code and the description, so `RAJASTHAN` finds `08`.
+		return list.filter((opt) => dropdownOptionLabel(opt).toLowerCase().includes(q));
 	});
 
 	let showCreate = $derived.by(() => {
 		const q = search.trim();
-		if (!q) return false;
-		return !options.some((opt) => opt.toLowerCase() === q.toLowerCase());
+		if (!q || !allowCustom) return false;
+		return !options.some((opt) => opt.value.toLowerCase() === q.toLowerCase());
 	});
 
 	function updatePosition() {
@@ -97,7 +109,7 @@
 		if (search.trim() && showCreate) {
 			onCommit(search.trim());
 		} else if (filteredOptions.length > 0 && highlightIndex >= 0 && highlightIndex < filteredOptions.length) {
-			onCommit(filteredOptions[highlightIndex]);
+			onCommit(filteredOptions[highlightIndex].value);
 		} else {
 			onCommit(value || '');
 		}
@@ -108,15 +120,17 @@
 			items: filteredOptions,
 			query: search,
 			highlightIndex,
-			getItemLabel: (item) => item,
+			getItemLabel: (item) => dropdownOptionLabel(item),
 			onHighlight: (idx) => {
 				highlightIndex = idx;
 			},
 			onSelect: (item) => {
-				onCommit(item);
+				onCommit(item.value);
 			},
 			onCreate: (newOption) => {
-				onCommit(newOption);
+				// A closed catalog has no `+ Add` row; Enter on unknown text must not
+				// smuggle a value past the catalog.
+				if (allowCustom) onCommit(newOption);
 			},
 			onCancel: () => {
 				onCancel();
@@ -162,9 +176,9 @@
 			<span class="clear-icon text-[11px] opacity-40" aria-hidden="true">✕</span>
 		</button>
 
-		{#each filteredOptions as opt, idx (opt)}
-			{@const style = getDropdownStyle(opt)}
-			{@const isSelected = (value || '').toLowerCase() === opt.toLowerCase()}
+		{#each filteredOptions as opt, idx (opt.value)}
+			{@const style = getDropdownStyle(opt.value)}
+			{@const isSelected = (value || '').toLowerCase() === opt.value.toLowerCase()}
 			{@const isHighlighted = highlightIndex === idx}
 
 			<button
@@ -173,10 +187,10 @@
 				style="background: {style.bg}; color: {style.text}; border-color: {style.border};"
 				role="option"
 				aria-selected={isSelected}
-				onclick={() => onCommit(opt)}
+				onclick={() => onCommit(opt.value)}
 				onmouseenter={() => (highlightIndex = idx)}
 			>
-				<span class="truncate">{opt}</span>
+				<span class="truncate">{dropdownOptionLabel(opt)}</span>
 				{#if isSelected}
 					<span class="check-icon font-bold text-[12px] ml-1 shrink-0" style="color: {style.text};" aria-hidden="true">✓</span>
 				{/if}

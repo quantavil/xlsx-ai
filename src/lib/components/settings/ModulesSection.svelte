@@ -51,6 +51,14 @@
 					</button>
 				</div>
 
+				{#if mod.settings && isEnabled}
+					{@const SettingsPanel = mod.settings.component}
+					<div class="pt-3 border-t border-[var(--border)] flex flex-col gap-2.5">
+						<span class="text-[11px] font-semibold text-[var(--text-2)]">{mod.settings.label}</span>
+						<SettingsPanel />
+					</div>
+				{/if}
+
 				<div class="pt-2.5 border-t border-[var(--border)] flex items-center justify-between text-[11px] text-[var(--text-3)]">
 					<div class="flex items-center gap-1 font-mono">
 						<span>Files:</span>

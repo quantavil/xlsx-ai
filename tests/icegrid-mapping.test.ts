@@ -10,14 +10,14 @@ describe('ICEGrid Validation and Mapping', () => {
 		ItemSNo: 1,
 		InvoiceNo: 'INV-2026-900',
 		Description: 'Woven Cotton Fabric 100% Dyed',
-		EndUse: 'Apparel Manufacturing',
+		EndUse: 'GNX100',
 		HAWBL_No: 'HAWB-554433',
 		Total_Package: 10,
 		Accessories: null,
-		RewardItem: 'Y',
+		RewardItem: 'Yes',
 		IGST_PaymentStatus: 'LUT',
 		RITCCode: '52081190',
-		ApplicableExpSchemes: 'RODTEP',
+		ApplicableExpSchemes: '19-Drawback (DBK)',
 		Quantity: 1000,
 		QuantityUnit: 'MTR',
 		SQCQTY: 1000,
@@ -34,14 +34,14 @@ describe('ICEGrid Validation and Mapping', () => {
 		ROSLRate: null,
 		ROSLCapValue: null,
 		CountryDestination: 'US',
-		FTACode: 'NONE',
+		FTACode: 'NCPTI',
 		StateOrigin: 'Tamil Nadu',
 		DistrictOrigin: 'Tirupur',
 		Taxable_Value: 3500.0,
 		IGST_Rate: 5,
 		IGST_Amount: 175.0,
 		GSTCCessAmount: 0,
-		RODTEP: '1.2%',
+		RODTEP: 'Yes',
 		RoDTEPQty: 1000
 	};
 
@@ -79,7 +79,7 @@ describe('ICEGrid Validation and Mapping', () => {
 		expect(result.blockingErrors.length).toBe(0);
 		expect(result.warnings.some((w) => w.includes('InvoiceNo'))).toBe(true);
 		expect(result.warnings.some((w) => w.includes('UnitPrice'))).toBe(true);
-		expect(result.warnings.some((w) => w.includes('Quantity (negative)'))).toBe(true);
+		expect(result.warnings.some((w) => /Quantity is negative/.test(w))).toBe(true);
 	});
 
 	it('blocks only when the report contains no rows at all', () => {

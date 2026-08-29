@@ -5,6 +5,7 @@
 	import type { CellAlign, Column, ColumnType, CellValue, Row } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
 	import { computeFloatingPosition } from '$lib/ui/position';
+	import { resolveDropdownOptions } from './cells';
 
 	let {
 		store,
@@ -185,15 +186,12 @@
 		store.updateColumnWidth(colId, fitWidth);
 	}
 
-	function getColumnUniqueValues(columnId: string): string[] {
-		const set = new Set<string>();
-		for (const row of store.rows) {
-			const val = row[columnId];
-			if (typeof val === 'string' && val.trim().length > 0) {
-				set.add(val.trim());
-			}
-		}
-		return Array.from(set);
+	function getCellDropdownOptions(col: Column, rowId: string) {
+		return resolveDropdownOptions(
+			col,
+			store.rows.find((r) => r.id === rowId),
+			store.rows
+		);
 	}
 
 	function selectCell(
@@ -787,7 +785,8 @@
 												{@const cellKey = `${row.id}-${col.id}`}
 												<DropdownCellEditor
 													value={editValue}
-													options={getColumnUniqueValues(col.id)}
+													options={getCellDropdownOptions(col, row.id)}
+													allowCustom={col.dropdown?.allowCustom ?? true}
 													triggerEl={cellNodes.get(cellKey)}
 													onCommit={(newVal) => {
 														editValue = newVal;

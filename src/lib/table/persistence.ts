@@ -44,7 +44,8 @@ export function createLocalStorageAdapter(
 				id: c.id,
 				name: c.name,
 				type: c.type,
-				width: c.width
+				width: c.width,
+				...(c.dropdown ? { dropdown: c.dropdown } : {})
 			})),
 			rows: data.rows,
 			cellAlign: data.cellAlign,

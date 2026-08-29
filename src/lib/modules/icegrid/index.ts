@@ -1,21 +1,60 @@
 import type { WorkspaceModule, ModuleContext, ModuleResult } from '../types';
 import { combineDocumentSources } from './readers';
 import { requestIcegridExtraction } from './extract';
+import { sanitizeIcegridExtraction } from './sanitize';
 import { validateIcegridReport } from './validate';
 import { mapReportToTableData } from './to-table';
+import { getCatalogSnapshot } from './catalogs';
+import { deriveRows, findExchangeRate } from './derive';
+import { loadProfile } from './profile';
+import IcegridSettings from './IcegridSettings.svelte';
 
 export { ICEGRID_COLUMNS, ICEGRID_HEADERS, buildIcegridTableColumns } from './columns';
 export { combineDocumentSources, extractSpreadsheetText, extractPdfText } from './readers';
-export { IcegridRowSchema, IcegridReportSchema, type IcegridRow, type IcegridReport } from './schema';
+export {
+	IcegridRowSchema,
+	IcegridReportSchema,
+	IcegridAiReportSchema,
+	IcegridEvidenceSpanSchema,
+	type IcegridRow,
+	type IcegridReport,
+	type IcegridAiReport,
+	type IcegridEvidenceSpan
+} from './schema';
 export { requestIcegridExtraction } from './extract';
+export { sanitizeIcegridExtraction } from './sanitize';
 export { validateIcegridReport } from './validate';
-export { mapReportToTableData } from './to-table';
+export { mapReportToTableData, applyMechanicalRules } from './to-table';
+export { getCatalogSnapshot } from './catalogs';
+export { deriveRows, findExchangeRate, stateCodeFromGstin, type Provenance } from './derive';
+export {
+	loadProfile,
+	saveProfile,
+	parseProfile,
+	EMPTY_PROFILE,
+	IcegridProfileSchema,
+	LS_ICEGRID_PROFILE_KEY,
+	type IcegridProfile
+} from './profile';
+export {
+	lookupDrawback,
+	lookupRodtep,
+	uqcToUnit,
+	SCHEDULES_PROVENANCE
+} from './catalogs/generated/schedules';
+
+/** Keep the first few warnings readable instead of dumping hundreds into a toast. */
+export function summarizeWarnings(warnings: string[], limit = 3): string[] {
+	if (warnings.length <= limit) return warnings;
+	return [...warnings.slice(0, limit), `...and ${warnings.length - limit} more review notes.`];
+}
 
 export const icegridModule: WorkspaceModule = {
 	id: 'icegrid',
 	name: 'ICEGrid Importer',
-	description: 'Extract and map commercial invoice and packing list documents into the standardized 37-column ICEGATE format.',
-	version: '1.0.0',
+	description:
+		'Extract and map commercial invoice and packing list documents into the standardized 37-column ICEGATE format.',
+	version: '1.1.0',
 	defaultEnabled: true,
 	requirements: {
 		gemini: true
@@ -28,35 +67,62 @@ export const icegridModule: WorkspaceModule = {
 			multiple: true
 		}
 	},
+	settings: {
+		label: 'Shipment defaults',
+		component: IcegridSettings
+	},
 	async run(files: File[], context: ModuleContext): Promise<ModuleResult> {
 		if (files.length === 0) {
 			throw new Error('No files selected.');
 		}
 
-		// 1. Read and combine files locally with boundary preservation
+		// Captured once so a catalog change mid-run cannot alter how this run resolves
+		// values or which options the resulting table carries.
+		const catalogs = getCatalogSnapshot();
+
+		context.onProgress('Reading documents...');
 		const extraction = await combineDocumentSources(files, context.onProgress);
 
-		// 2. Request Gemini structured extraction
-		const report = await requestIcegridExtraction(extraction, context);
+		context.onProgress('Extracting line items...');
+		const candidate = await requestIcegridExtraction(extraction, context);
 
-		context.onProgress(`Validating ${report.rows.length} extracted row(s)...`);
+		context.onProgress(`Verifying evidence for ${candidate.rows.length} row(s)...`);
+		const { report, warnings: sanitizationWarnings } = sanitizeIcegridExtraction(
+			candidate,
+			extraction,
+			catalogs
+		);
 
-		// 3. Run deterministic validation
-		const validation = validateIcegridReport(report, extraction.sourceFiles);
+		context.onProgress('Filling schedule and derived values...');
+		const derived = deriveRows(report.rows, {
+			catalogs,
+			profile: loadProfile(),
+			sourceText: extraction.content,
+			documentExchangeRate: findExchangeRate(extraction.content)
+		});
+		const filledReport = { ...report, rows: derived.rows };
+
+		context.onProgress('Validating...');
+		const validation = validateIcegridReport(filledReport, extraction.sourceFiles, catalogs);
 
 		if (!validation.valid) {
-			const errorSummary = validation.blockingErrors.slice(0, 3).join(' ');
-			throw new Error(`ICEGrid validation failed: ${errorSummary}`);
+			throw new Error(
+				`ICEGrid validation failed: ${validation.blockingErrors.slice(0, 3).join(' ')}`
+			);
 		}
 
-		// 4. Map validated report rows to host TableData
-		const table = mapReportToTableData(report);
+		context.onProgress('Preparing table...');
+		const table = mapReportToTableData(filledReport, catalogs);
 
-		const allWarnings = [...(report.warnings || []), ...validation.warnings];
+		const summary =
+			`Filled ${derived.filled.extracted} cell(s) from the documents, ` +
+			`${derived.filled.schedule} from the customs schedules, ` +
+			`${derived.filled.derived} by formula, ` +
+			`${derived.filled.profile} from your ICEGrid profile.`;
 
 		return {
 			table,
-			warnings: allWarnings
+			warnings: [summary, ...sanitizationWarnings, ...derived.warnings, ...validation.warnings]
 		};
 	}
 };

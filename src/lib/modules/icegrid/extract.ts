@@ -1,11 +1,15 @@
 import type { ModuleContext } from '../types';
 import type { CombinedExtractionResult } from './readers';
-import { IcegridReportSchema, type IcegridReport } from './schema';
+import { IcegridAiReportSchema, type IcegridAiReport } from './schema';
 
+/**
+ * One request for all selected files. Returns the raw candidate rows *with* their
+ * evidence still attached; verification happens client-side in `sanitize.ts`.
+ */
 export async function requestIcegridExtraction(
 	extraction: CombinedExtractionResult,
 	context: ModuleContext
-): Promise<IcegridReport> {
+): Promise<IcegridAiReport> {
 	if (!context.ai.apiKey || context.ai.apiKey.trim().length < 20) {
 		throw new Error('Google Gemini API key is missing or invalid. Please configure it in Settings.');
 	}
@@ -47,7 +51,7 @@ export async function requestIcegridExtraction(
 		throw new Error('Malformed or empty extraction response from Gemini.');
 	}
 
-	const parsed = IcegridReportSchema.safeParse(result.data);
+	const parsed = IcegridAiReportSchema.safeParse(result.data);
 	if (!parsed.success) {
 		throw new Error('Gemini output did not conform to the ICEGrid report schema.');
 	}

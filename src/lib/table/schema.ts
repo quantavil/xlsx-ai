@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import type { ColumnType, Column, Row, TableData, CellValue, CellAlignMap } from '$lib/types';
+import type {
+	ColumnType,
+	Column,
+	Row,
+	TableData,
+	CellValue,
+	CellAlignMap,
+	DropdownConfig,
+	DropdownOption
+} from '$lib/types';
 import { normalizeCellValue } from './cells';
 
 
@@ -7,12 +16,79 @@ export const CellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.n
 
 export const ColumnTypeSchema = z.enum(['text', 'number', 'currency', 'percent', 'dropdown', 'date']);
 
+export const MAX_DROPDOWN_OPTIONS = 5_000;
+
+export const PersistedDropdownOptionSchema = z.object({
+	value: z.string().min(1).max(200),
+	label: z.string().max(200).optional(),
+	parentValue: z.string().max(200).optional()
+});
+
+export const PersistedDropdownConfigSchema = z.object({
+	options: z.array(PersistedDropdownOptionSchema).max(MAX_DROPDOWN_OPTIONS),
+	allowCustom: z.boolean(),
+	dependsOnColumnId: z.string().min(1).max(100).optional()
+});
+
 export const PersistedColumnSchema = z.object({
 	id: z.string().min(1).max(100),
 	name: z.string().min(1).max(200),
 	type: ColumnTypeSchema,
-	width: z.number().min(60).max(800).optional()
+	width: z.number().min(60).max(800).optional(),
+	dropdown: PersistedDropdownConfigSchema.optional()
 });
+
+/**
+ * Pure, total sanitizer for one column's dropdown config. A malformed config is
+ * dropped; it never invalidates the column itself, so a bad option list can't cost
+ * the user their data.
+ */
+export function sanitizeDropdownConfig(
+	raw: unknown,
+	column: { id: string; type: ColumnType }
+): DropdownConfig | undefined {
+	if (column.type !== 'dropdown' || !raw || typeof raw !== 'object') return undefined;
+
+	const candidate = raw as Partial<DropdownConfig>;
+	if (!Array.isArray(candidate.options)) return undefined;
+
+	const seen = new Set<string>();
+	const options: DropdownOption[] = [];
+
+	for (const opt of candidate.options.slice(0, MAX_DROPDOWN_OPTIONS)) {
+		if (!opt || typeof opt !== 'object') continue;
+
+		const value = typeof opt.value === 'string' ? opt.value.trim() : '';
+		if (!value || value.length > 200) continue;
+
+		const label = typeof opt.label === 'string' ? opt.label.trim() : '';
+		const parentValue = typeof opt.parentValue === 'string' ? opt.parentValue.trim() : '';
+
+		// Dedupe on (value, parentValue): the same district code may legitimately
+		// appear under two states, but not twice under one.
+		const key = `${value.toLowerCase()}\u0000${parentValue.toLowerCase()}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+
+		options.push({
+			value,
+			...(label && label.length <= 200 ? { label } : {}),
+			...(parentValue && parentValue.length <= 200 ? { parentValue } : {})
+		});
+	}
+
+	const dependsOnRaw =
+		typeof candidate.dependsOnColumnId === 'string' ? candidate.dependsOnColumnId.trim() : '';
+	// A column depending on itself would filter its own options by its own value.
+	const dependsOnColumnId =
+		dependsOnRaw && dependsOnRaw !== column.id ? dependsOnRaw : undefined;
+
+	return {
+		options,
+		allowCustom: candidate.allowCustom !== false,
+		...(dependsOnColumnId ? { dependsOnColumnId } : {})
+	};
+}
 
 export const CellAlignSchema = z.enum(['left', 'center', 'right']);
 
@@ -49,11 +125,13 @@ export function sanitizeAndNormalizeTableData(
 		seenColIds.add(id);
 
 		const type: ColumnType = ColumnTypeSchema.safeParse(col.type).success ? col.type : 'text';
+		const dropdown = sanitizeDropdownConfig(col.dropdown, { id, type });
 		cleanColumns.push({
 			id,
 			name: col.name ? String(col.name).trim() : 'Untitled Column',
 			type,
-			width: typeof col.width === 'number' ? Math.max(60, Math.min(800, col.width)) : 160
+			width: typeof col.width === 'number' ? Math.max(60, Math.min(800, col.width)) : 160,
+			...(dropdown ? { dropdown } : {})
 		});
 	}
 

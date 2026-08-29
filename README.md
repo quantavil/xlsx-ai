@@ -69,13 +69,168 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
+## ICEGrid Module — ICEGATE 37-Column Extraction
+
+`src/lib/modules/icegrid/` turns a multi-file selection of commercial invoices and
+packing lists (`.pdf`, `.xls`, `.xlsx`) into the fixed 37-column ICEGATE shipping-bill
+format, using one Gemini request for the whole selection.
+
+### Pipeline
+
+```
+combineDocumentSources(files)     local PDF/XLS text extraction, boundary-preserving
+  -> requestIcegridExtraction()   ONE /api/ai request, candidate rows + evidence spans
+  -> sanitizeIcegridExtraction()  verify every quote against the extracted file text
+  -> deriveRows()                 schedule lookups, formulas, shipment profile
+  -> validateIcegridReport()      deterministic checks, warnings not blockers
+  -> mapReportToTableData()       the existing table + Excel export
+```
+
+### The four provenances
+
+A cell is populated only if one of these can answer *"where did this come from?"*:
+
+| Provenance | Guarantee |
+| :--- | :--- |
+| **Extracted** | The model returned a verbatim source quote; the quote is confirmed to exist in that file, to name that field, and to contain the value. A fabricated quote loses the field. |
+| **Schedule** | A lookup keyed by the 8-digit RITC in a bundled snapshot of a published customs schedule, cited with its notification number and effective date. |
+| **Derived** | A formula over fields already established, confirmed against every row of the reference corpus. Never overwrites an extracted value. |
+| **Profile** | The exporter typed it once in Settings → Modules → ICEGrid. |
+
+Precedence is **extracted > schedule > derived > profile**. Nothing overwrites a value a
+document supported. Every run opens its warnings with a count per provenance.
+
+Bundled schedules (`catalogs/generated/schedules.ts`, never fetched at runtime):
+
+- **Duty Drawback All Industry Rates** — Notification No. 77/2023-Customs (N.T.), effective 2023-10-30, 2,209 serials.
+- **RoDTEP Appendix 4R** — Notification No. 32 dated 30.09.2024, effective 2024-10-10, 8,563 tariff items.
+
+Both are **dated snapshots and change by notification**. The UI shows the effective date;
+verify against the current notification before filing.
+
+### Column fill rates
+
+Measured by replaying the finished pipeline against the 17-shipment reference corpus and
+comparing every cell to the trusted output — **8,513 of 10,249 cells match (83.1%)**.
+Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
+
+| # | Column | Source | Fill | Why not 100% |
+| ---: | :--- | :--- | ---: | :--- |
+| 1 | `InvoiceSNo` | derived | 100% | — |
+| 2 | `ItemSNo` | derived | 100% | — |
+| 3 | `InvoiceNo` | extracted | 100% | — |
+| 4 | `Description` | extracted | **6%** | The item name extracts correctly, but trusted output prepends an exporter house-style goods-class phrase (`OTHER FURNITURE ARTICLES OF IRON ARTWARE - …`). It is not the tariff text — the drawback schedule says `Others`, RoDTEP says `Other` — so composing it would mean inventing customs wording. |
+| 5 | `EndUse` | profile | 100% | — |
+| 6 | `HAWBL_No` | — | 100% | **Always blank in trusted output.** No AWB or B/L number appears in any of the 34 input files. |
+| 7 | `Total_Package` | extracted | 100% | **Blank in all 277 trusted rows**, yet every packing list states a carton or pallet count. The module now extracts it — a deliberate improvement on the legacy output, so expect a difference here. |
+| 8 | `Accessories` | — | 100% | **Always blank by rule.** Never populated on import and deliberately not offered as a dropdown. |
+| 9 | `RewardItem` | profile | 95% | Held per shipment; one case varies it across lines (6 rows `No`, the rest `Yes`), which a single profile value cannot express. |
+| 10 | `IGST_PaymentStatus` | profile / extracted | 100% | — |
+| 11 | `RITCCode` | extracted | **41%** | Only 11 of 17 invoices print an HSN code. It is per-line, so no profile can supply it — and it **gates `SQCUnit`, `drawback_schno`, `dbk_rate` and `RODTEP`**. A saved product→HSN mapping is the single highest-value addition left. |
+| 12 | `ApplicableExpSchemes` | profile | 92% | Per-shipment value; one case mixes two schemes across its lines. |
+| 13 | `Quantity` | extracted | 100% | — |
+| 14 | `QuantityUnit` | extracted | 90% | Not printed on every line, or printed in a spelling outside the 70-code catalog, which is rejected rather than guessed. |
+| 15 | `SQCQTY` | extracted / derived | 91% | Needs the packing-list net weight when the tariff counts in KGS; 5 cases ship no weight. |
+| 16 | `SQCUnit` | schedule | **41%** | Gated by `RITCCode`. Where the code is present the RoDTEP `UQC` column resolves it **20/20 exactly**. |
+| 17 | `UnitPrice` | extracted | 98% | 5 rows carry a rate back-computed to more precision than the invoice prints. |
+| 18 | `ProductAmount` | extracted | 89% | Some invoices print only a grouped total. Never computed from `Quantity × UnitPrice` — that mismatch is reported as a warning instead. |
+| 19 | `Per` | derived | 100% | — |
+| 20 | `PerUnit` | derived | 90% | Copies `QuantityUnit`, so it inherits that column's gaps. |
+| 21 | `drawback_schno` | schedule | **43%** | Gated by `RITCCode`. Where present, resolves **13/13 exactly**. The `B` suffix is the schedule's column B, *"drawback when Cenvat facility has been availed"*. |
+| 22 | `dbk_qty` | derived | 90% | Copies `Quantity` wherever it exists; 23 trusted rows leave it blank because no drawback is claimed on that line. |
+| 23 | `dbk_rate` | schedule | **43%** | Gated by `RITCCode`. Where present, resolves **13/13 exactly**. |
+| 24 | `dbk_unit` | derived | 79% | Copies `QuantityUnit`; 28 trusted rows leave it blank on lines with no drawback claim. |
+| 25 | `dbk_desc` | — | 77% | **Deliberately not filled.** The drawback PDF's description column bleeds across entries when parsed, and the field is blank in 212 of 277 trusted rows — a bad parse would cost more than a blank. |
+| 26 | `ROSLRate` | — | 71% | The RoSCTL schedule is not bundled. Trusted output writes a literal `0` in 81 rows; the module leaves them blank rather than assert an unsourced zero. |
+| 27 | `ROSLCapValue` | — | 100% | **Always blank in trusted output.** |
+| 28 | `CountryDestination` | extracted | 97% | 7 rows where the destination is implied by the consignee address rather than named, so it stays blank. |
+| 29 | `FTACode` | profile | 100% | — |
+| 30 | `StateOrigin` | derived | 100% | First two digits of the exporter's GSTIN — correct in **17/17** shipments. |
+| 31 | `DistrictOrigin` | profile | 100% | — |
+| 32 | `Taxable_Value` | derived | 76% | `ProductAmount × exchange rate`, and the customs rate is printed on only 2 of 17 invoices. Set the rate in the ICEGrid profile to close this. |
+| 33 | `IGST_Rate` | extracted / derived | 100% | — |
+| 34 | `IGST_Amount` | derived | 82% | `Taxable_Value × IGST_Rate ÷ 100`, so it inherits the exchange-rate gap above. |
+| 35 | `GSTCCessAmount` | — | 55% | Trusted output writes a literal `0` in 124 rows; the module leaves them blank rather than assert an unsourced zero. |
+| 36 | `RODTEP` | schedule | **39%** | Gated by `RITCCode`. Where present, Appendix 4R membership answers it **20/20**. |
+| 37 | `RoDTEPQty` | derived | 89% | Tracks `SQCQTY` — *not* `Quantity`, which is wrong in 169 of 277 rows — so it inherits the net-weight gap. |
+
+**Columns blank in the trusted output:** `HAWBL_No`, `Accessories`, `ROSLCapValue`, and
+`Total_Package` are empty in all 277 rows; `dbk_desc` in 212, `ROSLRate` in 196, and
+`GSTCCessAmount` in 153.
+
+### What the module will not do
+
+- Compute `ProductAmount`, or copy `Quantity` into `SQCQTY`/`RoDTEPQty`, or `QuantityUnit` into `SQCUnit`.
+- Default `FTACode` to `NCPTI`, despite it appearing in 277/277 trusted rows and 0 input files.
+- Fuzzy-match, substring-match, or nearest-match a catalog value. Unknown values are blanked with a warning.
+- Classify `EndUse` from the goods. The corpus refutes it directly: motor-vehicle parts are `GNX100` in cases 6 and 16 but `GNX200` in case 15, because the code describes what the *buyer* does. A classifier would score ~80% and be confidently wrong on the rest.
+- Call ICEGATE, DGFT, or CBIC during an import.
+
+
+---
+
 ## Testing & Verification
 
 ### Run Unit Tests (Bun Test)
 ```bash
 bun test
 ```
-Runs 92 unit tests across 11 files, covering the table store, the multi-file document index, cell alignment, SheetJS import/export, the AI endpoint, and the ICEGrid module.
+Runs **247 unit tests across 18 files**, covering the table store, the multi-file document
+index, cell alignment, SheetJS import/export, the AI endpoint, structured dropdowns, and
+the ICEGrid extraction pipeline.
+
+| Suite | Tests | Covers |
+| :--- | ---: | :--- |
+| `icegrid-golden-fixtures` | 38 | The trusted workbook contract: 37 headers, row counts, blank `Accessories`, `Per = 1`, serial rules, literal IGST rates |
+| `icegrid-sanitize` | 26 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support |
+| `icegrid-derive` | 24 | Schedule lookups and formulas, asserted against every corpus RITC |
+| `icegrid-catalogs` | 21 | Catalog shape and exact-only resolution, including negative fuzzy-match tests |
+| `icegrid-pipeline` | 16 | `icegridModule.run` end to end with a mocked AI response |
+| `icegrid-columns` | 15 | Column types, dropdown wiring, mechanical rules |
+| `table-dropdown` | 15 | Generic structured/dependent dropdowns and their persistence |
+| `icegrid-readers` | 9 | PDF/spreadsheet text extraction and boundary markers |
+| `icegrid-mapping`, `icegrid-schema`, `icegrid-e2e-workflow` | 15 | Validation, Zod contracts, and the export round-trip |
+
+### How the ICEGrid test cases are built from the input/output files
+
+The reference corpus is **17 real shipments — 34 input files and 17 expected output
+workbooks**. It is the source of truth for every ICEGrid assertion, used in three ways.
+
+**1. Checked-in golden fixtures.** Five representative cases are copied into
+`tests/fixtures/icegrid/legacy/`, each as its own directory holding the input file(s) and
+the expected workbook. Bytes are verified against a generated `SHA256SUMS` on every run, so
+a silently edited fixture fails the suite rather than quietly changing what "correct" means.
+
+| Fixture directory | Built from | Rows | Why this case is kept |
+| :--- | :--- | ---: | :--- |
+| `combined-pdf/` | `INPUT 2 - INV & PL.pdf` → `OUTPUT 2` | 22 | Sparse PDF: 7 columns blank in every row — the "unsupported fields stay blank" contract |
+| `combined-xlsx/` | `INPUT 1 - INV & PL.xlsx` → `OUTPUT 1` | 12 | The only true single-workbook `.xlsx` case; carries the `Guidelines` catalog sheet |
+| `split-xls/` | `INPUT 5 - INV.xls` + `INPUT 5 - PL.xls` → `OUTPUT 5` | 25 | The two-file selection path: invoice and packing list chosen together |
+| `input-10/` | `INPUT 10 - INV & PL.pdf` → `OUTPUT 10` | 28 | Legacy code-only scheme `19`, and the `RoDTEPQty ≠ Quantity` case (67.5 vs 120) |
+| `enriched-xls/` | `INPUT 11 - INV & PL.xls` → `OUTPUT 11` | 25 | The only case with a literal `IGST_Rate` of 18, proving no percent-scaling |
+
+Two quirks of the real workbooks that the harness handles rather than "fixes": ten of the
+seventeen outputs carry a second `Guidelines` worksheet holding the unit/scheme/EndUse
+catalogs, and the sixth header is spelled `HAWBL_No` in seven files and `HAWBL_NO` in ten,
+so headers are compared case-insensitively. Numbers are stored as text in the
+`ProductExportExcel` sheets and as numbers in the `Sheet1` sheets, so comparisons normalise
+type before value.
+
+**2. Corpus-derived constants inside unit tests.** `icegrid-derive.test.ts` embeds every
+distinct RITC in the corpus with the value its output carried, and asserts the bundled
+schedules reproduce them: **20/20 for `SQCUnit`** via the RoDTEP `UQC` column, and **13/13
+for `drawback_schno` + `dbk_rate`** via the drawback schedule. These are not hand-written
+expectations — they are what the trusted workbooks actually contain.
+
+**3. Fixed catalogs generated from the corpus.** The 70 quantity units, 69 export schemes,
+44 EndUse codes, and the `NA/LUT/P` and `Yes/No` lists in
+`catalogs/fixed.ts` are lifted verbatim from the `Guidelines` worksheet that the trusted
+outputs ship, with the workbook's SHA-256 recorded in the generated file. They cannot drift
+from the values the downstream ICEGATE upload accepts, and regenerating means re-reading
+that sheet rather than retyping 180 strings.
+
+No test calls a live Gemini model. AI quality is evaluated manually against the real files;
+the deterministic code is tested with captured responses that carry evidence spans.
 
 ### Run Playwright E2E Tests
 ```bash
@@ -138,6 +293,20 @@ src/
     │   ├── registry.ts          # Browser module registry (no runtime-downloaded modules)
     │   ├── module-store.svelte.ts # Enablement, run lifecycle, cancellation
     │   └── icegrid/             # ICEGATE 37-column invoice extraction module
+    │       ├── readers.ts          # Local PDF/XLS/XLSX text extraction with file boundaries
+    │       ├── ai.server.ts        # The single Gemini request and its extraction contract
+    │       ├── schema.ts           # Candidate rows, evidence spans, clean report (Zod)
+    │       ├── evidence.ts         # Quote verification: does the source really say this?
+    │       ├── sanitize.ts         # Per-field evidence gate; one bad field never kills a row
+    │       ├── derive.ts           # Schedule lookups, formulas, GSTIN state, provenance map
+    │       ├── validate.ts         # Deterministic checks; warnings, not blockers
+    │       ├── to-table.ts         # Mechanical rules and the 37-column mapping
+    │       ├── profile.ts          # Per-exporter shipment defaults
+    │       ├── IcegridSettings.svelte # Settings panel, mounted via the generic module slot
+    │       └── catalogs/           # Trusted catalogs and exact-only resolution
+    │           ├── fixed.ts            # Units/schemes/EndUse from the trusted Guidelines sheet
+    │           ├── resolve.ts          # Exact match only - no fuzzy, no nearest option
+    │           └── generated/schedules.ts # Drawback AIR + RoDTEP 4R snapshots, keyed by RITC
     ├── server/               # Server-only code
     │   ├── models.ts            # Allowed Gemini model ids, shared by both API routes
     │   └── modules/             # Server AI handler types + static action registry
