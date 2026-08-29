@@ -366,6 +366,42 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(moduleButton).toBeVisible();
 	});
 
+	test('dismissing a dropdown by clicking away leaves the cell unchanged', async ({ page }) => {
+		// Row 2 is `Trial`, deliberately not the first option — a revert would show `Active`.
+		const cell = page.locator('tbody tr.data-row').nth(1).locator('td').nth(2);
+		await expect(cell).toContainText('Trial');
+
+		await cell.hover();
+		await cell.locator('.dropdown-cell-arrow').click();
+		await expect(page.locator('.custom-dropdown-popover')).toBeVisible();
+
+		// Click outside the popover without choosing anything.
+		await page.locator('input[placeholder="Search rows"]').click();
+		await expect(page.locator('.custom-dropdown-popover')).not.toBeVisible();
+		await expect(cell).toContainText('Trial');
+	});
+
+	test('lays the grid out at the summed column width, not an intrinsic one', async ({ page }) => {
+		// Firefox blew `min-width: max-content` up to millions of px on a fixed-layout
+		// table, which pushed every column off-screen and rendered the grid blank. The
+		// suite is chromium-only, so this asserts the shape both engines agree on.
+		const wrap = page.locator('.table-scroll-wrap');
+		const { scrollWidth, clientWidth } = await wrap.evaluate((el) => ({
+			scrollWidth: el.scrollWidth,
+			clientWidth: el.clientWidth
+		}));
+		// 40 index + 220 + 130 + 150 + 160 + 80 add-column = 780, so a wide viewport wins
+		// and there is nothing to scroll sideways. The bug made this 17.9M.
+		expect(scrollWidth).toBe(clientWidth);
+
+		// Firefox hands a fixed table's leftover height to any row that declares none, so
+		// the header swelled to 190px there. It must stay the height of its own content.
+		const headerH = await page
+			.locator('thead tr')
+			.evaluate((el) => el.getBoundingClientRect().height);
+		expect(headerH).toBeLessThan(48);
+	});
+
 	test('opens status dropdown on chevron click and avoids footer clipping in light mode', async ({
 		page
 	}) => {

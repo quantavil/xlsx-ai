@@ -84,7 +84,9 @@
 		function handleDocumentClick(e: MouseEvent) {
 			const target = e.target as Node | null;
 			if (popoverEl && !popoverEl.contains(target) && (!triggerEl || !triggerEl.contains(target))) {
-				commitSelectedOrCurrent();
+				// Clicking away is a dismissal, not a choice. Committing the highlighted
+				// row here overwrote the cell with the first option nobody picked.
+				onCancel();
 			}
 		}
 
@@ -104,16 +106,6 @@
 			updatePosition();
 		}
 	});
-
-	function commitSelectedOrCurrent() {
-		if (search.trim() && showCreate) {
-			onCommit(search.trim());
-		} else if (filteredOptions.length > 0 && highlightIndex >= 0 && highlightIndex < filteredOptions.length) {
-			onCommit(filteredOptions[highlightIndex].value);
-		} else {
-			onCommit(value || '');
-		}
-	}
 
 	function handleKeyDown(e: KeyboardEvent) {
 		handleComboboxKeydown(e, {

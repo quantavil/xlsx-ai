@@ -80,6 +80,12 @@
 	let resizeStartWidth = $state<number>(0);
 	let isResizing = $state<boolean>(false);
 
+	// Index column (w-10) + add-column header (w-20) + the declared column widths, each
+	// floored at the `min-width: 70px` the cells carry.
+	let gridW = $derived(
+		40 + 80 + store.columns.reduce((sum, c) => sum + Math.max(70, c.width || 180), 0)
+	);
+
 	// #9 Row virtualization — cap DOM at ~60 rows even for 10k import
 	const ROW_H = 36;
 	let tableScrollEl = $state<HTMLDivElement | null>(null);
@@ -512,10 +518,17 @@
 			onscroll={onTableScroll}
 			onkeydown={handleTableKeyDown}
 		>
-			<table class="grid-table border-separate border-spacing-0 w-full min-w-max h-full text-[13.5px] table-fixed">
+			<!-- Explicit px width, not `min-w-max`: Firefox blows up `max-content` on a
+			     fixed-layout table (17.9M px), while `min-width:100%` still fills a wide viewport. -->
+			<table
+				class="grid-table border-separate border-spacing-0 h-full text-[13.5px] table-fixed"
+				style="width: {gridW}px; min-width: 100%"
+			>
 				<!-- Column Header Row -->
 				<thead>
-					<tr>
+					<!-- Explicit height: the filler row must be the only unconstrained one, or
+					     Firefox dumps the table's leftover height into this header instead. -->
+					<tr class="h-8">
 						<!-- Index / Row number column -->
 						<th class="th-index sticky top-0 z-10 w-10 min-w-10 text-center bg-[var(--surface-2)] border-b border-[var(--border-strong)] border-r border-[var(--border)] p-0 select-none" scope="col">
 							<span class="index-hdr-label font-mono text-[10.5px] font-bold text-[var(--text-3)] tracking-wider">#</span>
@@ -843,7 +856,7 @@
 						{/if}
 					{/if}
 					<!-- Absorbs leftover height so the summary row sits on the floor, not mid-page. -->
-					<tr class="grid-filler h-full" aria-hidden="true">
+					<tr class="grid-filler" aria-hidden="true">
 						<td colspan={store.columns.length + 2} style="padding:0; border:none"></td>
 					</tr>
 				</tbody>
