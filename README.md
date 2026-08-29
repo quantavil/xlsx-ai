@@ -146,7 +146,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 | 28 | `CountryDestination` | extracted | 97% | 7 rows where the destination is implied by the consignee address rather than named, so it stays blank. |
 | 29 | `FTACode` | profile | 100% | — |
 | 30 | `StateOrigin` | derived | 100% | First two digits of the exporter's GSTIN — correct in **17/17** shipments. |
-| 31 | `DistrictOrigin` | profile | 100% | — |
+| 31 | `DistrictOrigin` | profile | 100% | The 725-district ICEGATE catalog is bundled, so the dropdown is real and values are validated against `StateOrigin` — but nothing derives it. The exporter address names its district in only 4 of 6 fixtures, and 3 of those 4 match two in-state districts. |
 | 32 | `Taxable_Value` | derived | 76% | `ProductAmount × exchange rate`, and the customs rate is printed on only 2 of 17 invoices. Set the rate in the ICEGrid profile to close this. |
 | 33 | `IGST_Rate` | extracted / derived | 100% | — |
 | 34 | `IGST_Amount` | derived | 82% | `Taxable_Value × IGST_Rate ÷ 100`, so it inherits the exchange-rate gap above. |
@@ -196,18 +196,23 @@ the ICEGrid extraction pipeline.
 The reference corpus is **17 real shipments — 34 input files and 17 expected output
 workbooks**. It is the source of truth for every ICEGrid assertion, used in three ways.
 
-**1. Checked-in golden fixtures.** Five representative cases are copied into
-`tests/fixtures/icegrid/legacy/`, each as its own directory holding the input file(s) and
-the expected workbook. Bytes are verified against a generated `SHA256SUMS` on every run, so
-a silently edited fixture fails the suite rather than quietly changing what "correct" means.
+**1. Checked-in corpus fixtures.** Six shipments — the smallest subset that still
+exercises every distinct shape in the corpus — are copied into
+`tests/icegrid/fixtures/`, each as its own directory holding the input file(s) and the
+expected workbook. Bytes are verified against a generated `SHA256SUMS` on every run, so
+a silently edited fixture fails the suite rather than quietly changing what "correct"
+means. `tests/icegrid/corpus.test.ts` carries an `EDGE_CASES` ledger and a detector per
+entry: one test fails if any edge case stops being covered, another fails if any
+shipment stops adding one the others lack.
 
 | Fixture directory | Built from | Rows | Why this case is kept |
 | :--- | :--- | ---: | :--- |
-| `combined-pdf/` | `INPUT 2 - INV & PL.pdf` → `OUTPUT 2` | 22 | Sparse PDF: 7 columns blank in every row — the "unsupported fields stay blank" contract |
-| `combined-xlsx/` | `INPUT 1 - INV & PL.xlsx` → `OUTPUT 1` | 12 | The only true single-workbook `.xlsx` case; carries the `Guidelines` catalog sheet |
-| `split-xls/` | `INPUT 5 - INV.xls` + `INPUT 5 - PL.xls` → `OUTPUT 5` | 25 | The two-file selection path: invoice and packing list chosen together |
-| `input-10/` | `INPUT 10 - INV & PL.pdf` → `OUTPUT 10` | 28 | Legacy code-only scheme `19`, and the `RoDTEPQty ≠ Quantity` case (67.5 vs 120) |
-| `enriched-xls/` | `INPUT 11 - INV & PL.xls` → `OUTPUT 11` | 25 | The only case with a literal `IGST_Rate` of 18, proving no percent-scaling |
+| `01-split-xls-igst-paid/` | `INPUT 5 - INV.xls` + `INPUT 5 - PL.xls` → `OUTPUT 5` | 25 | The only IGST-paid shipment (5% and 18%, status `P`), and the only `.xls` source |
+| `02-single-pdf-combined/` | `INPUT 9 - INV & PL.pdf` → `OUTPUT 9` | 16 | Invoice and packing list inside one PDF; mixed `PCS`/`SET` quantity units |
+| `03-multi-invoice-pdf/` | `INPUT 12` (6 PDFs) → `OUTPUT 12` | 11 | The only multi-invoice output: `InvoiceSNo` increments while `ItemSNo` restarts |
+| `04-no-drawback-pdf/` | `INPUT 13 - Inv/PL 30744.pdf` → `OUTPUT 13` | 5 | EOU/SEZ shipment claiming no drawback at all; `GNX200` end use; `RoDTEPQty == Quantity` |
+| `05-authorisation-plus-xlsx/` | `INPUT 16` (authorisation PDF + `.xlsx`) → `OUTPUT 16` | 7 | A licence PDF read alongside trade documents; two schemes in one shipment; partial drawback; `dbk_desc` and `GSTCCessAmount` |
+| `06-mixed-scheme-xlsx-pdf/` | `INPUT 17` (`.xlsx` invoice + `.pdf` packing list) → `OUTPUT 17` | 14 | `RODTEP = No` rows, which zero `RoDTEPQty`; free-shipping-bill rows beside drawback rows |
 
 Two quirks of the real workbooks that the harness handles rather than "fixes": ten of the
 seventeen outputs carry a second `Guidelines` worksheet holding the unit/scheme/EndUse
@@ -227,7 +232,9 @@ expectations — they are what the trusted workbooks actually contain.
 `catalogs/fixed.ts` are lifted verbatim from the `Guidelines` worksheet that the trusted
 outputs ship, with the workbook's SHA-256 recorded in the generated file. They cannot drift
 from the values the downstream ICEGATE upload accepts, and regenerating means re-reading
-that sheet rather than retyping 180 strings.
+that sheet rather than retyping 180 strings. The 40 states and 725 districts come from the
+ICEGATE state/district list, each district scoped to its state by `parentValue` so a district
+can never resolve under the wrong one.
 
 No test calls a live Gemini model. AI quality is evaluated manually against the real files;
 the deterministic code is tested with captured responses that carry evidence spans.

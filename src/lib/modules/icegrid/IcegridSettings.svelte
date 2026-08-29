@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getCatalogSnapshot } from './catalogs';
+	import { getCatalogSnapshot, normalizeStateKey } from './catalogs';
 	import { loadProfile, saveProfile, EMPTY_PROFILE, type IcegridProfile } from './profile';
 	import { SCHEDULES_PROVENANCE } from './catalogs/generated/schedules';
 	import type { IcegridCatalogId } from './catalogs/types';
@@ -19,10 +19,16 @@
 		{ key: 'rewardItem', label: 'Reward item', catalog: 'rewardItem', hint: '' },
 		{ key: 'ftaCode', label: 'FTA code', catalog: 'fta', hint: 'Leave blank unless a preference is claimed' },
 		{ key: 'stateOrigin', label: 'State of origin', catalog: 'state', hint: 'Read from your GSTIN when the invoice shows one' },
-		{ key: 'districtOrigin', label: 'District of origin', catalog: 'district', hint: 'No official list is bundled; type your district code' }
+		{ key: 'districtOrigin', label: 'District of origin', catalog: 'district', hint: 'Narrowed to the state above' }
 	];
 
-	const optionsFor = (id: IcegridCatalogId) => catalogs[id];
+	// Districts are state-scoped, so the list follows whichever state is selected above.
+	const optionsFor = (id: IcegridCatalogId) =>
+		id === 'district'
+			? catalogs.district.filter(
+					(o) => normalizeStateKey(o.parentValue) === normalizeStateKey(profile.stateOrigin)
+				)
+			: catalogs[id];
 
 	function update<K extends keyof IcegridProfile>(key: K, value: IcegridProfile[K]) {
 		profile = { ...profile, [key]: value };
@@ -31,6 +37,8 @@
 
 	function onSelect(key: keyof IcegridProfile, event: Event) {
 		const value = (event.target as HTMLSelectElement).value;
+		// A district belongs to one state, so changing the state drops a stale district.
+		if (key === 'stateOrigin' && value !== profile.stateOrigin) profile.districtOrigin = null;
 		update(key, (value || null) as IcegridProfile[keyof IcegridProfile]);
 	}
 
@@ -38,10 +46,6 @@
 		const raw = (event.target as HTMLInputElement).value.trim();
 		const n = Number(raw);
 		update('exchangeRate', raw && Number.isFinite(n) && n > 0 ? n : null);
-	}
-
-	function onDistrict(event: Event) {
-		update('districtOrigin', (event.target as HTMLInputElement).value.trim() || null);
 	}
 
 	function clearAll() {
@@ -72,26 +76,17 @@
 			{@const options = optionsFor(field.catalog)}
 			<label class="flex flex-col gap-1">
 				<span class="text-[11px] font-semibold text-[var(--text-2)]">{field.label}</span>
-				{#if options.length === 0}
-					<input
-						type="text"
-						value={(profile[field.key] as string) ?? ''}
-						oninput={onDistrict}
-						placeholder="e.g. 171"
-						class="text-[12px] px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
-					/>
-				{:else}
-					<select
-						value={(profile[field.key] as string) ?? ''}
-						onchange={(e) => onSelect(field.key, e)}
-						class="text-[12px] px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
-					>
-						<option value="">— not set —</option>
-						{#each options as opt (opt.value)}
-							<option value={opt.value}>{opt.label ? `${opt.value} — ${opt.label}` : opt.value}</option>
-						{/each}
-					</select>
-				{/if}
+				<select
+					value={(profile[field.key] as string) ?? ''}
+					onchange={(e) => onSelect(field.key, e)}
+					disabled={options.length === 0}
+					class="text-[12px] px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-1)] disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
+				>
+					<option value="">{options.length === 0 ? '— pick a state first —' : '— not set —'}</option>
+					{#each options as opt (opt.value)}
+						<option value={opt.value}>{opt.label ? `${opt.value} — ${opt.label}` : opt.value}</option>
+					{/each}
+				</select>
 				{#if field.hint}
 					<span class="text-[10.5px] text-[var(--text-3)] leading-snug">{field.hint}</span>
 				{/if}
