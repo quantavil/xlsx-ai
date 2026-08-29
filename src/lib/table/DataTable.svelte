@@ -828,7 +828,13 @@
 											// the focus handler, both of which already no-op on the active cell.
 											if (!isActive) selectCell(row.id, col.id, rowIndex, colIndex, e.shiftKey);
 											pointerExtend = false;
-											if (isDropdown && typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+											// Same rule on touch: a shift-click selects, it does not open an editor.
+											if (
+												!e.shiftKey &&
+												isDropdown &&
+												typeof window !== 'undefined' &&
+												window.matchMedia('(pointer: coarse)').matches
+											) {
 												startEditing(row.id, col.id, cellVal);
 											}
 										}}
@@ -853,6 +859,15 @@
 														aria-label="Open dropdown options"
 														onclick={(e) => {
 															e.stopPropagation();
+															// A shift-click is a selection gesture wherever it lands. This
+															// caret covers the right edge of every dropdown cell, so
+															// treating one as "open the editor" collapsed the range any
+															// time a shift-click strayed a few pixels - the reason
+															// selecting across dropdown columns worked only sometimes.
+															if (e.shiftKey) {
+																selectCell(row.id, col.id, rowIndex, colIndex, true);
+																return;
+															}
 															if (!isActive) selectCell(row.id, col.id, rowIndex, colIndex);
 															startEditing(row.id, col.id, cellVal);
 														}}
