@@ -9,6 +9,8 @@
 	interface Props {
 		value: string | null;
 		mixed?: boolean;
+		/** A character typed straight onto the cell, so the keystroke opening the list is not lost. */
+		initialSearch?: string;
 		options: DropdownOption[];
 		emptyMessage?: string;
 		/** When false, no `+ Add` is offered and an unknown typed value cannot commit. */
@@ -21,6 +23,7 @@
 	let {
 		value,
 		mixed = false,
+		initialSearch = '',
 		options,
 		emptyMessage = 'No matching options.',
 		allowCustom = true,
@@ -29,10 +32,14 @@
 		onCancel
 	}: Props = $props();
 
-	let search = $state('');
+	// Seed only. The editor is created fresh on every edit, so the initial value is the
+	// whole contract - reacting to later changes would fight the user's typing.
+	// svelte-ignore state_referenced_locally
+	let search = $state(initialSearch);
 	let highlightIndex = $state(0);
 	let popoverEl: HTMLElement | null = $state(null);
 	let inputEl: HTMLInputElement | null = $state(null);
+	let listEl: HTMLElement | null = $state(null);
 
 	let floatingStyle = $state('top: 0px; left: 0px; display: none;');
 	let isFlipped = $state(false);
@@ -75,9 +82,19 @@
 	}
 
 	onMount(() => {
+		// Open on the value the cell already holds, so Enter re-picks it instead of
+		// silently overwriting the cell with whatever happens to be first in the list.
+		const current = (value || '').toLowerCase();
+		const at = current ? filteredOptions.findIndex((o) => o.value.toLowerCase() === current) : -1;
+		if (at >= 0) highlightIndex = at;
+
 		requestAnimationFrame(() => {
 			inputEl?.focus();
-			inputEl?.select();
+			// A typed character opened the list as a search; keep it and put the caret
+			// after it. Otherwise the whole (pre-filled) query is replaceable.
+			if (initialSearch) inputEl?.setSelectionRange(search.length, search.length);
+			else inputEl?.select();
+			scrollHighlightIntoView();
 		});
 		updatePosition();
 
@@ -111,6 +128,19 @@
 		}
 	});
 
+	/**
+	 * Keep the highlighted row visible.
+	 *
+	 * The list scrolls at 12rem, and a district catalog runs to hundreds of entries, so
+	 * arrowing down walked the highlight straight out of view and the keyboard became
+	 * unusable past the eighth option.
+	 */
+	function scrollHighlightIntoView() {
+		listEl
+			?.querySelectorAll('[role="option"]')
+			[highlightIndex + 1]?.scrollIntoView({ block: 'nearest' });
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
 		handleComboboxKeydown(e, {
 			items: filteredOptions,
@@ -119,6 +149,7 @@
 			getItemLabel: (item) => dropdownOptionLabel(item),
 			onHighlight: (idx) => {
 				highlightIndex = idx;
+				requestAnimationFrame(scrollHighlightIntoView);
 			},
 			onSelect: (item) => {
 				onCommit(item.value);
@@ -160,7 +191,12 @@
 	</div>
 
 	<!-- Options List (Full Width) -->
-	<div class="status-options-list max-h-48 overflow-y-auto p-1 flex flex-col gap-1 bg-[var(--surface-1)]" role="listbox" aria-label="Dropdown options">
+	<div
+		bind:this={listEl}
+		class="status-options-list max-h-48 overflow-y-auto p-1 flex flex-col gap-1 bg-[var(--surface-1)]"
+		role="listbox"
+		aria-label="Dropdown options"
+	>
 		<!-- Clear Option -->
 		<button
 			type="button"

@@ -44,6 +44,7 @@
 	});
 	let editingCell = $state<{ rowId: string; columnId: string } | null>(null);
 	let editTargets = $state<EditTarget[]>([]);
+	let dropdownSearchSeed = $state<string>('');
 	let cellNodes = new Map<string, HTMLElement>();
 
 	let editValue = $state<string>('');
@@ -212,36 +213,29 @@
 		}
 	}
 
-	function rowsForEditTargets(): Row[] {
+	let editTargetRows = $derived.by<Row[]>(() => {
+		if (editTargets.length === 0) return [];
 		const rowMap = new Map(store.rows.map((row) => [row.id, row]));
 		return editTargets.flatMap((target) => {
 			const row = rowMap.get(target.rowId);
 			return row ? [row] : [];
 		});
-	}
+	});
 
 	function getCellDropdownOptions(col: Column, rowId: string) {
 		const activeRow = store.rows.find((row) => row.id === rowId);
-		return resolveDropdownOptionsForRows(col, activeRow, rowsForEditTargets(), store.rows);
+		return resolveDropdownOptionsForRows(col, activeRow, editTargetRows, store.rows);
 	}
 
-	function dropdownEditorValue(columnId: string): string {
-		const selectedRows = rowsForEditTargets();
-		if (selectedRows.length <= 1) return editValue;
-		const first = selectedRows[0]?.[columnId] ?? null;
-		return selectedRows.every((row) => Object.is(row[columnId] ?? null, first))
-			? String(first ?? '')
-			: '';
+	/** What a range's dropdown shows: the shared value, or nothing when the rows disagree. */
+	function dropdownEditorState(columnId: string): { value: string; mixed: boolean } {
+		if (editTargetRows.length <= 1) return { value: editValue, mixed: false };
+		const first = editTargetRows[0]?.[columnId] ?? null;
+		const agrees = editTargetRows.every((row) => Object.is(row[columnId] ?? null, first));
+		return { value: agrees ? String(first ?? '') : '', mixed: !agrees };
 	}
 
-	function dropdownEditorIsMixed(columnId: string): boolean {
-		const selectedRows = rowsForEditTargets();
-		if (selectedRows.length <= 1) return false;
-		const first = selectedRows[0]?.[columnId] ?? null;
-		return !selectedRows.every((row) => Object.is(row[columnId] ?? null, first));
-	}
-
-	function startEditing(rowId: string, columnId: string, initialVal: unknown) {
+	function startEditing(rowId: string, columnId: string, initialVal: unknown, typedChar = '') {
 		const requestedCell = {
 			rowId,
 			columnId,
@@ -258,7 +252,10 @@
 		if (targets.length === 1) store.setSelection(requestedCell);
 		editTargets = targets;
 		editingCell = { rowId, columnId };
-		editValue = initialVal !== null && initialVal !== undefined ? String(initialVal) : '';
+		editValue = typedChar || (initialVal !== null && initialVal !== undefined ? String(initialVal) : '');
+		// A dropdown ignores editValue, so the character that opened it has to reach the
+		// editor's search box separately or the keystroke is simply swallowed.
+		dropdownSearchSeed = typedChar;
 	}
 
 	function commitEdit(): boolean {
@@ -283,6 +280,12 @@
 		editTargets = [];
 		if (activeCell) cellNodes.get(`${activeCell.rowId}-${activeCell.columnId}`)?.focus();
 	}
+
+	// A filled dropdown cell paints its own colour inline, which outranks the range
+	// class every other column uses - so a dropdown never looked selected. Layering the
+	// same tint as a flat gradient keeps both the selection and the value's colour.
+	const RANGE_TINT =
+		'linear-gradient(color-mix(in oklab, var(--accent-primary) 10%, transparent), color-mix(in oklab, var(--accent-primary) 10%, transparent))';
 
 	const ALIGN_CLASS: Record<CellAlign, string> = {
 		left: 'text-left',
@@ -421,10 +424,7 @@
 			navigator.clipboard?.writeText(selectionAsTsv());
 		} else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
 			const col = store.columns[colIndex];
-			if (col) {
-				startEditing(currentRow.id, col.id, '');
-				editValue = e.key;
-			}
+			if (col) startEditing(currentRow.id, col.id, '', e.key);
 		}
 	}
 
@@ -786,7 +786,7 @@
 									{@const align = store.alignFor(row.id, col.id, colType)}
 									<td
 										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2] shadow-[inset_0_0_0_2px_var(--border-focus)]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
-										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {isDropdown && hasVal ? `background: ${dropdownStyle!.bg};` : ''}"
+										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										aria-selected={isActive || inRange}
 										tabindex={isRovingActive ? 0 : -1}
@@ -798,7 +798,11 @@
 											}
 										}}
 										onclick={(e) => {
-											selectCell(row.id, col.id, rowIndex, colIndex, e.shiftKey);
+											// A double-click fires this first, so re-selecting the cell the range
+											// already focuses would collapse that range before startEditing reads
+											// it - the mouse path to a bulk replace. Matches the caret button and
+											// the focus handler, both of which already no-op on the active cell.
+											if (!isActive) selectCell(row.id, col.id, rowIndex, colIndex, e.shiftKey);
 											pointerExtend = false;
 											if (isDropdown && typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
 												startEditing(row.id, col.id, cellVal);
@@ -833,9 +837,11 @@
 											</div>
 											{#if isEditing}
 												{@const cellKey = `${row.id}-${col.id}`}
+												{@const editorState = dropdownEditorState(col.id)}
 												<DropdownCellEditor
-													value={dropdownEditorValue(col.id)}
-													mixed={dropdownEditorIsMixed(col.id)}
+													value={editorState.value}
+													mixed={editorState.mixed}
+													initialSearch={dropdownSearchSeed}
 													options={getCellDropdownOptions(col, row.id)}
 													emptyMessage={editTargets.length > 1
 														? 'No options are valid for all selected cells.'
