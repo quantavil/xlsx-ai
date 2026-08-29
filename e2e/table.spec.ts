@@ -9,14 +9,18 @@ const FIXTURE = {
 		{ id: 'c1', name: 'Product Plan', type: 'text', width: 220 },
 		{ id: 'c2', name: 'Tier', type: 'dropdown', width: 130 },
 		{ id: 'c3', name: 'Monthly Price', type: 'currency', width: 150 },
-		{ id: 'c4', name: 'Active Accounts', type: 'number', width: 160 }
+		{ id: 'c4', name: 'Active Accounts', type: 'number', width: 160 },
+		{ id: 'c5', name: 'Conversion', type: 'percent', width: 130 },
+		{ id: 'c6', name: 'Renewal Date', type: 'date', width: 150 }
 	],
 	rows: Array.from({ length: 25 }, (_, i) => ({
 		id: `r${i + 1}`,
 		c1: i === 0 ? 'Starter Cloud' : i === 1 ? 'Developer Sandbox' : `Plan ${i + 1}`,
 		c2: i % 3 === 0 ? 'Active' : i % 3 === 1 ? 'Trial' : 'Pending',
 		c3: i === 1 ? 19 : 100 + i * 37,
-		c4: 1000 - i * 11
+		c4: 1000 - i * 11,
+		c5: 0.05 + i / 1000,
+		c6: `2026-09-${String((i % 25) + 1).padStart(2, '0')}`
 	}))
 };
 
@@ -46,7 +50,15 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(page.locator('.title-text')).toContainText('SaaS Revenue');
 
 		const headers = page.locator('thead th');
-		await expect(headers).toContainText(['#', 'Product Plan', 'Tier', 'Monthly Price', 'Active Accounts']);
+		await expect(headers).toContainText([
+			'#',
+			'Product Plan',
+			'Tier',
+			'Monthly Price',
+			'Active Accounts',
+			'Conversion',
+			'Renewal Date'
+		]);
 
 		await expect(page.locator('tbody tr.data-row')).toHaveCount(25);
 		await expect(page.locator('tfoot tr.summary-row')).toBeVisible();
@@ -178,6 +190,70 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(first).toContainText('Archived');
 		await expect(second).toContainText('Archived');
 		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(2);
+	});
+
+	test('replaces currency, number, percent and date ranges through typed editors', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const cases = [
+			{ colIndex: 2, input: '321', rendered: '$321.00', commit: 'tab' },
+			{ colIndex: 3, input: '42', rendered: '42', commit: 'tab' },
+			{ colIndex: 4, input: '12.5%', rendered: '12.5%', commit: 'tab' },
+			{ colIndex: 5, input: '2026-12-31', rendered: '2026-12-31', commit: 'blur' }
+		];
+
+		for (const item of cases) {
+			const first = rows.nth(0).locator('td.td-cell').nth(item.colIndex);
+			const third = rows.nth(2).locator('td.td-cell').nth(item.colIndex);
+			await first.click();
+			await third.click({ modifiers: ['Shift'] });
+			await page.keyboard.press('Enter');
+			const input = third.locator('input.cell-input');
+			await input.fill(item.input);
+			if (item.commit === 'tab') await input.press('Tab');
+			else await page.locator('.search-box input').click();
+
+			for (let rowIndex = 0; rowIndex < 3; rowIndex++) {
+				await expect(rows.nth(rowIndex).locator('td.td-cell').nth(item.colIndex)).toContainText(
+					item.rendered
+				);
+			}
+			await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(3);
+		}
+	});
+
+	test('Escape cancels a range edit without changing or collapsing the selection', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const first = rows.nth(0).locator('td.td-cell').nth(0);
+		const third = rows.nth(2).locator('td.td-cell').nth(0);
+
+		await first.click();
+		await third.click({ modifiers: ['Shift'] });
+		await page.keyboard.press('F2');
+		const input = third.locator('input.cell-input');
+		await input.fill('Cancelled value');
+		await input.press('Escape');
+
+		await expect(rows.nth(0).locator('td.td-cell').nth(0)).toContainText('Starter Cloud');
+		await expect(rows.nth(1).locator('td.td-cell').nth(0)).toContainText('Developer Sandbox');
+		await expect(rows.nth(2).locator('td.td-cell').nth(0)).toContainText('Plan 3');
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(3);
+	});
+
+	test('editing a mixed-column rectangle changes only its active cell', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		const topLeft = rows.nth(0).locator('td.td-cell').nth(0);
+		const bottomRight = rows.nth(1).locator('td.td-cell').nth(1);
+
+		await topLeft.click();
+		await bottomRight.click({ modifiers: ['Shift'] });
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(4);
+		await page.keyboard.press('Enter');
+		await expect(page.locator('td.td-cell[aria-selected="true"]')).toHaveCount(1);
+
+		const popover = bottomRight.locator('.custom-dropdown-popover');
+		await popover.locator('button.dropdown-opt-btn', { hasText: 'Pending' }).click();
+		await expect(rows.nth(1).locator('td.td-cell').nth(1)).toContainText('Pending');
+		await expect(rows.nth(0).locator('td.td-cell').nth(1)).toContainText('Active');
 	});
 
 	test('renames a column by double-clicking its header, not via a menu item', async ({ page }) => {

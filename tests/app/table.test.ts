@@ -76,6 +76,17 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		expect(store.rows[1].c2).toBe(20);
 	});
 
+	it('creates no history entry when every bulk patch is unchanged', () => {
+		const applied = store.applyCellPatches([
+			{ rowId: 'r1', columnId: 'c1', newValue: 'SaaS Core' },
+			{ rowId: 'r2', columnId: 'c1', newValue: 'Enterprise Addon' }
+		]);
+
+		expect(applied).toBe(0);
+		expect(store.history).toHaveLength(0);
+		expect(store.canUndo).toBe(false);
+	});
+
 	it('preserves title during undo and redo', () => {
 		store.setTitle('Updated Revenue');
 		expect(store.title).toBe('Updated Revenue');
