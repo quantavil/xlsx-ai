@@ -150,9 +150,18 @@
 	<!-- Model Selection Card -->
 	<div class="card-setting bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3.5">
 		<div class="flex items-center justify-between gap-2">
-			<div class="flex items-center gap-2">
-				<span class="text-[13.5px] font-semibold text-[var(--text-1)]">Models</span>
-				<span class="text-[11px] font-mono px-1.5 py-0.2 rounded bg-[var(--surface-3)] text-[var(--text-3)]">{availableModels.length}</span>
+			<div class="flex flex-col gap-0.5 min-w-0">
+				<div class="flex items-center gap-2">
+					<span class="text-[13.5px] font-semibold text-[var(--text-1)]">Models</span>
+					<span class="text-[11px] font-mono px-1.5 py-0.2 rounded bg-[var(--surface-3)] text-[var(--text-3)]">{availableModels.length}</span>
+					{#if store.favoriteModels.length > 0}
+						<span class="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-[var(--surface-3)] text-[var(--accent-amber)]">
+							<Icon name="star-filled" size={10} />
+							<span>{store.favoriteModels.length}</span>
+						</span>
+					{/if}
+				</div>
+				<span class="text-[11.5px] text-[var(--text-3)]">Click a card to use that model. Star it to reach it from the chat switcher.</span>
 			</div>
 			<button
 				type="button"
@@ -229,7 +238,7 @@
 					</button>
 					<button
 						type="button"
-						class="favorite-model-btn absolute top-2 right-2 w-6 h-6 rounded flex items-center justify-center cursor-pointer transition-colors {isFavorite ? 'text-[var(--accent-amber)]' : 'text-[var(--text-3)] opacity-0 hover:opacity-100 focus-visible:opacity-100'}"
+						class="favorite-model-btn absolute top-2 right-2 w-6 h-6 rounded flex items-center justify-center cursor-pointer {isFavorite ? 'text-[var(--accent-amber)]' : 'text-[var(--text-3)]'}"
 						onclick={() => store.toggleFavoriteModel(model.id)}
 						aria-pressed={isFavorite}
 						aria-label="{isFavorite ? 'Unfavorite' : 'Favorite'} {model.name}"
