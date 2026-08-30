@@ -2,6 +2,15 @@ export type ColumnType = 'text' | 'number' | 'currency' | 'percent' | 'dropdown'
 
 export type CellValue = string | number | boolean | null;
 
+/**
+ * What a coupled cell receives: a literal, or another column read from the same row.
+ *
+ * The reference exists because a rule can name a sibling rather than a constant -
+ * a drawback serial the schedule gives no unit for is claimed in the unit the goods
+ * were invoiced in, which is per row and so cannot be baked into a shared option.
+ */
+export type FillValue = CellValue | { from: string };
+
 /** One selectable entry in a `dropdown` column's configured option list. */
 export interface DropdownOption {
 	/** The value stored in the cell and written to the exported workbook. */
@@ -10,6 +19,12 @@ export interface DropdownOption {
 	label?: string;
 	/** Dependency key: a district's state code, matched against `dependsOnColumnId`. */
 	parentValue?: string;
+	/**
+	 * Sibling cells in the same row that this option's value determines, keyed by
+	 * column id. Selecting the option writes them alongside it in one undo step, so
+	 * a drawback serial cannot sit next to the rate of the serial it replaced.
+	 */
+	fills?: Record<string, FillValue>;
 }
 
 export interface DropdownConfig {

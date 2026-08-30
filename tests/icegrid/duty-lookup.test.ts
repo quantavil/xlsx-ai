@@ -123,9 +123,25 @@ describe('buildDrawbackOptions', () => {
 		);
 		expect(options).toHaveLength(4);
 		expect(options.filter((o) => o.parentValue === '94032090')).toHaveLength(3);
-		expect(options.find((o) => o.value === '940301B')?.label).toBe(
-			'940301B — Predominantly of marble'
-		);
+		// The grid prepends the value when it renders an option, so a label repeating
+		// the serial printed `940301B — 940301B — Predominantly of marble`.
+		expect(options.find((o) => o.value === '940301B')?.label).toBe('Predominantly of marble');
+	});
+
+	it('carries the whole payload the serial determines', () => {
+		const options = buildDrawbackOptions(new Map([['94032090', entry({})]]));
+		expect(options.find((o) => o.value === '940301B')?.fills).toEqual({
+			dbk_rate: 2.2,
+			dbk_desc: 'Predominantly of marble',
+			ROSLRate: null,
+			ROSLCapValue: null,
+			dbk_unit: 'PCS'
+		});
+		// A serial the schedule gives no unit for defers to the invoiced unit, exactly as
+		// `deriveRows` does at import - never to the unit the previous serial left behind.
+		expect(options.find((o) => o.value === '9403B')?.fills?.dbk_unit).toEqual({
+			from: 'QuantityUnit'
+		});
 	});
 });
 

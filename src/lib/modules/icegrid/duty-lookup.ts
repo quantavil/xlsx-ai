@@ -124,12 +124,25 @@ export function buildDrawbackOptions(lookups: DutyLookupMap): DropdownOption[] {
 	const options: DropdownOption[] = [];
 	for (const entry of lookups.values()) {
 		for (const candidate of entry.drawback) {
+			// The label carries the description alone: the grid prepends the value itself
+			// when it renders an option, so repeating the serial here printed it twice.
 			options.push({
 				value: candidate.serial,
-				label: candidate.description
-					? `${candidate.serial} — ${candidate.description}`
-					: candidate.serial,
-				parentValue: entry.ritc
+				...(candidate.description ? { label: candidate.description } : {}),
+				parentValue: entry.ritc,
+				// Everything `derive` copies out of the chosen candidate at import time, so
+				// picking a different serial in the grid moves the same fields with it.
+				fills: {
+					dbk_rate: candidate.rate,
+					dbk_desc: candidate.description,
+					ROSLRate: candidate.roslRate,
+					ROSLCapValue: candidate.roslCap,
+					// The schedule's own unit governs the cap when it prescribes one; otherwise
+					// the drawback is claimed in the unit the goods were invoiced in - the same
+					// rule `deriveRows` applies at import, so a serial picked in the grid and
+					// one picked by the importer leave the row in the same state.
+					dbk_unit: candidate.unit ?? { from: 'QuantityUnit' }
+				}
 			});
 		}
 	}

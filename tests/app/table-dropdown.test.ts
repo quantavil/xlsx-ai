@@ -11,6 +11,7 @@ import {
 	resolveDropdownOptionsForRows,
 	dropdownOptionLabel
 } from '../../src/lib/table/cells';
+import { dedupeAndNormalizePatches } from '../../src/lib/table/commands';
 import type { Column, Row } from '../../src/lib/types';
 
 const stateCol: Column = {
@@ -295,5 +296,274 @@ describe('handleComboboxKeydown reaches every rendered row', () => {
 
 	it('leaves a list with no Clear row starting at the first option', () => {
 		expect(press('ArrowUp', 0, { onClear: undefined }).landed).toBe(1);
+	});
+});
+
+describe('coupled dropdown fills', () => {
+	// A serial the schedule offers under two headings, each with its own rate: the
+	// shape that makes a flat lookup by value pick an arbitrary row's payload.
+	const serialCol: Column = {
+		id: 'drawback_schno',
+		name: 'drawback_schno',
+		type: 'dropdown',
+		dropdown: {
+			options: [
+				{
+					value: '9403B',
+					label: 'Other furniture and parts thereof',
+					parentValue: '94032090',
+					fills: { dbk_rate: 0, dbk_desc: 'Other furniture and parts thereof' }
+				},
+				{
+					value: '940301B',
+					label: 'Predominantly of marble',
+					parentValue: '94032090',
+					fills: { dbk_rate: 2.2, dbk_desc: 'Predominantly of marble', dbk_unit: 'PCS' }
+				},
+				{
+					value: '9403B',
+					label: 'Seats',
+					parentValue: '94011000',
+					fills: { dbk_rate: 9.9, dbk_desc: 'Seats' }
+				}
+			],
+			allowCustom: true,
+			dependsOnColumnId: 'RITCCode'
+		}
+	};
+	const ritcCol: Column = { id: 'RITCCode', name: 'RITCCode', type: 'text' };
+	const rateCol: Column = { id: 'dbk_rate', name: 'dbk_rate', type: 'number' };
+	const descCol: Column = { id: 'dbk_desc', name: 'dbk_desc', type: 'text' };
+	const columns = [ritcCol, serialCol, rateCol, descCol];
+	const rows = (): Row[] => [
+		{ id: 'r1', RITCCode: '94032090', drawback_schno: '9403B', dbk_rate: 0, dbk_desc: 'Other furniture and parts thereof' },
+		{ id: 'r2', RITCCode: '94011000', drawback_schno: null, dbk_rate: null, dbk_desc: null }
+	];
+	const patchMap = (patches: ReturnType<typeof dedupeAndNormalizePatches>) =>
+		Object.fromEntries(patches.map((p) => [`${p.row.id}.${p.columnId}`, p.newValue]));
+
+	it('moves rate and description with the serial', () => {
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[{ rowId: 'r1', columnId: 'drawback_schno', newValue: '940301B' }],
+				rows(),
+				columns
+			)
+		);
+		expect(out['r1.drawback_schno']).toBe('940301B');
+		expect(out['r1.dbk_rate']).toBe(2.2);
+		expect(out['r1.dbk_desc']).toBe('Predominantly of marble');
+	});
+
+	it('resolves the payload against the row, not the flat option list', () => {
+		// Same serial, second row: only the RITC tells the two entries apart.
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[{ rowId: 'r2', columnId: 'drawback_schno', newValue: '9403B' }],
+				rows(),
+				columns
+			)
+		);
+		expect(out['r2.dbk_rate']).toBe(9.9);
+		expect(out['r2.dbk_desc']).toBe('Seats');
+	});
+
+	it('lets an explicit edit in the same batch outrank its own fill', () => {
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[
+					{ rowId: 'r1', columnId: 'drawback_schno', newValue: '940301B' },
+					{ rowId: 'r1', columnId: 'dbk_rate', newValue: 3.5 }
+				],
+				rows(),
+				columns
+			)
+		);
+		expect(out['r1.dbk_rate']).toBe(3.5);
+		expect(out['r1.dbk_desc']).toBe('Predominantly of marble');
+	});
+
+	it('couples a pasted serial, not just one picked in the editor', () => {
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[
+					{ rowId: 'r1', columnId: 'drawback_schno', newValue: '940301B' },
+					{ rowId: 'r2', columnId: 'drawback_schno', newValue: '9403B' }
+				],
+				rows(),
+				columns
+			)
+		);
+		expect(out['r1.dbk_rate']).toBe(2.2);
+		expect(out['r2.dbk_rate']).toBe(9.9);
+	});
+
+	it('writes an unknown serial without touching its siblings', () => {
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[{ rowId: 'r1', columnId: 'drawback_schno', newValue: '999999Z' }],
+				rows(),
+				columns
+			)
+		);
+		expect(out['r1.drawback_schno']).toBe('999999Z');
+		expect(out).not.toHaveProperty('r1.dbk_rate');
+	});
+
+	it('does not cascade: a filled cell fills nothing further', () => {
+		// `dbk_desc` is itself a dropdown carrying a payload. Writing it as a fill must
+		// not expand that payload, or two coupled columns could bounce forever.
+		const descDropdown: Column = {
+			...descCol,
+			type: 'dropdown',
+			dropdown: {
+				options: [
+					{ value: 'Predominantly of marble', fills: { dbk_rate: 77 } }
+				],
+				allowCustom: true
+			}
+		};
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[{ rowId: 'r1', columnId: 'drawback_schno', newValue: '940301B' }],
+				rows(),
+				[ritcCol, serialCol, rateCol, descDropdown]
+			)
+		);
+		expect(out['r1.dbk_rate']).toBe(2.2);
+	});
+
+	it('survives a storage round-trip', () => {
+		const restored = sanitizeAndNormalizeTableData('t', columns, rows());
+		const parsed = PersistedTableDocumentV2Schema.safeParse({
+			version: 2,
+			title: restored.title,
+			columns: restored.columns,
+			rows: restored.rows
+		});
+		expect(parsed.success).toBe(true);
+		const serial = restored.columns.find((c) => c.id === 'drawback_schno');
+		expect(serial?.dropdown?.options[1].fills).toEqual({
+			dbk_rate: 2.2,
+			dbk_desc: 'Predominantly of marble',
+			dbk_unit: 'PCS'
+		});
+	});
+
+	it('drops a malformed payload instead of the option that carries it', () => {
+		const config = sanitizeDropdownConfig(
+			{
+				options: [{ value: 'X', fills: { ok: 1, '': 2, bad: { nested: true } } }],
+				allowCustom: true
+			},
+			{ id: 'c', type: 'dropdown' }
+		);
+		expect(config?.options[0].value).toBe('X');
+		expect(config?.options[0].fills).toEqual({ ok: 1 });
+	});
+});
+
+describe('dependent dropdowns do not borrow other rows values', () => {
+	// Two headings in one sheet, the shape of a real ICEGrid import.
+	const serialCol: Column = {
+		id: 'drawback_schno',
+		name: 'drawback_schno',
+		type: 'dropdown',
+		dropdown: {
+			options: [
+				{ value: '680201B', label: 'Granite/Marble Monuments', parentValue: '68022110' },
+				{ value: '680299B', label: 'Others', parentValue: '68022110' },
+				{ value: '761699B', label: 'Others', parentValue: '76169990' }
+			],
+			allowCustom: true,
+			dependsOnColumnId: 'RITCCode'
+		}
+	};
+	const columns: Column[] = [
+		{ id: 'RITCCode', name: 'RITCCode', type: 'text' },
+		serialCol
+	];
+	const rows: Row[] = [
+		{ id: 'r1', RITCCode: '68022110', drawback_schno: '680299B' },
+		{ id: 'r2', RITCCode: '76169990', drawback_schno: '761699B' }
+	];
+
+	it('offers only the serials its own tariff code carries', () => {
+		const values = resolveDropdownOptions(serialCol, rows[0], rows).map((o) => o.value);
+		expect(values).toEqual(['680201B', '680299B']);
+		expect(values).not.toContain('761699B');
+	});
+
+	it('still offers a typed serial the catalog does not list', () => {
+		const custom: Row[] = [{ id: 'r1', RITCCode: '68022110', drawback_schno: '999999Z' }];
+		const values = resolveDropdownOptions(serialCol, custom[0], custom).map((o) => o.value);
+		expect(values).toContain('999999Z');
+	});
+
+	it('leaves an independent custom column harvesting the whole grid', () => {
+		const free: Column = {
+			id: 'Notes',
+			name: 'Notes',
+			type: 'dropdown',
+			dropdown: { options: [], allowCustom: true }
+		};
+		const noteRows: Row[] = [{ id: 'r1', Notes: 'alpha' }, { id: 'r2', Notes: 'beta' }];
+		const values = resolveDropdownOptions(free, noteRows[0], noteRows).map((o) => o.value);
+		expect(values).toEqual(['alpha', 'beta']);
+	});
+});
+
+describe('a fill that references another column', () => {
+	const unitCol: Column = { id: 'dbk_unit', name: 'dbk_unit', type: 'text' };
+	const qtyUnitCol: Column = { id: 'QuantityUnit', name: 'QuantityUnit', type: 'text' };
+	const serialCol: Column = {
+		id: 'drawback_schno',
+		name: 'drawback_schno',
+		type: 'dropdown',
+		dropdown: {
+			options: [
+				{ value: '680205B', fills: { dbk_unit: 'PCS' } },
+				{ value: '680299B', fills: { dbk_unit: { from: 'QuantityUnit' } } }
+			],
+			allowCustom: true
+		}
+	};
+	const columns = [qtyUnitCol, serialCol, unitCol];
+	const rows = (): Row[] => [
+		{ id: 'r1', QuantityUnit: 'KGS', drawback_schno: '680205B', dbk_unit: 'PCS' }
+	];
+	const unitAfter = (serial: string, start: Row[] = rows()) =>
+		dedupeAndNormalizePatches(
+			[{ rowId: 'r1', columnId: 'drawback_schno', newValue: serial }],
+			start,
+			columns
+		).find((p) => p.columnId === 'dbk_unit')?.newValue;
+
+	it('falls back to the invoiced unit rather than the previous serials', () => {
+		expect(unitAfter('680299B')).toBe('KGS');
+	});
+
+	it('still takes a literal when the schedule prescribes one', () => {
+		const start: Row[] = [{ id: 'r1', QuantityUnit: 'KGS', drawback_schno: '680299B', dbk_unit: 'KGS' }];
+		expect(unitAfter('680205B', start)).toBe('PCS');
+	});
+
+	it('writes null when the referenced cell is empty', () => {
+		const start: Row[] = [{ id: 'r1', QuantityUnit: null, drawback_schno: '680205B', dbk_unit: 'PCS' }];
+		expect(unitAfter('680299B', start)).toBeNull();
+	});
+
+	it('survives a storage round-trip as a reference, not a literal', () => {
+		const restored = sanitizeAndNormalizeTableData('t', columns, rows());
+		const opts = restored.columns.find((c) => c.id === 'drawback_schno')?.dropdown?.options;
+		expect(opts?.[1].fills?.dbk_unit).toEqual({ from: 'QuantityUnit' });
+	});
+
+	it('rejects a malformed reference instead of writing an object into a cell', () => {
+		const config = sanitizeDropdownConfig(
+			{ options: [{ value: 'X', fills: { a: { from: '' }, b: { from: 'Q', extra: 1 } } }], allowCustom: true },
+			{ id: 'c', type: 'dropdown' }
+		);
+		expect(config?.options[0].fills).toBeUndefined();
 	});
 });

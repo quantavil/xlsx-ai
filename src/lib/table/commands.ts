@@ -1,5 +1,5 @@
 import type { Column, Row, ColumnType, CellValue } from '$lib/types';
-import { normalizeCellValue } from './cells';
+import { normalizeCellValue, resolveDropdownOptions } from './cells';
 
 
 export interface CellPatch {
@@ -22,7 +22,47 @@ export function dedupeAndNormalizePatches(
 
 	const validPatches = new Map<string, { row: Row; columnId: string; oldValue: CellValue; newValue: CellValue }>();
 
+	/**
+	 * Sibling patches the option chosen by `patch` brings with it.
+	 *
+	 * Resolved against the row rather than the flat option list: a drawback serial is
+	 * offered under every RITC that carries it, so the same value appears many times
+	 * with a different payload each. `resolveDropdownOptions` applies the column's
+	 * dependency filter first, which is what makes the surviving one this row's.
+	 *
+	 * ponytail: that resolver is first-wins and lets an option through on a value
+	 * match alone, so a row already holding a serial from another RITC can resolve to
+	 * that RITC's payload. Pre-existing in the display path; narrow the escape hatch
+	 * in `resolveDropdownOptions` if a real row ever hits it.
+	 */
+	function coupledPatches(row: Row, column: Column, newValue: CellValue): CellPatch[] {
+		if (column.type !== 'dropdown' || typeof newValue !== 'string') return [];
+		const chosen = resolveDropdownOptions(column, row, rows).find(
+			(opt) => opt.value.toLowerCase() === newValue.trim().toLowerCase()
+		);
+		if (!chosen?.fills) return [];
+		return Object.entries(chosen.fills).map(([columnId, value]) => ({
+			rowId: row.id,
+			columnId,
+			// A reference reads the row as it stands. Changing the referenced column in
+			// this same batch is one hop too far: it would need ordering between fills.
+			newValue: value && typeof value === 'object' ? (row[value.from] ?? null) : value
+		}));
+	}
+
+	// One hop, never a cascade: fills are expanded from the incoming patches only, so
+	// a filled cell cannot fill further and two coupled columns cannot loop. Each set
+	// is queued *before* the patch that caused it, and the map below is last-wins, so
+	// an explicit edit to a filled column in the same batch still beats its own fill.
+	const expanded: CellPatch[] = [];
 	for (const patch of patches) {
+		const row = rowMap.get(patch.rowId);
+		const column = colMap.get(patch.columnId);
+		if (row && column) expanded.push(...coupledPatches(row, column, patch.newValue));
+		expanded.push(patch);
+	}
+
+	for (const patch of expanded) {
 		const targetRow = rowMap.get(patch.rowId);
 		const targetCol = colMap.get(patch.columnId);
 

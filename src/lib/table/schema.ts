@@ -5,6 +5,7 @@ import type {
 	Row,
 	TableData,
 	CellValue,
+	FillValue,
 	CellAlignMap,
 	DropdownConfig,
 	DropdownOption
@@ -18,10 +19,19 @@ export const ColumnTypeSchema = z.enum(['text', 'number', 'currency', 'percent',
 
 export const MAX_DROPDOWN_OPTIONS = 5_000;
 
+/** A coupled column count high enough for any real payload, low enough to bound a file. */
+export const MAX_DROPDOWN_FILLS = 20;
+
+/** `{ from: 'QuantityUnit' }`: take this row's value in that column. */
+export const FillReferenceSchema = z.object({ from: z.string().min(1).max(100) }).strict();
+
 export const PersistedDropdownOptionSchema = z.object({
 	value: z.string().min(1).max(200),
 	label: z.string().max(200).optional(),
-	parentValue: z.string().max(200).optional()
+	parentValue: z.string().max(200).optional(),
+	fills: z
+		.record(z.string().min(1).max(100), z.union([CellValueSchema, FillReferenceSchema]))
+		.optional()
 });
 
 export const PersistedDropdownConfigSchema = z.object({
@@ -37,6 +47,33 @@ export const PersistedColumnSchema = z.object({
 	width: z.number().min(60).max(800).optional(),
 	dropdown: PersistedDropdownConfigSchema.optional()
 });
+
+/**
+ * The sibling values one option carries, or undefined when it carries none.
+ *
+ * `sanitizeDropdownConfig` rebuilds each option field by field, so a payload that is
+ * not copied here is silently dropped the first time a table round-trips through
+ * storage - coupling that works until reload and then quietly stops.
+ */
+function sanitizeFills(raw: unknown): Record<string, FillValue> | undefined {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+	const fills: Record<string, FillValue> = {};
+	for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+		if (Object.keys(fills).length >= MAX_DROPDOWN_FILLS) break;
+		const columnId = key.trim();
+		if (!columnId || columnId.length > 100) continue;
+		const reference = FillReferenceSchema.safeParse(value);
+		if (reference.success) {
+			fills[columnId] = reference.data;
+			continue;
+		}
+		if (!CellValueSchema.safeParse(value).success) continue;
+		fills[columnId] = value as CellValue;
+	}
+
+	return Object.keys(fills).length > 0 ? fills : undefined;
+}
 
 /**
  * Pure, total sanitizer for one column's dropdown config. A malformed config is
@@ -63,6 +100,7 @@ export function sanitizeDropdownConfig(
 
 		const label = typeof opt.label === 'string' ? opt.label.trim() : '';
 		const parentValue = typeof opt.parentValue === 'string' ? opt.parentValue.trim() : '';
+		const fills = sanitizeFills(opt.fills);
 
 		// Dedupe on (value, parentValue): the same district code may legitimately
 		// appear under two states, but not twice under one.
@@ -73,7 +111,8 @@ export function sanitizeDropdownConfig(
 		options.push({
 			value,
 			...(label && label.length <= 200 ? { label } : {}),
-			...(parentValue && parentValue.length <= 200 ? { parentValue } : {})
+			...(parentValue && parentValue.length <= 200 ? { parentValue } : {}),
+			...(fills ? { fills } : {})
 		});
 	}
 

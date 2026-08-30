@@ -97,7 +97,12 @@ export function resolveDropdownOptions(
 	// Columns with no configured catalog keep the historical behavior: offer whatever
 	// the column already contains.
 	if (configured.length === 0 || column.dropdown?.allowCustom !== false) {
-		for (const r of rows) {
+		// A dependent column's catalog belongs to its parent, so harvesting the whole
+		// grid offered one heading's drawback serials under another - and offered them
+		// bare, with no description and no coupled values behind them. This row's own
+		// value still has to appear or a typed entry vanishes from its own editor.
+		const harvest = dependsOn ? (row ? [row] : []) : rows;
+		for (const r of harvest) {
 			const val = r[column.id];
 			if (typeof val === 'string' && val.trim()) add({ value: val.trim() });
 		}
