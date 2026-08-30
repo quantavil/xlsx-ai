@@ -567,3 +567,73 @@ describe('a fill that references another column', () => {
 		expect(config?.options[0].fills).toBeUndefined();
 	});
 });
+
+describe('a fill that only writes into a blank cell', () => {
+	// The unit dropdown ICEGrid builds: every unit implies the two columns that copy
+	// it, and nothing else. `fills` on the same option proves the two records are
+	// applied independently.
+	const unitCol: Column = {
+		id: 'QuantityUnit',
+		name: 'QuantityUnit',
+		type: 'dropdown',
+		dropdown: {
+			options: [
+				{ value: 'NOS', fills: { PerUnitNote: 'nos' }, fillsIfBlank: { PerUnit: 'NOS', dbk_unit: 'NOS' } },
+				{ value: 'KGS', fillsIfBlank: { PerUnit: 'KGS', dbk_unit: 'KGS' } }
+			],
+			allowCustom: true
+		}
+	};
+	const columns: Column[] = [
+		unitCol,
+		{ id: 'PerUnit', name: 'PerUnit', type: 'text' },
+		{ id: 'dbk_unit', name: 'dbk_unit', type: 'text' },
+		{ id: 'PerUnitNote', name: 'PerUnitNote', type: 'text' }
+	];
+	const apply = (rows: Row[], value: string) =>
+		Object.fromEntries(
+			dedupeAndNormalizePatches(
+				[{ rowId: 'r1', columnId: 'QuantityUnit', newValue: value }],
+				rows,
+				columns
+			).map((p) => [p.columnId, p.newValue])
+		);
+
+	it('fills dependents that import left empty', () => {
+		const out = apply([{ id: 'r1', QuantityUnit: null, PerUnit: null, dbk_unit: null }], 'NOS');
+		expect(out.PerUnit).toBe('NOS');
+		expect(out.dbk_unit).toBe('NOS');
+	});
+
+	it('leaves a unit the document or the schedule already stated', () => {
+		const out = apply([{ id: 'r1', QuantityUnit: null, PerUnit: null, dbk_unit: 'PCS' }], 'NOS');
+		expect(out.PerUnit).toBe('NOS');
+		expect(out).not.toHaveProperty('dbk_unit');
+	});
+
+	it('treats an empty string as blank, the way import does', () => {
+		const out = apply([{ id: 'r1', QuantityUnit: null, PerUnit: '', dbk_unit: 'PCS' }], 'KGS');
+		expect(out.PerUnit).toBe('KGS');
+	});
+
+	it('does not resurrect a dependent the user deliberately cleared, on re-picking the same unit', () => {
+		// Changing the unit is the only trigger; a no-op re-pick is dropped upstream by
+		// the identical-value check, so a blank stays blank until the unit itself moves.
+		const out = apply([{ id: 'r1', QuantityUnit: 'NOS', PerUnit: null, dbk_unit: null }], 'NOS');
+		expect(out).toEqual({ PerUnit: 'NOS', dbk_unit: 'NOS', PerUnitNote: 'nos' });
+	});
+
+	it('applies fills unconditionally alongside it', () => {
+		const out = apply([{ id: 'r1', QuantityUnit: null, PerUnitNote: 'stale', dbk_unit: 'PCS' }], 'NOS');
+		expect(out.PerUnitNote).toBe('nos');
+	});
+
+	it('survives a storage round-trip', () => {
+		const restored = sanitizeAndNormalizeTableData('t', columns, [
+			{ id: 'r1', QuantityUnit: null, PerUnit: null, dbk_unit: null }
+		]);
+		const opts = restored.columns.find((c) => c.id === 'QuantityUnit')?.dropdown?.options;
+		expect(opts?.[0].fillsIfBlank).toEqual({ PerUnit: 'NOS', dbk_unit: 'NOS' });
+		expect(opts?.[0].fills).toEqual({ PerUnitNote: 'nos' });
+	});
+});

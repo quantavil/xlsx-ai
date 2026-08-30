@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'bun:test';
 import {
 	ICEGRID_COLUMNS,
 	ICEGRID_HEADERS,
-	buildIcegridTableColumns
+	ICEGRID_ALL_HEADERS,
+	buildIcegridTableColumns,
+	CLEARED_HEADERS
 } from '../../src/lib/modules/icegrid/columns';
+import { IcegridCandidateRowSchema } from '../../src/lib/modules/icegrid/schema';
 import { applyMechanicalRules, mapReportToTableData } from '../../src/lib/modules/icegrid/to-table';
 import type { IcegridRow, IcegridReport } from '../../src/lib/modules/icegrid/schema';
 
@@ -24,7 +28,7 @@ const DROPDOWN_HEADERS = [
 ];
 
 const blankRow = (): IcegridRow =>
-	Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])) as unknown as IcegridRow;
+	Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])) as unknown as IcegridRow;
 
 describe('ICEGrid column metadata', () => {
 	it('still emits exactly the 37 headers in order', () => {
@@ -221,6 +225,39 @@ describe('mapReportToTableData', () => {
 		expect(table.rows[0].IGST_Rate).toBe(18);
 	});
 
+	it('clears the headers the module never populates, even when the report carries them', () => {
+		const table = mapReportToTableData(
+			report([{ ...blankRow(), InvoiceNo: 'INV-A', Total_Package: 12, Accessories: 'crate' }])
+		);
+		expect(table.rows[0].Total_Package).toBeNull();
+		expect(table.rows[0].Accessories).toBeNull();
+	});
+
+	it('never asks the model for them in the first place', () => {
+		// Omitted from the candidate schema, so a value can only reach the report by a
+		// module bug - the clear above is the second line, not the only one.
+		for (const header of CLEARED_HEADERS) {
+			expect(IcegridCandidateRowSchema.shape).not.toHaveProperty(header);
+		}
+	});
+
+	it('keeps internal source data out of the table and the workbook', () => {
+		// NetWeight decides SQCQTY and is then dropped: it has no slot in the filing, so
+		// a column for it would be one more thing to strip before upload.
+		const table = mapReportToTableData(
+			report([{ ...blankRow(), InvoiceNo: 'INV-A', NetWeight: 312.5 }])
+		);
+		expect(table.columns.some((c) => c.id === 'NetWeight')).toBe(false);
+		expect(table.rows[0]).not.toHaveProperty('NetWeight');
+		expect(ICEGRID_HEADERS).not.toContain('NetWeight');
+	});
+
+	it('still puts it through the evidence gate on the way in', () => {
+		// Being internal buys it no trust: it is cited and verified like a filed value.
+		expect(ICEGRID_ALL_HEADERS).toContain('NetWeight');
+		expect(IcegridCandidateRowSchema.shape).toHaveProperty('NetWeight');
+	});
+
 	it('leaves every unsupported field blank', () => {
 		const table = mapReportToTableData(
 			report([{ ...blankRow(), InvoiceNo: 'INV-A', Description: 'x' }])
@@ -228,5 +265,35 @@ describe('mapReportToTableData', () => {
 		const row = table.rows[0];
 		const filled = ICEGRID_HEADERS.filter((h) => row[h] !== null);
 		expect(filled.sort()).toEqual(['Description', 'InvoiceNo', 'InvoiceSNo', 'ItemSNo', 'Per']);
+	});
+});
+
+describe('a unit that arrives after import still feeds its dependents', () => {
+	const unitOptions = () =>
+		buildIcegridTableColumns().find((c) => c.id === 'QuantityUnit')!.dropdown!.options;
+
+	it('makes every unit imply PerUnit and dbk_unit, and only while they are blank', () => {
+		for (const opt of unitOptions()) {
+			expect(opt.fillsIfBlank).toEqual({ PerUnit: opt.value, dbk_unit: opt.value });
+			// Unconditional fills would overwrite a unit the schedule prescribed for the
+			// row's drawback serial, which outranks the unit the goods were invoiced in.
+			expect(opt.fills).toBeUndefined();
+		}
+	});
+
+	it('copies exactly what deriveRows copies at import, and nothing more', () => {
+		// The two lists must not drift: a header derived from QuantityUnit at import but
+		// missing here is blank forever on any row whose unit was not evidenced.
+		const derived = readFileSync('src/lib/modules/icegrid/derive.ts', 'utf8');
+		const copied = [...derived.matchAll(/set\('(\w+)', row\.QuantityUnit,/g)].map((m) => m[1]);
+		expect(copied.sort()).toEqual(['PerUnit', 'dbk_unit']);
+	});
+
+	it('leaves the other unit columns uncoupled', () => {
+		const columns = buildIcegridTableColumns();
+		for (const id of ['SQCUnit', 'PerUnit', 'dbk_unit']) {
+			const options = columns.find((c) => c.id === id)!.dropdown!.options;
+			expect(options.every((o) => !o.fillsIfBlank && !o.fills)).toBe(true);
+		}
 	});
 });

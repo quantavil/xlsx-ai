@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import * as XLSX from 'xlsx';
 import { icegridModule, summarizeWarnings } from '../../src/lib/modules/icegrid';
-import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_HEADERS, ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
 import type { ModuleContext } from '../../src/lib/modules/types';
 
 const INVOICE_ROWS = [
@@ -38,7 +38,7 @@ function packingFile(): File {
 const AI_RESPONSE = {
 	rows: [
 		{
-			...Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])),
+			...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])),
 			InvoiceNo: 'INV-A',
 			Description: 'SIDE TABLE LARGE',
 			RITCCode: '94038900',
@@ -101,7 +101,7 @@ const AI_RESPONSE = {
 			]
 		},
 		{
-			...Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])),
+			...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])),
 			InvoiceNo: 'INV-A',
 			Description: 'WALL CLOCK 24 INCH',
 			Quantity: 120,

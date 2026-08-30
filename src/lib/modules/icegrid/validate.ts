@@ -1,6 +1,6 @@
 import { getCatalogSnapshot, resolveCatalogValue, normalizeStateKey } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
-import { ICEGRID_COLUMNS } from './columns';
+import { ICEGRID_COLUMNS, CLEARED_HEADERS } from './columns';
 import type { IcegridReport } from './schema';
 
 export interface ValidationResult {
@@ -130,9 +130,11 @@ export function validateIcegridReport(
 			}
 		}
 
-		// 7. Accessories must have survived sanitization blank.
-		if (row.Accessories !== null) {
-			warnings.push(`${label}: Accessories was cleared; it is never populated on import.`);
+		// 7. The cleared headers must have survived sanitization blank.
+		for (const header of CLEARED_HEADERS) {
+			if (row[header] !== null) {
+				warnings.push(`${label}: ${header} was cleared; it is never populated on import.`);
+			}
 		}
 	}
 

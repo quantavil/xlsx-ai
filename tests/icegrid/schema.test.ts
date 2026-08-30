@@ -23,6 +23,7 @@ describe('ICEGrid Schema Validation', () => {
 		QuantityUnit: 'NOS',
 		SQCQTY: 500,
 		SQCUnit: 'NOS',
+		NetWeight: 42.5,
 		UnitPrice: 24.5,
 		ProductAmount: 12250.0,
 		Per: 1,

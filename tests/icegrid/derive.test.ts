@@ -8,12 +8,12 @@ import {
 import { SCHEDULES_PROVENANCE } from '../../src/lib/modules/icegrid/catalogs/generated/provenance';
 import { getCatalogSnapshot } from '../../src/lib/modules/icegrid/catalogs';
 import { parseProfile, EMPTY_PROFILE } from '../../src/lib/modules/icegrid/profile';
-import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_HEADERS, ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
 import type { IcegridRow } from '../../src/lib/modules/icegrid/schema';
 
 const catalogs = getCatalogSnapshot();
 const row = (over: Partial<IcegridRow>): IcegridRow =>
-	({ ...Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])), ...over }) as unknown as IcegridRow;
+	({ ...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])), ...over }) as unknown as IcegridRow;
 
 /** Every RITC in the 17-shipment corpus, with the SQC unit its output carried. */
 const CORPUS_SQC: Record<string, string> = {
@@ -120,13 +120,43 @@ describe('deriveRows', () => {
 		expect(provenance.r1.PerUnit).toBe('derived');
 	});
 
-	it('sets SQCQTY from Quantity only when the SQC unit matches the invoice unit', () => {
-		// 94038900 is counted in NOS while the invoice is in PCS: not comparable.
-		expect(deriveRows([row(base)], { catalogs }).rows[0].SQCQTY).toBeNull();
-		// 49011010 is counted in NOS and so is the invoice line.
-		const same = deriveRows([row({ ...base, RITCCode: '49011010', QuantityUnit: 'NOS' })], { catalogs });
-		expect(same.rows[0].SQCQTY).toBe(48);
-		expect(same.rows[0].RoDTEPQty).toBe(48);
+	describe('SQCQTY follows the SQC unit, never the invoiced one', () => {
+		// 68022190 is counted in KGS, 94038900 in NOS. The schedule sets SQCUnit, so
+		// each case is chosen by RITC rather than by writing SQCUnit directly.
+		const derive = (over: Partial<IcegridRow>) =>
+			deriveRows([row({ ...base, ...over })], { catalogs }).rows[0];
+
+		it('takes the line net weight when the tariff counts in KGS', () => {
+			const out = derive({ RITCCode: '68022190', NetWeight: 312.5 });
+			expect(out.SQCUnit).toBe('KGS');
+			expect(out.SQCQTY).toBe(312.5);
+			// Never the invoiced count, which is in a different unit entirely.
+			expect(out.Quantity).toBe(48);
+		});
+
+		it('leaves it blank when the tariff counts in KGS and no net weight was found', () => {
+			const { rows, warnings } = deriveRows([row({ ...base, RITCCode: '68022190' })], { catalogs });
+			expect(rows[0].SQCQTY).toBeNull();
+			expect(warnings.some((w) => w.includes('no per-line net weight'))).toBe(true);
+		});
+
+		it('takes the invoiced quantity for any other stated unit', () => {
+			// 94038900 is NOS while the invoice is PCS: the units need not agree, because
+			// SQCQTY is a count either way and the tariff's unit is the one declared.
+			expect(derive({}).SQCQTY).toBe(48);
+			expect(derive({}).RoDTEPQty).toBe(48);
+		});
+
+		it('writes nothing when the tariff item is absent from the schedule', () => {
+			// No SQCUnit means no unit to declare a quantity in.
+			const out = derive({ RITCCode: '99999999', NetWeight: 312.5 });
+			expect(out.SQCUnit).toBeNull();
+			expect(out.SQCQTY).toBeNull();
+		});
+
+		it('never overwrites an SQCQTY the documents stated', () => {
+			expect(derive({ RITCCode: '68022190', NetWeight: 312.5, SQCQTY: 9 }).SQCQTY).toBe(9);
+		});
 	});
 
 	it('tracks RoDTEPQty to SQCQTY, never to Quantity', () => {

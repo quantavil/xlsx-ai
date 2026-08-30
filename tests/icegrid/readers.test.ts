@@ -14,8 +14,11 @@ import {
 
 describe('ICEGrid Column Catalog', () => {
 	it('defines exactly 37 unique ordered headers matching the ICEGATE spec', () => {
-		expect(ICEGRID_COLUMNS.length).toBe(37);
+		// The filing spec is 37 columns. The catalog carries one more, `NetWeight`,
+		// which is extracted as source data for a rule and never reaches the file.
 		expect(ICEGRID_HEADERS.length).toBe(37);
+		expect(ICEGRID_COLUMNS.filter((c) => c.internal).map((c) => c.header)).toEqual(['NetWeight']);
+		expect(ICEGRID_COLUMNS.length).toBe(38);
 
 		const uniqueHeaders = new Set(ICEGRID_HEADERS);
 		expect(uniqueHeaders.size).toBe(37);

@@ -87,6 +87,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 	const gstinState = sourceText ? stateCodeFromGstin(sourceText) : null;
 	const exchangeRate = documentExchangeRate ?? profile.exchangeRate ?? null;
 	let residualDrawbackRows = 0;
+	let missingNetWeightRows = 0;
 	let sampleAlternatives: string[] = [];
 
 	const out = rows.map((source, index) => {
@@ -182,10 +183,16 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		set('dbk_unit', row.QuantityUnit, 'derived');
 		set('dbk_qty', row.Quantity, 'derived');
 
-		// The SQC quantity equals the invoiced quantity only when both are counted in
-		// the same unit; when the tariff counts in KGS it is the packing-list weight,
-		// which cannot be computed and stays blank.
-		if (blank(row.SQCQTY) && !blank(row.SQCUnit) && row.SQCUnit === row.QuantityUnit) {
+		// The SQC quantity is counted in the tariff's own unit, so which figure it takes
+		// depends on that unit and never on the invoiced one. A KGS tariff wants the
+		// line's net weight, which only the packing list states - absent, the cell stays
+		// blank rather than borrowing a count. Any other stated unit takes the invoiced
+		// quantity. A blank SQCUnit means the tariff item was not found in the schedule,
+		// so there is no unit to declare a quantity in and nothing is written.
+		if (row.SQCUnit === 'KGS') {
+			set('SQCQTY', row.NetWeight, 'derived');
+			if (blank(row.NetWeight) && blank(row.SQCQTY)) missingNetWeightRows++;
+		} else if (!blank(row.SQCUnit)) {
 			set('SQCQTY', row.Quantity, 'derived');
 		}
 		// RoDTEP quantity tracks the SQC quantity, not the invoiced quantity - and only
@@ -253,6 +260,11 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		warnings.push(
 			`Drawback serial taken from the residual "Others" entry for ${residualDrawbackRows} row(s). ` +
 				`If the goods match a specific schedule line, change it${sampleAlternatives.length ? ` (also under this heading: ${sampleAlternatives.slice(0, 4).join(', ')})` : ''}.`
+		);
+	}
+	if (missingNetWeightRows > 0) {
+		warnings.push(
+			`SQCQTY was left blank on ${missingNetWeightRows} row(s): the tariff counts them in KGS and no per-line net weight was found on the documents.`
 		);
 	}
 	if (filled.schedule > 0) {

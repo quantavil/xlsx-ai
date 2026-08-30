@@ -25,6 +25,15 @@ export interface DropdownOption {
 	 * a drawback serial cannot sit next to the rate of the serial it replaced.
 	 */
 	fills?: Record<string, FillValue>;
+	/**
+	 * The same, but written only where the target cell is still empty.
+	 *
+	 * For a value this option merely implies rather than determines: a unit of measure
+	 * governs the drawback unit only when nothing better already stated it, so picking
+	 * one must not overwrite a unit the document printed or the schedule prescribed.
+	 * A blank target is the evidence that neither of those spoke.
+	 */
+	fillsIfBlank?: Record<string, FillValue>;
 }
 
 export interface DropdownConfig {

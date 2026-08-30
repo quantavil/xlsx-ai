@@ -20,6 +20,24 @@ export interface IcegridColumnSpec {
 	runtimeOptions?: 'drawback';
 	/** Header of the column this dropdown filters against, e.g. district -> state. */
 	dependsOn?: string;
+	/**
+	 * Headers that take a copy of this dropdown's value, but only while they are blank.
+	 *
+	 * `deriveRows` applies exactly these copies at import, and only to cells nothing
+	 * else filled. Repeating them here is what makes them survive a unit that arrives
+	 * late: import derives once, so a `QuantityUnit` the documents did not evidence
+	 * left its dependents empty with no way to fill them but by hand.
+	 */
+	fillsIfBlank?: readonly string[];
+	/**
+	 * Extracted and verified like any other field, but never a column in the table
+	 * or the exported workbook.
+	 *
+	 * For source data a rule needs and the filing does not have a slot for. It still
+	 * goes through the evidence gate, because a value that decides a declared
+	 * quantity has to be as trustworthy as one that is declared directly.
+	 */
+	internal?: true;
 }
 
 export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
@@ -29,16 +47,17 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'description', header: 'Description', type: 'text', description: 'Item description of goods', required: true },
 	{ id: 'endUse', header: 'EndUse', type: 'dropdown', description: 'ICEGATE end-use code', catalog: 'endUse' },
 	{ id: 'hawblNo', header: 'HAWBL_No', type: 'text', description: 'House Airway Bill / Bill of Lading number' },
-	{ id: 'totalPackage', header: 'Total_Package', type: 'number', description: 'Total number of packages or cartons' },
+	{ id: 'totalPackage', header: 'Total_Package', type: 'number', description: 'Always blank on import; fill manually only if required' },
 	{ id: 'accessories', header: 'Accessories', type: 'text', description: 'Always blank on import; fill manually only if required' },
 	{ id: 'rewardItem', header: 'RewardItem', type: 'dropdown', description: 'Reward scheme eligibility', catalog: 'rewardItem' },
 	{ id: 'igstPaymentStatus', header: 'IGST_PaymentStatus', type: 'dropdown', description: 'IGST payment status', catalog: 'igstPaymentStatus' },
 	{ id: 'ritcCode', header: 'RITCCode', type: 'text', description: '8-digit Indian Customs tariff code (RITC/ITC-HS)' },
 	{ id: 'applicableExpSchemes', header: 'ApplicableExpSchemes', type: 'dropdown', description: 'Complete export scheme entry, e.g. 19-Drawback (DBK)', catalog: 'scheme' },
 	{ id: 'quantity', header: 'Quantity', type: 'number', description: 'Item quantity invoiced', required: true },
-	{ id: 'quantityUnit', header: 'QuantityUnit', type: 'dropdown', description: 'Unit of measurement', catalog: 'unit', required: true },
+	{ id: 'quantityUnit', header: 'QuantityUnit', type: 'dropdown', description: 'Unit of measurement', catalog: 'unit', required: true, fillsIfBlank: ['PerUnit', 'dbk_unit'] },
 	{ id: 'sqcQty', header: 'SQCQTY', type: 'number', description: 'Standard Quantity Code quantity' },
 	{ id: 'sqcUnit', header: 'SQCUnit', type: 'dropdown', description: 'Standard Quantity Code unit', catalog: 'unit' },
+	{ id: 'netWeight', header: 'NetWeight', type: 'number', description: 'Net weight of this line item in kilograms; source data for SQCQTY, never filed', internal: true },
 	{ id: 'unitPrice', header: 'UnitPrice', type: 'number', description: 'Price per unit', required: true },
 	{ id: 'productAmount', header: 'ProductAmount', type: 'number', description: 'Total item amount as stated on the source document' },
 	{ id: 'per', header: 'Per', type: 'number', description: 'Unit price denominator; defaults to 1' },
@@ -64,10 +83,23 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'rodtepQty', header: 'RoDTEPQty', type: 'number', description: 'RoDTEP eligible quantity' }
 ];
 
-export const ICEGRID_HEADERS = ICEGRID_COLUMNS.map((c) => c.header);
+/** Every header the module extracts, internal ones included. Evidence is cited by these. */
+export const ICEGRID_ALL_HEADERS = ICEGRID_COLUMNS.map((c) => c.header);
+
+/** The headers that reach the table and the exported workbook, in filing order. */
+export const ICEGRID_HEADERS = ICEGRID_COLUMNS.filter((c) => !c.internal).map((c) => c.header);
+
+/**
+ * The headers the module blanks rather than computes.
+ *
+ * A carton count is per consignment, not per line item, so a packing list gives the
+ * model plenty of numbers that look like one and none that belong on a row. Blank is
+ * the only honest answer, and cheaper than an extraction that has to be checked.
+ */
+export const CLEARED_HEADERS = ['Accessories', 'Total_Package'] as const;
 
 /** Headers the module owns mechanically; AI values for these are always discarded. */
-export const MECHANICAL_HEADERS = ['InvoiceSNo', 'ItemSNo', 'Per', 'Accessories'] as const;
+export const MECHANICAL_HEADERS = ['InvoiceSNo', 'ItemSNo', 'Per', ...CLEARED_HEADERS] as const;
 
 /** Dropdown options a single run supplies, keyed by `IcegridColumnSpec.runtimeOptions`. */
 export type IcegridRuntimeOptions = Partial<Record<'drawback', readonly DropdownOption[]>>;
@@ -76,7 +108,7 @@ export function buildIcegridTableColumns(
 	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot(),
 	runtimeOptions: IcegridRuntimeOptions = {}
 ): Column[] {
-	return ICEGRID_COLUMNS.map((col) => {
+	return ICEGRID_COLUMNS.filter((col) => !col.internal).map((col) => {
 		const width =
 			col.id === 'description'
 				? 240
@@ -114,7 +146,12 @@ export function buildIcegridTableColumns(
 			type: col.type,
 			width,
 			dropdown: {
-				options: [...catalogs[col.catalog]],
+				options: col.fillsIfBlank
+					? catalogs[col.catalog].map((opt) => ({
+							...opt,
+							fillsIfBlank: Object.fromEntries(col.fillsIfBlank!.map((h) => [h, opt.value]))
+						}))
+					: [...catalogs[col.catalog]],
 				// User-typed values are explicit user input, which the spec permits.
 				// This is a table-editing affordance only; AI output can never add an option.
 				allowCustom: true,

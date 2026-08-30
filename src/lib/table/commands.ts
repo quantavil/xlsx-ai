@@ -1,4 +1,4 @@
-import type { Column, Row, ColumnType, CellValue } from '$lib/types';
+import type { Column, Row, ColumnType, CellValue, FillValue } from '$lib/types';
 import { normalizeCellValue, resolveDropdownOptions } from './cells';
 
 
@@ -40,14 +40,20 @@ export function dedupeAndNormalizePatches(
 		const chosen = resolveDropdownOptions(column, row, rows).find(
 			(opt) => opt.value.toLowerCase() === newValue.trim().toLowerCase()
 		);
-		if (!chosen?.fills) return [];
-		return Object.entries(chosen.fills).map(([columnId, value]) => ({
-			rowId: row.id,
-			columnId,
-			// A reference reads the row as it stands. Changing the referenced column in
-			// this same batch is one hop too far: it would need ordering between fills.
-			newValue: value && typeof value === 'object' ? (row[value.from] ?? null) : value
-		}));
+		if (!chosen) return [];
+		// A reference reads the row as it stands. Changing the referenced column in
+		// this same batch is one hop too far: it would need ordering between fills.
+		const resolve = (value: FillValue): CellValue =>
+			value && typeof value === 'object' ? (row[value.from] ?? null) : value;
+		const blank = (value: CellValue | undefined) => value === null || value === undefined || value === '';
+
+		return [
+			...Object.entries(chosen.fills ?? {}),
+			// Read against the row before the batch, for the same reason a reference is:
+			// two options filling one blank cell in one paste would otherwise depend on
+			// the order they happened to arrive in.
+			...Object.entries(chosen.fillsIfBlank ?? {}).filter(([columnId]) => blank(row[columnId]))
+		].map(([columnId, value]) => ({ rowId: row.id, columnId, newValue: resolve(value) }));
 	}
 
 	// One hop, never a cascade: fills are expanded from the incoming patches only, so

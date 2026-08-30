@@ -14,7 +14,7 @@ import type {
 	IcegridEvidenceSpan,
 	IcegridReport
 } from '../../src/lib/modules/icegrid/schema';
-import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_HEADERS, ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
 
 const INVOICE_TEXT = `=== PAGE: 1 ===
 Invoice No: INV-A
@@ -47,7 +47,7 @@ const span = (over: Partial<IcegridEvidenceSpan>): IcegridEvidenceSpan => ({
 
 const candidateRow = (over: Partial<IcegridCandidateRow>): IcegridCandidateRow =>
 	({
-		...Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])),
+		...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])),
 		evidence: [],
 		...over
 	}) as unknown as IcegridCandidateRow;
@@ -288,7 +288,7 @@ describe('validateIcegridReport after sanitization', () => {
 		warnings: [],
 		rows: [
 			{
-				...Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])),
+				...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])),
 				InvoiceNo: 'INV-A',
 				Description: 'x',
 				...over

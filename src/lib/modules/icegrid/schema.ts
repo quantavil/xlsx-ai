@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { ICEGRID_HEADERS } from './columns';
+import { ICEGRID_ALL_HEADERS } from './columns';
 
-/** The exact 37 output headers, as a string enum Gemini's responseSchema accepts. */
+/** Every extractable header, as a string enum Gemini's responseSchema accepts. */
 export const IcegridHeaderSchema = z.enum(
-	ICEGRID_HEADERS as unknown as [string, ...string[]]
+	ICEGRID_ALL_HEADERS as unknown as [string, ...string[]]
 );
 
 export type IcegridHeader = z.infer<typeof IcegridHeaderSchema>;
@@ -37,7 +37,7 @@ export const IcegridRowSchema = z.object({
 	Description: z.string().nullable(),
 	EndUse: z.string().nullable(),
 	HAWBL_No: z.string().nullable().describe('House Airway Bill / Bill of Lading number'),
-	Total_Package: z.number().nullable(),
+	Total_Package: z.number().nullable().describe('Always null; the module clears this field'),
 	Accessories: z.string().nullable().describe('Always null; the module clears this field'),
 	RewardItem: z.string().nullable().describe('Reward scheme eligibility: exactly "Yes" or "No"'),
 	IGST_PaymentStatus: z.string().nullable().describe('IGST payment status: exactly "NA", "LUT" or "P"'),
@@ -47,6 +47,10 @@ export const IcegridRowSchema = z.object({
 	QuantityUnit: z.string().nullable().describe('Unit of measurement (e.g. PCS, NOS, KGS, MTR)'),
 	SQCQTY: z.number().nullable(),
 	SQCUnit: z.string().nullable(),
+	NetWeight: z
+		.number()
+		.nullable()
+		.describe('Net weight of this line item in kilograms, as printed for that line'),
 	UnitPrice: z.number().nullable(),
 	ProductAmount: z.number().nullable().describe('Line amount as printed on the document; never calculated'),
 	Per: z.number().nullable().describe('Unit price calculation denominator (usually 1)'),
@@ -83,7 +87,8 @@ export const IcegridCandidateRowSchema = IcegridRowSchema.omit({
 	InvoiceSNo: true,
 	ItemSNo: true,
 	Per: true,
-	Accessories: true
+	Accessories: true,
+	Total_Package: true
 }).extend({
 	evidence: z
 		.array(IcegridEvidenceSpanSchema)

@@ -10,7 +10,7 @@ import {
 } from '../../src/lib/modules/icegrid/duty-lookup';
 import { deriveRows } from '../../src/lib/modules/icegrid/derive';
 import { getCatalogSnapshot } from '../../src/lib/modules/icegrid/catalogs';
-import { ICEGRID_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_HEADERS, ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
 import type { IcegridRow } from '../../src/lib/modules/icegrid/schema';
 
 const candidate = (over: Partial<DutyDrawbackCandidate>): DutyDrawbackCandidate => ({
@@ -32,7 +32,7 @@ const FURNITURE: DutyDrawbackCandidate[] = [
 ];
 
 const blankRow = (over: Partial<IcegridRow> = {}): IcegridRow =>
-	({ ...Object.fromEntries(ICEGRID_HEADERS.map((h) => [h, null])), ...over }) as unknown as IcegridRow;
+	({ ...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])), ...over }) as unknown as IcegridRow;
 
 const entry = (over: Partial<DutyLookupEntry>): DutyLookupEntry => ({
 	ritc: '94032090',

@@ -45,7 +45,8 @@ VALUE FORMAT
 - IGST_Rate is a whole number: 18 means 18%. Never 0.18.
 - RewardItem is exactly "Yes" or "No". IGST_PaymentStatus is exactly "NA", "LUT" or "P". RODTEP is exactly "Yes", "No" or "N/A".
 - ApplicableExpSchemes: copy the scheme exactly as printed, whether that is "19" or "19-Drawback (DBK)".
-- There is no currency output column, and no InvoiceSNo, ItemSNo, Per or Accessories column; do not report any of them.
+- There is no currency output column, and no InvoiceSNo, ItemSNo, Per, Accessories or Total_Package column; do not report any of them.
+- NetWeight: the net weight of THIS line item, in kilograms. Report it only where the document prints a net weight against that individual line. A consignment or invoice total, a carton or per-carton weight, and a gross weight are all different figures - leave NetWeight null rather than reporting one of them, and never divide a total across lines. If the printed weight is in any unit other than kilograms, leave it null.
 - Description: report only the text printed inside that line's own Description cell. When the cell wraps across several printed rows it is still one value: join its continuation lines, in printed order, separated by single spaces. Two things never belong in it. First, a heading that spans more than one line item - a page title, a section banner, or a goods-class phrase printed once above a block of rows - however close it sits to the cell. Second, data that belongs to another column even when the layout prints it in the same block: PO numbers, HSN or tariff lines, carton dimensions, net or gross weights, and packaging notes. Dimensions and sizes that are part of the article's own printed name do belong.
 - Any field not present in the documents must be null. Missing data is expected and correct.`;
 

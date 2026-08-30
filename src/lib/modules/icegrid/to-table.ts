@@ -1,5 +1,10 @@
 import type { TableData, Row, CellValue } from '$lib/types';
-import { ICEGRID_COLUMNS, buildIcegridTableColumns, type IcegridRuntimeOptions } from './columns';
+import {
+	ICEGRID_COLUMNS,
+	CLEARED_HEADERS,
+	buildIcegridTableColumns,
+	type IcegridRuntimeOptions
+} from './columns';
 import { getCatalogSnapshot } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
 import type { IcegridRow, IcegridReport } from './schema';
@@ -40,8 +45,8 @@ export function applyMechanicalRules(rows: readonly IcegridRow[]): IcegridRow[] 
 			ItemSNo: itemSNo,
 			// Fixed ProductFormat rule, confirmed on every row of the trusted corpus.
 			Per: row.Per === null || row.Per === undefined ? 1 : row.Per,
-			// Never populated on import, and never offered as a dropdown.
-			Accessories: null
+			// Never populated on import; see CLEARED_HEADERS for why.
+			...(Object.fromEntries(CLEARED_HEADERS.map((h) => [h, null])) as Record<string, null>)
 		};
 	});
 }
@@ -61,6 +66,7 @@ export function mapReportToTableData(
 		const rowObj: Row = { id: `r${idx + 1}` };
 
 		for (const col of ICEGRID_COLUMNS) {
+			if (col.internal) continue;
 			const val = (rawRow as Record<string, CellValue | undefined>)[col.header];
 
 			if (val === undefined || val === null || val === '') {

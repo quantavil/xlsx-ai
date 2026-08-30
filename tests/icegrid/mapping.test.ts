@@ -22,6 +22,7 @@ describe('ICEGrid Validation and Mapping', () => {
 		QuantityUnit: 'MTR',
 		SQCQTY: 1000,
 		SQCUnit: 'MTR',
+		NetWeight: null,
 		UnitPrice: 3.5,
 		ProductAmount: 3500.0,
 		Per: 1,

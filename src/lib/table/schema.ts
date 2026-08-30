@@ -25,13 +25,18 @@ export const MAX_DROPDOWN_FILLS = 20;
 /** `{ from: 'QuantityUnit' }`: take this row's value in that column. */
 export const FillReferenceSchema = z.object({ from: z.string().min(1).max(100) }).strict();
 
+/** Coupled columns keyed by column id, each holding a literal or a sibling reference. */
+const FillMapSchema = z.record(
+	z.string().min(1).max(100),
+	z.union([CellValueSchema, FillReferenceSchema])
+);
+
 export const PersistedDropdownOptionSchema = z.object({
 	value: z.string().min(1).max(200),
 	label: z.string().max(200).optional(),
 	parentValue: z.string().max(200).optional(),
-	fills: z
-		.record(z.string().min(1).max(100), z.union([CellValueSchema, FillReferenceSchema]))
-		.optional()
+	fills: FillMapSchema.optional(),
+	fillsIfBlank: FillMapSchema.optional()
 });
 
 export const PersistedDropdownConfigSchema = z.object({
@@ -101,6 +106,7 @@ export function sanitizeDropdownConfig(
 		const label = typeof opt.label === 'string' ? opt.label.trim() : '';
 		const parentValue = typeof opt.parentValue === 'string' ? opt.parentValue.trim() : '';
 		const fills = sanitizeFills(opt.fills);
+		const fillsIfBlank = sanitizeFills(opt.fillsIfBlank);
 
 		// Dedupe on (value, parentValue): the same district code may legitimately
 		// appear under two states, but not twice under one.
@@ -112,7 +118,8 @@ export function sanitizeDropdownConfig(
 			value,
 			...(label && label.length <= 200 ? { label } : {}),
 			...(parentValue && parentValue.length <= 200 ? { parentValue } : {}),
-			...(fills ? { fills } : {})
+			...(fills ? { fills } : {}),
+			...(fillsIfBlank ? { fillsIfBlank } : {})
 		});
 	}
 
