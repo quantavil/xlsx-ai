@@ -14,6 +14,8 @@
 - **Interactive Column Resizing & Auto-Fit**: Draggable right-edge resize handles (`.th-resize-handle`) on every column header with double-click content auto-fit.
 - **Accessible Floating Status Dropdowns**: Boundary-colliding, viewport-flipping status combobox with search, custom status creation, and single-click chevron trigger outside scroll overflow.
 - **Typed Column System**: First-class support for `text`, `number`, `currency`, `percent`, `dropdown`, and `date` with type-aware inline cell editors and centralized normalization (`src/lib/table/cells.ts`).
+- **Coupled Columns**: A dropdown option can carry the sibling cells its value determines (`DropdownOption.fills`), so picking a drawback serial moves its rate, description and ROSL figures with it — in one undo step, and on paste and AI edits too, not just the editor. A fill is a literal or `{ from: 'OtherColumn' }`, which reads that column in the same row; that is how a serial with no schedule unit falls back to the invoiced one. Values only, evaluated once on write: for a live relationship between two of your own columns, write a formula.
+- **Dependent Dropdowns**: `dependsOnColumnId` scopes a column's options to the value of another column in the same row — districts to their state, drawback serials to their tariff code. A dependent column offers its catalog for that parent plus whatever the row itself already holds; it never borrows values from other rows.
 - **Live Summary Calculations**: Pinned footer calculates real-time `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` over computed values. A totals row written as `=SUM(D2:D9)` is excluded from its own column's sum — those values are already in there once — and `AVG` divides by what actually went into the sum.
 - **SheetJS Client File I/O & Dynamic Chunking**:
   - **Import**: Drag & drop or upload `.xlsx`, `.xls`, `.csv`, and `.tsv` files with automatic column header deduplication, size limits (10 MB / 10k rows / 100 cols), and type inference heuristics. Formulas a workbook carries are read back as formulas, not flattened to the numbers Excel last computed.
@@ -137,6 +139,13 @@ Nothing depends on it staying up. Failures are per tariff code, become a warning
 back to the bundled schedule — the behaviour every import had before this existed. Its own
 disclaimer says its contents carry no legal force, which is why every cell it fills is
 marked `lookup` rather than silently asserted.
+
+The choice stays live after the import. `drawback_schno` is a dropdown scoped to the row's
+RITC, and each serial carries the fields it determines — `dbk_rate`, `dbk_desc`, `ROSLRate`,
+`ROSLCapValue`, `dbk_unit` — so changing the serial in the grid leaves the row exactly as a
+fresh import of that serial would, in one undo step. A serial the schedule gives no unit for
+defers to `QuantityUnit`, the same rule `deriveRows` applies, rather than keeping the unit
+the previous serial left in the cell.
 
 ### Column fill rates
 
@@ -368,7 +377,7 @@ src/
     │   ├── cells.ts             # Typed cell parsing and normalization
     │   ├── formulas.ts          # xlsx-calc evaluation, A1 addressing, reference remapping
     │   ├── formula-hints.ts     # Completion catalog and the caret rules point mode uses
-    │   ├── commands.ts          # Reversible atomic mutations for undo/redo
+    │   ├── commands.ts          # Reversible atomic mutations for undo/redo + coupled fills
     │   ├── schema.ts            # Zod V2 schema & table migrations
     │   └── persistence.ts       # Debounced localStorage persistence
     ├── components/           # Application UI Shell
