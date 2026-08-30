@@ -14,7 +14,7 @@
 - **Interactive Column Resizing & Auto-Fit**: Draggable right-edge resize handles (`.th-resize-handle`) on every column header with double-click content auto-fit.
 - **Accessible Floating Status Dropdowns**: Boundary-colliding, viewport-flipping status combobox with search, custom status creation, and single-click chevron trigger outside scroll overflow.
 - **Typed Column System**: First-class support for `text`, `number`, `currency`, `percent`, `dropdown`, and `date` with type-aware inline cell editors and centralized normalization (`src/lib/table/cells.ts`).
-- **Coupled Columns**: A dropdown option can carry the sibling cells its value determines (`DropdownOption.fills`), so picking a drawback serial moves its rate, description and ROSL figures with it — in one undo step, and on paste and AI edits too, not just the editor. A fill is a literal or `{ from: 'OtherColumn' }`, which reads that column in the same row; that is how a serial with no schedule unit falls back to the invoiced one. Values only, evaluated once on write: for a live relationship between two of your own columns, write a formula.
+- **Coupled Columns**: A dropdown option can carry the sibling cells its value determines (`DropdownOption.fills`), so picking a drawback serial moves its rate, description and ROSL figures with it — in one undo step, and on paste and AI edits too, not just the editor. A fill is a literal or `{ from: 'OtherColumn' }`, which reads that column in the same row; that is how a serial with no schedule unit falls back to the invoiced one. A second record, `fillsIfBlank`, writes only where the target cell is still empty — for a value an option implies rather than determines, so choosing a unit of measure fills a blank drawback unit but never overwrites one the document printed. Values only, evaluated once on write: for a live relationship between two of your own columns, write a formula.
 - **Dependent Dropdowns**: `dependsOnColumnId` scopes a column's options to the value of another column in the same row — districts to their state, drawback serials to their tariff code. A dependent column offers its catalog for that parent plus whatever the row itself already holds; it never borrows values from other rows.
 - **Live Summary Calculations**: Pinned footer calculates real-time `SUM`, `AVG`, `MIN`, `MAX`, and `COUNT` over computed values. A totals row written as `=SUM(D2:D9)` is excluded from its own column's sum — those values are already in there once — and `AVG` divides by what actually went into the sum.
 - **SheetJS Client File I/O & Dynamic Chunking**:
@@ -156,7 +156,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 > These figures predate the live duty lookup and are **not recomputed here**: the replay
 > needs a live model run, which no test performs. Measured against the corpus tariff codes,
 > the lookup moves three columns and leaves the rest untouched — `dbk_desc` now fills where
-> the legacy output left it blank (a deliberate divergence, like `Total_Package`), while
+> the legacy output left it blank (a deliberate divergence), while
 > `dbk_unit`, `ROSLRate` and `ROSLCapValue` barely move because the service prescribes a
 > unit for 1 of 20 codes and ROSL values for none. `RODTEP` gains an `N/A` state that never
 > fires on this corpus, since all 20 codes are in Appendix 4R.
@@ -169,24 +169,24 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 | 4 | `Description` | extracted | **6%** | The item name extracts correctly, but trusted output prepends an exporter house-style goods-class phrase (`OTHER FURNITURE ARTICLES OF IRON ARTWARE - …`). It is not the tariff text — the drawback schedule says `Others`, RoDTEP says `Other` — so composing it would mean inventing customs wording. |
 | 5 | `EndUse` | profile | 100% | — |
 | 6 | `HAWBL_No` | — | 100% | **Always blank in trusted output.** No AWB or B/L number appears in any of the 34 input files. |
-| 7 | `Total_Package` | extracted | 100% | **Blank in all 277 trusted rows**, yet every packing list states a carton or pallet count. The module now extracts it — a deliberate improvement on the legacy output, so expect a difference here. |
-| 8 | `Accessories` | — | 100% | **Always blank by rule.** Never populated on import and deliberately not offered as a dropdown. |
+| 7 | `Total_Package` | — | 100% | **Always blank by rule.** Blank in all 277 trusted rows: a carton count is per consignment, not per line item, so a packing list offers many numbers that look like one and none that belong on a row. Not requested from the model at all. |
+| 8 | `Accessories` | — | 100% | **Always blank by rule**, like `Total_Package`. Never populated on import and deliberately not offered as a dropdown. |
 | 9 | `RewardItem` | profile | 95% | Held per shipment; one case varies it across lines (6 rows `No`, the rest `Yes`), which a single profile value cannot express. |
 | 10 | `IGST_PaymentStatus` | profile / extracted | 100% | — |
 | 11 | `RITCCode` | extracted | **41%** | Only 11 of 17 invoices print an HSN code. It is per-line, so no profile can supply it — and it **gates `SQCUnit`, `drawback_schno`, `dbk_rate` and `RODTEP`**. A saved product→HSN mapping is the single highest-value addition left. |
 | 12 | `ApplicableExpSchemes` | profile | 92% | Per-shipment value; one case mixes two schemes across its lines. |
 | 13 | `Quantity` | extracted | 100% | — |
 | 14 | `QuantityUnit` | extracted | 90% | Not printed on every line, or printed in a spelling outside the 70-code catalog, which is rejected rather than guessed. |
-| 15 | `SQCQTY` | extracted / derived | 91% | Needs the packing-list net weight when the tariff counts in KGS; 5 cases ship no weight. |
+| 15 | `SQCQTY` | extracted / derived | 91% | Counted in the tariff's own unit, so which figure it takes depends on `SQCUnit`: the line's net weight when that unit is `KGS`, otherwise `Quantity`, and nothing at all when `SQCUnit` is blank (no unit to declare a quantity in). The net weight comes from `NetWeight`, an internal extracted field; 5 corpus cases ship no per-line weight, and those rows stay blank with a warning rather than borrow a count. |
 | 16 | `SQCUnit` | schedule | **41%** | Gated by `RITCCode`. Where the code is present the RoDTEP `UQC` column resolves it **20/20 exactly**. |
 | 17 | `UnitPrice` | extracted | 98% | 5 rows carry a rate back-computed to more precision than the invoice prints. |
 | 18 | `ProductAmount` | extracted | 89% | Some invoices print only a grouped total. Never computed from `Quantity × UnitPrice` — that mismatch is reported as a warning instead. |
 | 19 | `Per` | derived | 100% | — |
-| 20 | `PerUnit` | derived | 90% | Copies `QuantityUnit`, so it inherits that column's gaps. |
+| 20 | `PerUnit` | derived | 90% | Copies `QuantityUnit`, so it inherits that column's gaps — but the copy is also wired to the `QuantityUnit` dropdown, so a unit filled in the grid after import fills this too. |
 | 21 | `drawback_schno` | lookup / schedule | **43%** | Gated by `RITCCode`. Resolves **13/13 exactly** from either source. **14 of the corpus's 20 tariff codes carry more than one eligible serial** — the module now offers them as a per-row dropdown and warns that the residual line is a suggestion, instead of guessing silently. The `B` suffix is the schedule's column B, *"drawback when Cenvat facility has been availed"*. |
 | 22 | `dbk_qty` | derived | 90% | Copies `Quantity` wherever it exists; 23 trusted rows leave it blank because no drawback is claimed on that line. |
 | 23 | `dbk_rate` | lookup / schedule | **43%** | Gated by `RITCCode`. Resolves **13/13 exactly** from either source. Follows whichever serial the row carries, so changing the serial changes the rate. |
-| 24 | `dbk_unit` | lookup / derived | 79% | The schedule's unit for the chosen serial when it prescribes one — true for 1 of 20 corpus codes — otherwise copies `QuantityUnit`. 28 trusted rows leave it blank on lines with no drawback claim. |
+| 24 | `dbk_unit` | lookup / derived | 79% | The schedule's unit for the chosen serial when it prescribes one — true for 1 of 20 corpus codes — otherwise copies `QuantityUnit` — at import, and again whenever the serial or the unit is changed in the grid. 28 trusted rows leave it blank on lines with no drawback claim. |
 | 25 | `dbk_desc` | lookup | 77% | Was deliberately blank: the drawback PDF's description column bleeds across entries when parsed. The lookup publishes it cleanly, and **all 20 corpus codes return one**, so it now fills wherever a serial resolves. It is blank in 212 of 277 trusted rows, so **expect this column to diverge downward** against the legacy output — a deliberate improvement, like `Total_Package`. |
 | 26 | `ROSLRate` | lookup | 71% | The RoSCTL schedule is not bundled; the lookup carries a ROSL column but returns nothing for any of the 20 corpus codes, so this is unchanged in practice. Trusted output writes a literal `0` in 81 rows; the module leaves them blank rather than assert an unsourced zero. |
 | 27 | `ROSLCapValue` | lookup | 100% | **Always blank in trusted output**, and the lookup returns no ROSL cap for any corpus code, so it stays blank. |
@@ -202,12 +202,14 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 | 37 | `RoDTEPQty` | derived | 89% | Tracks `SQCQTY` — *not* `Quantity`, which is wrong in 169 of 277 rows — so it inherits the net-weight gap. |
 
 **Columns blank in the trusted output:** `HAWBL_No`, `Accessories`, `ROSLCapValue`, and
-`Total_Package` are empty in all 277 rows; `dbk_desc` in 212, `ROSLRate` in 196, and
+`Total_Package` are empty in all 277 rows — the module matches this by rule for the last two; `dbk_desc` in 212, `ROSLRate` in 196, and
 `GSTCCessAmount` in 153.
 
 ### What the module will not do
 
-- Compute `ProductAmount`, or copy `Quantity` into `SQCQTY`/`RoDTEPQty`, or `QuantityUnit` into `SQCUnit`.
+- Compute `ProductAmount`, or copy `Quantity` into `RoDTEPQty`, or `QuantityUnit` into `SQCUnit`. `SQCQTY` does take `Quantity`, but only where the tariff states a non-`KGS` unit to declare it in.
+- Extract a net weight that is not printed against the individual line. A consignment total is never divided across lines, and a weight in any unit but kilograms is discarded rather than converted.
+- Populate `Total_Package` or `Accessories`. Both are blanked by rule and omitted from the extraction request entirely.
 - Default `FTACode` to `NCPTI`, despite it appearing in 277/277 trusted rows and 0 input files.
 - Fuzzy-match, substring-match, or nearest-match a catalog value. Unknown values are blanked with a warning.
 - Classify `EndUse` from the goods. The corpus refutes it directly: motor-vehicle parts are `GNX100` in cases 6 and 16 but `GNX200` in case 15, because the code describes what the *buyer* does. A classifier would score ~80% and be confidently wrong on the rest.
@@ -395,11 +397,12 @@ src/
     │       ├── readers.ts          # Local PDF/XLS/XLSX text extraction with file boundaries
     │       ├── ai.server.ts        # The single Gemini request and its extraction contract
     │       ├── schema.ts           # Candidate rows, evidence spans, clean report (Zod)
+    │       ├── columns.ts          # The 37 filed columns, plus internal ones the rules need
     │       ├── evidence.ts         # Quote verification: does the source really say this?
     │       ├── sanitize.ts         # Per-field evidence gate; one bad field never kills a row
     │       ├── derive.ts           # Schedule lookups, formulas, GSTIN state, provenance map
     │       ├── validate.ts         # Deterministic checks; warnings, not blockers
-    │       ├── to-table.ts         # Mechanical rules and the 37-column mapping
+    │       ├── to-table.ts         # Mechanical rules; drops internal fields to the 37 filed columns
     │       ├── profile.ts          # Per-exporter shipment defaults
     │       ├── IcegridSettings.svelte # Settings panel, mounted via the generic module slot
     │       └── catalogs/           # Trusted catalogs and exact-only resolution
