@@ -25,6 +25,7 @@ describe('ICEGrid Schema Validation', () => {
 		SQCQTY: 500,
 		SQCUnit: 'NOS',
 		NetWeight: 42.5,
+		Materials: 'Iron 0.800; Marble 1.700',
 		UnitPrice: 24.5,
 		ProductAmount: 12250.0,
 		Per: 1,

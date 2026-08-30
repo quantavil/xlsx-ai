@@ -134,9 +134,16 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 		lookupWarnings = [...lookupWarnings, ...extra.warnings];
 	}
 
+	// The goods-class phrase is composed only here, on the final pass. Everything that
+	// reads Description before this - the tariff classifier's search terms, the grouping
+	// that decides what the dialog asks about, the dialog's own labels - needs the
+	// article's own printed name. The house-style phrase is not tariff text, so searching
+	// the ITC-HS master with it finds nothing, and it is identical across a shipment, so
+	// grouping by it collapses distinct articles into one question.
 	const derived = deriveRows(applyIcegridAnswers(report.rows, answers), {
 		...deriveBase,
-		exchangeRate: answers.exchangeRate
+		exchangeRate: answers.exchangeRate,
+		descriptionStyle: candidate.descriptionStyle ?? null
 	});
 	const filledReport = { ...report, rows: derived.rows };
 

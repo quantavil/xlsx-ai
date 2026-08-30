@@ -90,6 +90,18 @@ VALUE FORMAT
 - There is no currency output column, and no InvoiceSNo, ItemSNo, Per, Accessories or Total_Package column; do not report any of them.
 - NetWeight: the net weight of THIS line item, in kilograms. Report it only where the document prints a net weight against that individual line. A consignment or invoice total, a carton or per-carton weight, and a gross weight are all different figures - leave NetWeight null rather than reporting one of them, and never divide a total across lines. If the printed weight is in any unit other than kilograms, leave it null.
 - Description: report only the text printed inside that line's own Description cell. When the cell wraps across several printed rows it is still one value: join its continuation lines, in printed order, separated by single spaces. Two things never belong in it. First, a heading that spans more than one line item - a page title, a section banner, or a goods-class phrase printed once above a block of rows - however close it sits to the cell. Second, data that belongs to another column even when the layout prints it in the same block: PO numbers, HSN or tariff lines, carton dimensions, net or gross weights, and packaging notes. Dimensions and sizes that are part of the article's own printed name do belong.
+- Materials: the per-line material weight breakdown, when the packing list prints one against that individual line. Copy each material NAME exactly as printed and pair it with its per-piece weight in kilograms, joined as "Name weight; Name weight", in the order the document prints them. One material per entry and a ";" between every pair - "Alu 0.570; Stone 0.300", never "Alu 0.570 Stone 0.300". It appears in several layouts - a parenthetical after the item name ("(Alu-1.000 / Marble-0.850)"), a run inside the description cell ("Net Wt Brass 0.030, Glass 0.125"), stacked name-and-weight rows, or one column per material - and all of them mean the same thing. Report a material with no weight printed against it as its bare name with no number. A consignment total, a carton weight and a gross weight are not this; leave Materials null rather than reporting one. Never invent a material the line does not print, never convert a unit, and never re-order what you copy.
+
+THE GOODS-CLASS PHRASE (descriptionStyle)
+- Shipping bills open Description with a goods-class phrase the exporter uses for the whole shipment, e.g. "HANDICRAFTS OF MARBLE / ALUMINUM ARTWARES- RECTANGLE TOP END TABLE".
+- The documents state it themselves, as a banner over the item table or beside the carton marks: "CARTONS CONTAIN HANDICRAFTS OF IRON,MANGO WOOD, JUTE,S.STEEL,MARBLE & GLASS ARTWARES ITEMS", "Handicrafts of Aluminium, Brass, Glass, Iron, MDF, Rexine, Steel, Stone, M/Wood Artware".
+- Return it once for the shipment as descriptionStyle.template, with the material list replaced by {MATERIALS} and the item's own name by {NAME}: "HANDICRAFTS OF {MATERIALS} ARTWARES- {NAME}".
+- The template MUST contain both placeholders. The banner names the class of goods and stops there, so {NAME} will not be in the text you are reading - append it in the exporter's own punctuation, as "- {NAME}" or "-{NAME}" or ": {NAME}", matching how the shipment's own filed descriptions separate the phrase from the article. A template without {NAME} throws the article's name away and is discarded unused. Keep the banner's exact wording, spacing and punctuation around those placeholders, including whether it says ARTWARE, ARTWARES or FURNITURE.
+- separator is what joins two material names in that banner's own style: " / ", "/", " & ".
+- spellings expands abbreviations the weight breakdown uses into this exporter's own full spelling, taken from the banner where it states one: S.Steel -> STAINLESS STEEL, Alu -> ALUMINUM where the banner writes ALUMINUM and ALUMINIUM where it writes ALUMINIUM. Do not substitute a different material: Stone stays STONE, Marble stays MARBLE, Baith stays BAITH.
+- nonMaterials lists entries in the weight breakdown that are components rather than materials of the article - "Wiring Component", "Movement", "Electric Fitting" - but ONLY where the banner itself leaves them out.
+- Do not rank, re-order or drop materials, and do not write any Description prefix yourself. Return the template and the per-line weights; the application composes the phrase from them.
+- If no banner states a goods-class phrase, descriptionStyle is null. Goods that are not handicrafts or artware usually have none.
 - Any field not present in the documents must be null. Missing data is expected and correct.`;
 
 export const icegridExtractAiHandler: ModuleAiHandler = {
@@ -120,7 +132,8 @@ Extract every commercial-invoice line item as one row, with evidence spans for e
 			reportVersion: 1,
 			sourceFiles: documentContext.sourceFiles,
 			rows: result.object.rows,
-			warnings: result.object.warnings ?? []
+			warnings: result.object.warnings ?? [],
+			descriptionStyle: result.object.descriptionStyle ?? null
 		};
 		return report;
 	}
