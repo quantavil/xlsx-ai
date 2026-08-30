@@ -180,7 +180,7 @@ describe('deriveRows', () => {
 
 		const paid = deriveRows([row({ ...base, IGST_PaymentStatus: 'P', ProductAmount: 1025, IGST_Rate: 18 })], {
 			catalogs,
-			documentExchangeRate: 92.5
+			exchangeRate: 92.5
 		});
 		// The corpus row: 1025 * 92.5 = 94812.50, IGST 18% = 17066.25.
 		expect(paid.rows[0].Taxable_Value).toBe(94812.5);
@@ -250,13 +250,14 @@ describe('profile persistence', () => {
 	});
 
 	it('round-trips a valid profile', () => {
-		const p = parseProfile(JSON.stringify({ endUse: 'GNX100', exchangeRate: 92.5 }));
+		const p = parseProfile(JSON.stringify({ endUse: 'GNX100', rewardItem: 'Yes' }));
 		expect(p.endUse).toBe('GNX100');
-		expect(p.exchangeRate).toBe(92.5);
+		expect(p.rewardItem).toBe('Yes');
 		expect(p.ftaCode).toBeNull();
 	});
 
-	it('rejects an implausible exchange rate', () => {
-		expect(parseProfile({ exchangeRate: -5 }).exchangeRate).toBeNull();
+	it('drops the per-consignment fields the confirmation dialog now owns', () => {
+		const p = parseProfile({ endUse: 'GNX100', stateOrigin: '08', exchangeRate: 92.5 });
+		expect(p).toEqual({ ...EMPTY_PROFILE, endUse: 'GNX100' });
 	});
 });

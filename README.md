@@ -88,7 +88,12 @@ format, using one Gemini request for the whole selection.
 combineDocumentSources(files)     local PDF/XLS text extraction, boundary-preserving
   -> requestIcegridExtraction()   ONE /api/ai request, candidate rows + evidence spans
   -> sanitizeIcegridExtraction()  verify every quote against the extracted file text
-  -> deriveRows()                 schedule lookups, formulas, shipment profile
+  -> requestDutyLookups()         one request per distinct tariff code
+  -> requestExchangeRates()       the customs rate board, export side
+  -> deriveRows()                 PROPOSAL: schedule lookups, formulas, shipment profile
+  -> requestTariffClassification()  search phrases -> DGFT -> ranked candidates
+  -> confirmIcegridChoices()      the dialog. nothing is written until a human confirms
+  -> deriveRows()                 again, over the confirmed answers
   -> validateIcegridReport()      deterministic checks, warnings not blockers
   -> mapReportToTableData()       the existing table + Excel export
 ```
@@ -104,8 +109,10 @@ A cell is populated only if one of these can answer *"where did this come from?"
 | **Lookup** | The live duty-structure service, queried per tariff code. Supplies the drawback candidates a human chooses between, plus the description, cap and unit the bundled snapshot does not carry. Layered over the schedules, never replacing them. |
 | **Derived** | A formula over fields already established, confirmed against every row of the reference corpus. Never overwrites an extracted value. |
 | **Profile** | The exporter typed it once in Settings → Modules → ICEGrid. |
+| **Confirmed** | A human answered it in the confirmation dialog, against this shipment. Nothing here is filled by any of the routes above. |
 
-Precedence is **extracted > lookup > schedule > derived > profile**. Nothing overwrites a
+Precedence is **extracted > lookup > schedule > derived > profile**, and a confirmed
+answer outranks all of them — that is what asking is for. Nothing overwrites a
 value a document supported. Every run opens its warnings with a count per provenance.
 
 Bundled schedules (`catalogs/generated/schedules.ts`, never fetched at runtime):
@@ -115,6 +122,83 @@ Bundled schedules (`catalogs/generated/schedules.ts`, never fetched at runtime):
 
 Both are **dated snapshots and change by notification**. The UI shows the effective date;
 verify against the current notification before filing.
+
+### The confirmation dialog
+
+An import stops before it writes anything and shows what it proposes. Every field is
+already filled — by the extractor, the schedules and the live lookup — so this is a
+confirmation, not a form. It exists because each of these is a declaration the exporter
+signs and **no document can confirm it for them**: a drawback serial is a classification,
+IGST status is a decision taken before the shipment, an end use is a statement about the
+buyer.
+
+| Asked once per | Fields |
+| :--- | :--- |
+| **The whole invoice** | `EndUse`, `RewardItem`, `StateOrigin`, `DistrictOrigin`, invoice currency and exchange rate |
+| **Each distinct tariff code** | `drawback_schno`, `RODTEP`, `IGST_PaymentStatus`, `IGST_Rate` |
+| **Each item with no filable code** | the tariff code itself — see below |
+
+The pipeline runs `deriveRows` **twice**: once to produce what it proposes, which is what
+fills the dialog, and again over the confirmed answers. Because `set()` is fill-only, a
+confirmed answer sits on the raw row *before* derivation, so its consequences recompute for
+free — a changed drawback serial pulls its own rate, description, ROSL values and unit;
+an `IGST_PaymentStatus` changed to `LUT` zeroes the tax block.
+
+State and district of origin, currency and exchange rate used to be Settings defaults and
+are not any more: they change per consignment, so remembering them was wrong as often as it
+was right.
+
+### Exchange rate
+
+`impexcube.in/Home/LoadExRate` answers a plain GET with the whole customs rate board, both
+directions, no session or key. Exports convert at the **`Export`** column — `Import` is the
+other direction of the same notification and would overstate every `Taxable_Value`. The
+invoice currency is detected by scanning the documents for three-letter codes the board
+actually lists, with `INR` excluded: an Indian exporter's letterhead, GSTIN block and rupee
+totals name it on every document without the goods being invoiced in it. Proxied through
+`/api/icegrid/exchange-rate`; the dialog carries a manual override and a refresh.
+
+### Finding a tariff code
+
+Roughly a third of the corpus prints no RITC on some lines, or prints a heading like `9403`
+that narrows the answer without being one. Only an 8-digit code can be filed, so both go to
+the dialog to be chosen.
+
+**Every code offered comes out of DGFT's own ITC-HS master.** Their public lookup takes
+either a code prefix or plain description text in one parameter, unauthenticated, and
+answers with real codes and their official wording. Proxied through
+`/api/icegrid/tariff-search`, because it sends no CORS headers.
+
+The match is **literal**, and that is the whole reason a model is involved:
+
+| Query | Result |
+| :--- | :--- |
+| `wall clock` | 2 codes |
+| `bed linen` | 8 codes |
+| `cotton bed sheet` | **0** |
+| `wooden furniture` | 5 codes |
+| `furniture of wood` | **0** — word order matters |
+| `SIDE TABLE LARGE MANGO WOOD` | **0** |
+
+So the model's job is to translate invoice language into tariff language. It returns
+**search phrases, never codes** — the schema it answers with has no field a code could
+travel in. A second pass then *orders* the candidates DGFT returned, and any code it names
+that was not on the list it was given is discarded. A hallucinated code cannot reach the
+dialog: it would have to exist in the schedule to be returned at all.
+
+| Case | What runs |
+| :--- | :--- |
+| Heading printed (`9403`) | DGFT enumerates its 16 filable children. **No model at all** — the document decided. |
+| Nothing printed | One batched call for phrases → DGFT → one call to rank → shortlist of 6 |
+
+Choosing a code fires its duty lookup immediately, so the drawback serial and RoDTEP verdict
+are prefilled and visible rather than settled silently afterwards. Change the code and both
+are dropped, because they are consequences of it; IGST status and rate survive, because they
+are decisions about the shipment.
+
+An item left unclassified imports blank with a review note. Nothing is preselected —
+classifying goods is the exporter's call, and a suggestion is a suggestion until a human
+takes it.
 
 ### Live duty lookup
 
@@ -213,7 +297,9 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 - Default `FTACode` to `NCPTI`, despite it appearing in 277/277 trusted rows and 0 input files.
 - Fuzzy-match, substring-match, or nearest-match a catalog value. Unknown values are blanked with a warning.
 - Classify `EndUse` from the goods. The corpus refutes it directly: motor-vehicle parts are `GNX100` in cases 6 and 16 but `GNX200` in case 15, because the code describes what the *buyer* does. A classifier would score ~80% and be confidently wrong on the rest.
-- Call ICEGATE, DGFT, or CBIC during an import. The one outbound call is the duty-structure lookup above, to a commercial mirror of published schedules — it is advisory, marked `lookup`, and an import completes without it.
+- Write a tariff code, a drawback serial or an end use that no human confirmed. Suggestions are ranked and shown; taking one is a click, and skipping it imports the cell blank with a review note.
+- Let a model emit a tariff code. It supplies search phrases and an ordering; every code shown came back from DGFT's own master, and a ranked code that was not on the list it was handed is discarded.
+- Reach ICEGATE or CBIC during an import. It does call DGFT's public ITC-HS lookup and a commercial mirror of the published duty schedules — both read-only, both advisory, both marked as their own provenance, and an import completes without either.
 
 
 ---
@@ -224,10 +310,10 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 ```bash
 bun test
 ```
-Runs **383 unit tests across 21 files**, covering the table store, the multi-file document
+Runs **461 unit tests across 24 files**, covering the table store, the multi-file document
 index, cell alignment, formula evaluation and reference remapping, SheetJS import/export,
-the AI endpoint, structured dropdowns, the duty-structure lookup, and the ICEGrid
-extraction pipeline.
+the AI endpoint, structured dropdowns, the duty-structure lookup, tariff-code search and
+ranking, the confirmation dialog's answer model, and the ICEGrid extraction pipeline.
 
 | Suite | Tests | Covers |
 | :--- | ---: | :--- |
@@ -241,6 +327,9 @@ extraction pipeline.
 | `icegrid-columns` | 17 | Column types, catalog vs per-run dropdown wiring, mechanical rules |
 | `table-dropdown` | 15 | Generic structured/dependent dropdowns and their persistence |
 | `icegrid-readers` | 9 | PDF/spreadsheet text extraction and boundary markers |
+| `icegrid-tariff` | 18 | ITC-HS parsing, filable-code filtering, candidate ranking and the residual rule, ranking applied without trusting it |
+| `icegrid-confirm` | 16 | The confirmation answer model: grouping, per-code vs per-invoice application, exchange rate board, code-change invariants |
+| `icegrid-classify` | 7 | The classify handler against a stubbed Gemini and DGFT — opaque ids, prefix-only paths, discarded codes, search budget |
 | `icegrid-mapping`, `icegrid-schema`, `icegrid-e2e-workflow` | 15 | Validation, Zod contracts, and the export round-trip |
 
 ### How the ICEGrid test cases are built from the input/output files
@@ -363,9 +452,13 @@ src/
 │   ├── +layout.ts            # SSR disabled for every route (export const ssr = false)
 │   ├── +page.svelte          # Workspace assembling Header, DataTable, Ribbon, and AiDrawer
 │   ├── settings/+page.svelte # Settings route with AI / Modules / Shortcuts section rail
-│   └── api/ai/
-│       ├── +server.ts        # Unified Gemini AI endpoint (x-ai-api-key authentication)
-│       └── models/+server.ts # Gemini model catalog endpoint
+│   ├── api/ai/
+│   │   ├── +server.ts        # Unified Gemini AI endpoint (x-ai-api-key authentication)
+│   │   └── models/+server.ts # Gemini model catalog endpoint
+│   └── api/icegrid/          # Read-only proxies for services that send no CORS headers
+│       ├── duty-lookup/      # Drawback + RoDTEP, per tariff code
+│       ├── exchange-rate/    # The customs rate board
+│       └── tariff-search/    # DGFT ITC-HS search, for the dialog's own search box
 └── lib/
     ├── types.ts              # Strict TypeScript definitions
     ├── constants.ts          # Official Gemini models, column configs, and status palettes
@@ -395,7 +488,7 @@ src/
     │       ├── pipeline.ts         # The run: read -> extract -> sanitize -> derive -> validate
     │       │                       # (dynamically imported, so its 168 KB of data stays lazy)
     │       ├── readers.ts          # Local PDF/XLS/XLSX text extraction with file boundaries
-    │       ├── ai.server.ts        # The single Gemini request and its extraction contract
+    │       ├── ai.server.ts        # Both Gemini contracts: extraction, and tariff search + ranking
     │       ├── schema.ts           # Candidate rows, evidence spans, clean report (Zod)
     │       ├── columns.ts          # The 37 filed columns, plus internal ones the rules need
     │       ├── evidence.ts         # Quote verification: does the source really say this?
@@ -403,8 +496,16 @@ src/
     │       ├── derive.ts           # Schedule lookups, formulas, GSTIN state, provenance map
     │       ├── validate.ts         # Deterministic checks; warnings, not blockers
     │       ├── to-table.ts         # Mechanical rules; drops internal fields to the 37 filed columns
-    │       ├── profile.ts          # Per-exporter shipment defaults
-    │       ├── IcegridSettings.svelte # Settings panel, mounted via the generic module slot
+    │       ├── profile.ts          # Per-exporter defaults - only what never changes per shipment
+    │       ├── confirm.ts          # The answer model: what is asked, and how answers reach the rows
+    │       ├── confirm.client.ts   # Mounts the dialog and awaits it; resolves headlessly with no DOM
+    │       ├── tariff.ts           # ITC-HS candidates: parsing, ranking, budget, browser transport
+    │       ├── tariff.server.ts    # DGFT ITC-HS search, chunked and cached
+    │       ├── exchange-rate.ts    # Customs rate board, export side, and currency detection
+    │       ├── duty-lookup.ts      # Drawback/RoDTEP types, serial choice, dropdown payloads
+    │       ├── duty-lookup.client.ts / .server.ts # Browser transport / impexcube fetch
+    │       ├── IcegridSettings.svelte     # Settings panel, mounted via the generic module slot
+    │       ├── IcegridConfirmDialog.svelte # The pre-import confirmation dialog
     │       └── catalogs/           # Trusted catalogs and exact-only resolution
     │           ├── fixed.ts            # Units/schemes/EndUse from the trusted Guidelines sheet
     │           ├── resolve.ts          # Exact match only - no fuzzy, no nearest option

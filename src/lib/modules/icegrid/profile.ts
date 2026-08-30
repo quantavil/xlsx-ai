@@ -4,25 +4,20 @@ import { z } from 'zod';
  * The values that are constant for a shipment and appear in no shipping document.
  *
  * Across the 17-shipment reference corpus every one of these was populated in the
- * expected output and absent from every input file. `EndUse` is the clearest case:
- * it is a statement about what the buyer does with the goods, so two shipments of
- * the same motor-vehicle parts legitimately carry different codes. Asking once is
- * the only honest way to fill them.
+ * expected output and absent from every input file.
+ *
+ * These are the ones that genuinely never change between shipments. State and
+ * district of origin, the invoice currency and its exchange rate used to live here
+ * too and no longer do: they vary per consignment, so the import's confirmation
+ * dialog asks for them against the shipment in hand rather than remembering a
+ * default that is wrong as often as it is right.
  */
 export const IcegridProfileSchema = z.object({
 	endUse: z.string().max(200).nullable().default(null),
 	rewardItem: z.string().max(200).nullable().default(null),
 	igstPaymentStatus: z.string().max(200).nullable().default(null),
 	applicableExpSchemes: z.string().max(200).nullable().default(null),
-	ftaCode: z.string().max(200).nullable().default(null),
-	stateOrigin: z.string().max(200).nullable().default(null),
-	districtOrigin: z.string().max(200).nullable().default(null),
-	/**
-	 * Customs exchange rate for the invoice currency. Printed on the invoice in only
-	 * 2 of 17 corpus shipments, so it is offered here as a fallback. Taxable_Value is
-	 * left blank when neither source supplies it.
-	 */
-	exchangeRate: z.number().positive().max(10_000).nullable().default(null)
+	ftaCode: z.string().max(200).nullable().default(null)
 });
 
 export type IcegridProfile = z.infer<typeof IcegridProfileSchema>;
@@ -32,10 +27,7 @@ export const EMPTY_PROFILE: IcegridProfile = Object.freeze({
 	rewardItem: null,
 	igstPaymentStatus: null,
 	applicableExpSchemes: null,
-	ftaCode: null,
-	stateOrigin: null,
-	districtOrigin: null,
-	exchangeRate: null
+	ftaCode: null
 });
 
 /** Which output header each profile field fills. */
@@ -44,9 +36,7 @@ export const PROFILE_FIELD_HEADERS = {
 	rewardItem: 'RewardItem',
 	igstPaymentStatus: 'IGST_PaymentStatus',
 	applicableExpSchemes: 'ApplicableExpSchemes',
-	ftaCode: 'FTACode',
-	stateOrigin: 'StateOrigin',
-	districtOrigin: 'DistrictOrigin'
+	ftaCode: 'FTACode'
 } as const;
 
 export const LS_ICEGRID_PROFILE_KEY = 'xlsx-ai:module:icegrid:profile:v1';

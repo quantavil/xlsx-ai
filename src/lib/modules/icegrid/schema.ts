@@ -97,9 +97,19 @@ export const IcegridCandidateRowSchema = IcegridRowSchema.omit({
 });
 
 export const IcegridExtractionSchema = z.object({
+	/**
+	 * Zero rows is a valid answer, and the schema must accept it.
+	 *
+	 * "These files hold a packing list and no commercial invoice" is a correct,
+	 * well-formed response with the reason attached in `warnings`. A `.min(1)` here
+	 * made the AI SDK reject it as `NoObjectGeneratedError`, so the one useful thing
+	 * in the response - the model's own explanation - reached the user as an opaque
+	 * 502. An empty extraction still fails the import; `pipeline.ts` raises it, with
+	 * the warnings quoted. **Never constrain the shape of a legitimate answer in a
+	 * schema handed to `generateObject`** - validate it where a message can be built.
+	 */
 	rows: z
 		.array(IcegridCandidateRowSchema)
-		.min(1)
 		.max(500)
 		.describe('Candidate ICEGATE rows, one per commercial invoice line'),
 	warnings: z.array(z.string()).max(100).describe('Extraction notes, ambiguities, or warnings')

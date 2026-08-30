@@ -1,7 +1,10 @@
 import type { ModuleAiHandler } from './types';
-import { icegridExtractAiHandler } from '$lib/modules/icegrid/ai.server';
+import { icegridExtractAiHandler, icegridClassifyAiHandler } from '$lib/modules/icegrid/ai.server';
 
-export const MODULE_AI_HANDLERS: readonly ModuleAiHandler[] = [icegridExtractAiHandler];
+export const MODULE_AI_HANDLERS: readonly ModuleAiHandler[] = [
+	icegridExtractAiHandler,
+	icegridClassifyAiHandler
+];
 
 export function getModuleAiHandler(
 	moduleId: string,

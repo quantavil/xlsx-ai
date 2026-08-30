@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import type { z } from 'zod';
 import {
 	IcegridReportSchema,
 	IcegridAiReportSchema,
@@ -72,18 +73,19 @@ describe('ICEGrid Schema Validation', () => {
 		expect(result.success).toBe(false);
 	});
 
-	it('rejects AI responses with zero rows', () => {
+	it('accepts an AI response with zero rows, so its reason survives', () => {
 		const emptyReport = {
 			reportVersion: 1,
-			sourceFiles: ['invoice.xlsx'],
+			sourceFiles: ['packing.xlsx'],
 			rows: [],
-			warnings: []
+			warnings: ['No commercial invoice file was provided; only a packing list was found.']
 		};
 
-		// The AI-facing schema requires at least one row: an empty Gemini response is a
-		// failed extraction. The post-sanitization report deliberately permits zero rows,
-		// because blocking on "no rows" is validate.ts's job and carries a clear message.
-		expect(IcegridAiReportSchema.safeParse(emptyReport).success).toBe(false);
+		// "No invoice lines, and here is why" is a well-formed answer. Requiring a row
+		// here made the AI SDK throw NoObjectGeneratedError and destroy the warning,
+		// which is the only part of that response worth showing the user. An empty
+		// extraction still fails the import - pipeline.ts raises it with the warnings.
+		expect(IcegridAiReportSchema.safeParse(emptyReport).success).toBe(true);
 		expect(IcegridReportSchema.safeParse(emptyReport).success).toBe(true);
 	});
 
@@ -119,10 +121,9 @@ describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
 		return found;
 	}
 
-	it('sends Gemini a responseSchema with no non-string enums', async () => {
+	async function capturedResponseSchema(schema: z.ZodType): Promise<unknown> {
 		const { createGoogleGenerativeAI } = await import('@ai-sdk/google');
 		const { generateObject } = await import('ai');
-		const { IcegridExtractionSchema } = await import('../../src/lib/modules/icegrid/schema');
 
 		let responseSchema: unknown = null;
 		const captureFetch = (async (_url: string, init: { body: string }) => {
@@ -130,10 +131,7 @@ describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
 			return new Response(
 				JSON.stringify({
 					candidates: [
-						{
-							content: { role: 'model', parts: [{ text: '{"rows":[],"warnings":[]}' }] },
-							finishReason: 'STOP'
-						}
+						{ content: { role: 'model', parts: [{ text: '{}' }] }, finishReason: 'STOP' }
 					],
 					usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 }
 				}),
@@ -144,11 +142,41 @@ describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
 		const google = createGoogleGenerativeAI({ apiKey: 'x'.repeat(30), fetch: captureFetch });
 		await generateObject({
 			model: google('gemini-3.7-flash-lite'),
-			prompt: 'extract',
-			schema: IcegridExtractionSchema
-		}).catch(() => undefined); // the canned empty response fails rows.min(1); we only want the request
+			prompt: 'go',
+			schema
+			// The canned response is not a real answer; we only want the request.
+		}).catch(() => undefined);
+		return responseSchema;
+	}
 
-		expect(responseSchema).toBeTruthy();
-		expect(collectViolations(responseSchema)).toEqual([]);
+	it('sends Gemini a responseSchema with no non-string enums', async () => {
+		// Every schema this module hands to generateObject, not just the first one:
+		// a numeric literal in any of them is a 400 on every call that uses it, and
+		// that is how the extraction schema broke every import once already.
+		const { IcegridExtractionSchema } = await import('../../src/lib/modules/icegrid/schema');
+		const { IcegridSearchTermsSchema, IcegridRankedCodesSchema } = await import(
+			'../../src/lib/modules/icegrid/ai.server'
+		);
+
+		for (const [name, schema] of [
+			['extraction', IcegridExtractionSchema],
+			['search terms', IcegridSearchTermsSchema],
+			['ranked codes', IcegridRankedCodesSchema]
+		] as const) {
+			const responseSchema = await capturedResponseSchema(schema);
+			expect(responseSchema, name).toBeTruthy();
+			expect(collectViolations(responseSchema), name).toEqual([]);
+		}
+	});
+
+	it('gives the ranker no field a tariff code could be invented into', async () => {
+		const { IcegridSearchTermsSchema } = await import('../../src/lib/modules/icegrid/ai.server');
+		// The term generator answers with words only. If a `code` field ever appears
+		// here, a model-authored code can reach the dialog without passing DGFT.
+		const parsed = IcegridSearchTermsSchema.safeParse({
+			items: [{ key: 'k', terms: ['wooden furniture'], code: '94036000' }]
+		});
+		expect(parsed.success).toBe(true);
+		expect(parsed.success && Object.keys(parsed.data.items[0])).toEqual(['key', 'terms']);
 	});
 });

@@ -47,8 +47,14 @@ export interface DeriveOptions {
 	catalogs: IcegridCatalogSnapshot;
 	/** Combined extracted text of the selected files, used only for the GSTIN scan. */
 	sourceText?: string;
-	/** Exchange rate read off the invoice, which takes precedence over the profile. */
-	documentExchangeRate?: number | null;
+	/**
+	 * INR per unit of the invoice currency, confirmed by the filer.
+	 *
+	 * There is no fallback behind it any more: the rate comes from the customs board
+	 * or the invoice, and either way the confirmation dialog is what settles it.
+	 * Absent, `Taxable_Value` stays blank rather than being computed at a guess.
+	 */
+	exchangeRate?: number | null;
 	/**
 	 * Live duty-structure answers keyed by RITC. Absent or missing a code simply means
 	 * the bundled schedule decides, which is what happened before this existed.
@@ -70,7 +76,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		catalogs,
 		profile = EMPTY_PROFILE,
 		sourceText = '',
-		documentExchangeRate = null,
+		exchangeRate = null,
 		lookups
 	} = options;
 
@@ -85,7 +91,6 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 	};
 
 	const gstinState = sourceText ? stateCodeFromGstin(sourceText) : null;
-	const exchangeRate = documentExchangeRate ?? profile.exchangeRate ?? null;
 	let residualDrawbackRows = 0;
 	let missingNetWeightRows = 0;
 	let sampleAlternatives: string[] = [];

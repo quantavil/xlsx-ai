@@ -143,14 +143,58 @@ function makeContext(overrides: Partial<ModuleContext> = {}) {
 }
 
 describe('icegridModule.run pipeline', () => {
-	it('sends exactly one AI request for all selected files', async () => {
+	it('surfaces the model own reason when it finds no invoice lines', async () => {
+		const { context } = makeContext({
+			ai: {
+				apiKey: 'x'.repeat(40),
+				modelId: 'gemini-test',
+				async request() {
+					return {
+						success: true,
+						data: {
+							reportVersion: 1,
+							sourceFiles: ['packing.xlsx'],
+							rows: [],
+							warnings: ['Only a packing list was found; no commercial invoice was provided.']
+						}
+					};
+				}
+			}
+		} as unknown as Partial<ModuleContext>);
+
+		// A zero-row answer used to die inside the AI SDK as NoObjectGeneratedError,
+		// so the user saw an opaque 502 instead of the sentence explaining the problem.
+		await expect(icegridModule.run([packingFile()], context)).rejects.toThrow(
+			/no commercial invoice was provided/i
+		);
+	});
+
+	it('sends exactly one extraction request for all selected files', async () => {
 		const { context, calls } = makeContext();
 		await icegridModule.run([invoiceFile(), packingFile()], context);
 
-		expect(calls).toHaveLength(1);
-		const payload = calls[0] as { operation: unknown; input: { sourceFiles: string[] } };
+		const extractions = calls.filter(
+			(c) => (c as { operation: { action: string } }).operation.action === 'extract'
+		);
+		expect(extractions).toHaveLength(1);
+		const payload = extractions[0] as { operation: unknown; input: { sourceFiles: string[] } };
 		expect(payload.operation).toEqual({ kind: 'module', moduleId: 'icegrid', action: 'extract' });
 		expect(payload.input.sourceFiles).toEqual(['invoice.xlsx', 'packing.xlsx']);
+	});
+
+	it('asks for tariff codes once, for the items that arrived without one', async () => {
+		const { context, calls } = makeContext();
+		await icegridModule.run([invoiceFile(), packingFile()], context);
+
+		// The wall clock row carries no RITC; the side table carries a full one, so
+		// only the clock is worth a classification request - and it is one request,
+		// not one per item.
+		const classifications = calls.filter(
+			(c) => (c as { operation: { action: string } }).operation.action === 'classify'
+		);
+		expect(classifications).toHaveLength(1);
+		const input = (classifications[0] as { input: { items: { description: string }[] } }).input;
+		expect(input.items.map((i) => i.description)).toEqual(['WALL CLOCK 24 INCH']);
 	});
 
 	it('produces a 37-column table with mechanically assigned serials', async () => {

@@ -75,7 +75,9 @@
 			}
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : 'Module processing failed.';
-			onNotify('error', msg);
+			// A module that asks the user something can be answered "no". That is an
+			// outcome, not a fault, so it must not surface as a red error toast.
+			onNotify((err as { name?: string })?.name === 'AbortError' ? 'info' : 'error', msg);
 		} finally {
 			target.value = '';
 		}
