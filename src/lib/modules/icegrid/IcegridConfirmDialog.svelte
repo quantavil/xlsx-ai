@@ -4,7 +4,7 @@
 	import { normalizeStateKey } from './catalogs';
 	import type { IcegridCatalogId, IcegridCatalogOption } from './catalogs/types';
 	import { rateFor, requestExchangeRates, type ExchangeRate } from './exchange-rate';
-	import { requestTariffSearch, type TariffCandidate } from './tariff';
+	import { requestTariffSearch, tariffLeaf, type TariffCandidate } from './tariff';
 	import { requestDutyLookups } from './duty-lookup.client';
 	import { selectDrawbackSerial } from './duty-lookup';
 	import type { DropdownOption } from '$lib/types';
@@ -100,6 +100,18 @@
 	 * under one tariff code carrying another's drawback claim.
 	 */
 	let dutyByCode = $state<Record<string, { options: DropdownOption[]; suggested: string | null; rodtep: string }>>({});
+
+	/**
+	 * The headings a tariff item hangs under, for the muted half of its label.
+	 *
+	 * DGFT returns the whole path and a heading's children all share it: every one of
+	 * `4421`'s twenty-three reads "Spools, cops, bobbins, sewing thread reels and the
+	 * like of turned wood: ..." and only the tail says which is which. Leading with the
+	 * path made six options look like one option repeated six times.
+	 */
+	function pathAbove(description: string): string {
+		return description.slice(0, -tariffLeaf(description).length).replace(/[\s:]+$/, '');
+	}
 
 	/** The classifier's suggestions plus anything the user searched up, deduped. */
 	function candidatesFor(item: { key: string; candidates: TariffCandidate[] }): TariffCandidate[] {
@@ -436,8 +448,17 @@
 														class="ml-2 text-[10px] px-1.5 py-px rounded-full align-middle {option.basis === 'prefix'
 															? 'bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]'
 															: 'bg-[var(--surface-3)] text-[var(--text-3)]'}"
-													>{option.basis === 'prefix' ? `under ${option.via}` : `“${option.via}”`}</span>
-													<span class="block text-[11px] text-[var(--text-2)] leading-snug">{option.description}</span>
+													>{option.basis === 'prefix'
+															? `under ${option.via}`
+															: option.basis === 'broad'
+																? `broader: ${option.via}`
+																: `“${option.via}”`}</span>
+													<span class="block text-[11px] text-[var(--text-2)] leading-snug"
+														>{tariffLeaf(option.description)}{#if pathAbove(option.description)}<span
+																class="text-[var(--text-3)]"
+															> · {pathAbove(option.description)}</span
+															>{/if}</span
+													>
 												</span>
 											</label>
 										{/each}

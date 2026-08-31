@@ -28,11 +28,14 @@ export interface TariffCandidate extends TariffMatch {
 	/**
 	 * `prefix` - a partial code the documents printed narrowed to this one.
 	 * `search` - a description search found it.
+	 * `broad`  - the recovery round found it, after every phrase for this item missed.
 	 *
-	 * A prefix candidate is anchored in the shipping documents; a search
-	 * candidate is a suggestion. The dialog says which is which.
+	 * A prefix candidate is anchored in the shipping documents; a search candidate is a
+	 * suggestion; a broad one is a lead. The dialog says which is which, because a
+	 * broad candidate came from one word of the description and is much likelier to be
+	 * wrong - it exists so the item is not a dead end, not because it is probably right.
 	 */
-	basis: 'prefix' | 'search';
+	basis: 'prefix' | 'search' | 'broad';
 	/** The query that surfaced it, shown so a suggestion can be judged. */
 	via: string;
 }
@@ -169,11 +172,35 @@ function tokens(text: string): string[] {
  * at zero. Prefix matching from four characters up is the cheapest fix that does
  * not need a stemmer, and four is short enough to keep `steel`/`steels` while
  * refusing to call `cot` and `cotton` a match.
+ *
+ * The stretch is capped at two characters because an unbounded prefix is not a stem:
+ * it scored `CAKE STAND` against `Motor gasoline conforming to standard IS 2796` on
+ * the strength of `stand`/`standard`, and put petroleum at the top of a list of
+ * marble homeware. Two keeps every inflection this actually needs - `wood`/`wooden`,
+ * `steel`/`steels`, `marble`/`marbled`, `glass`/`glasses`.
  */
+const MAX_STEM_STRETCH = 2;
+
 function related(a: string, b: string): boolean {
 	if (a === b) return true;
 	const [short, long] = a.length <= b.length ? [a, b] : [b, a];
-	return short.length >= 4 && long.startsWith(short);
+	return (
+		short.length >= 4 && long.length - short.length <= MAX_STEM_STRETCH && long.startsWith(short)
+	);
+}
+
+/**
+ * The tariff item's own wording, without the headings it hangs under.
+ *
+ * DGFT answers with the whole path: every one of `4421`'s twenty-three children comes
+ * back as `Spools, cops, bobbins, sewing thread reels and the like of turned wood:
+ * ---- <leaf>`, and only the leaf tells them apart. The shared parent is kept for
+ * display - `Other` on its own means nothing to a filer - but anything judging what a
+ * code *is* has to read the last segment.
+ */
+export function tariffLeaf(description: string): string {
+	const segments = description.split(':');
+	return (segments[segments.length - 1] ?? '').trim() || description.trim();
 }
 
 /**
@@ -183,20 +210,27 @@ function related(a: string, b: string): boolean {
  * user's eye lands on first: taking the residual is the choice that most often
  * needs revisiting, which is why the drawback side of this module already warns
  * whenever it falls back to one.
+ *
+ * Judged on the leaf. Reading the whole path instead, every sibling under a named
+ * heading looks specific - `... of turned wood: Other` carries eleven words of parent
+ * - and the residual rule quietly stopped firing for exactly the deep headings that
+ * produce the most look-alike candidates.
  */
 function isResidual(description: string): boolean {
-	return tokens(description).length === 0;
+	return tokens(tariffLeaf(description)).length === 0;
 }
 
 /**
  * Rank candidates against the item they are offered for.
  *
  * Word overlap with the invoice description first, because a tariff line that
- * names the goods should outrank the residual under the same heading. A prefix
- * candidate always outranks a searched one: it is what the documents said. Only
- * then length, and residual entries sink regardless - ordering those by length
+ * names the goods should outrank the residual under the same heading. Evidence
+ * outranks overlap though: what the documents printed comes before what a phrase
+ * found, which comes before what the recovery round scraped from a single word.
+ * Only then length, and residual entries sink regardless - ordering those by length
  * would put `Other` at the top of every tie, which is precisely backwards.
  */
+const BASIS_RANK: Record<TariffCandidate['basis'], number> = { prefix: 0, search: 1, broad: 2 };
 export function rankTariffCandidates(
 	candidates: readonly TariffCandidate[],
 	itemDescription: string,
@@ -204,20 +238,75 @@ export function rankTariffCandidates(
 ): TariffCandidate[] {
 	const wanted = tokens(itemDescription);
 
+	// Distinct words, not occurrences. A description that happens to say "wood" three
+	// times is not three times the match, and under a heading whose own text repeats the
+	// material that inflation is what decided the order - `Wood paving Blocks` outranked
+	// `Parts of domestic decorative articles used as tableware` for a wooden bowl.
 	const scored = candidates.map((candidate) => ({
 		candidate,
-		overlap: tokens(candidate.description).filter((t) => wanted.some((w) => related(t, w))).length,
+		overlap: new Set(
+			tokens(candidate.description).filter((t) => wanted.some((w) => related(t, w)))
+		).size,
 		residual: isResidual(candidate.description)
 	}));
 
 	scored.sort((a, b) => {
-		if (a.candidate.basis !== b.candidate.basis) return a.candidate.basis === 'prefix' ? -1 : 1;
+		const basis = BASIS_RANK[a.candidate.basis] - BASIS_RANK[b.candidate.basis];
+		if (basis !== 0) return basis;
 		if (b.overlap !== a.overlap) return b.overlap - a.overlap;
 		if (a.residual !== b.residual) return a.residual ? 1 : -1;
 		return a.candidate.description.length - b.candidate.description.length;
 	});
 
 	return scored.slice(0, limit).map((s) => s.candidate);
+}
+
+/**
+ * Outbound queries a recovery round may make, on top of the first pass.
+ *
+ * Only items that came back with nothing spend any of it, which in a healthy run is
+ * none of them. The first pass rarely gets near its own budget, so this is headroom
+ * that already existed rather than a new cost.
+ */
+export const MAX_RECOVERY_QUERIES = 40;
+
+/**
+ * The headings a search returned, so their children can be fetched.
+ *
+ * A search answers at every level of the hierarchy, and `filableCandidates` throws the
+ * 4- and 6-digit rows away because a heading cannot be filed. That is right, and it is
+ * also where the answer often was: `tableware` returns the heading `4419 Tableware and
+ * kitchenware, of wood` and not one of its children, so an acacia serving board scores
+ * a real hit on the schedule and is still shown nothing. The heading is a pointer -
+ * `searchTariffPrefix` turns it into the fifteen filable rows underneath it.
+ *
+ * Only worth spending queries on when the item has no filable candidates at all, so
+ * the caller decides; this just names them, most specific first, since a 6-digit
+ * subheading is a better guess than the 4-digit chapter it sits in.
+ */
+export function headingCodes(matches: readonly TariffMatch[], limit = 3): string[] {
+	const headings = matches
+		.map((m) => m.code)
+		.filter((code) => code.length === 4 || code.length === 6);
+	return [...new Set(headings)].sort((a, b) => b.length - a.length).slice(0, limit);
+}
+
+/**
+ * Fall back from a phrase that found nothing to the words inside it.
+ *
+ * The schedule is matched literally, so a phrase is all-or-nothing: `acacia wood`
+ * returns zero and `acacia` returns the one tariff line that names it. When every
+ * phrase for an item misses, its own words are the only lead left, and a broad result
+ * is strictly better than an empty dialog - the ranker still has to read them, and a
+ * user looking at six wrong codes at least learns which heading to search.
+ *
+ * Longest word first: a longer word is a more particular one, and `stand` finds
+ * fifty-six rows where `cake` finds a chapter of food. Two characters or fewer and
+ * the schedule's own filler words are dropped, the same set the ranker ignores.
+ */
+export function broadenTerms(terms: readonly string[], limit = 3): string[] {
+	const words = terms.flatMap((term) => tokens(term)).filter((word) => word.length >= 4);
+	return [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, limit);
 }
 
 /**

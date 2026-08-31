@@ -93,10 +93,10 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 
 	const sanitizedInitial = initialData
 		? sanitizeAndNormalizeTableData(
-				initialData.title || DEFAULT_TABLE_TITLE,
-				initialData.columns || [],
-				initialData.rows || []
-			)
+			initialData.title || DEFAULT_TABLE_TITLE,
+			initialData.columns || [],
+			initialData.rows || []
+		)
 		: { title: DEFAULT_TABLE_TITLE, columns: [], rows: [] };
 
 	let title = $state<string>(sanitizedInitial.title);

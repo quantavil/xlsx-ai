@@ -6,9 +6,12 @@ import { searchTariffBatch, searchTariffPrefix } from './tariff.server';
 import {
 	allocateQueries,
 	applyRanking,
+	broadenTerms,
 	filableCandidates,
+	headingCodes,
 	mergeCandidates,
 	rankTariffCandidates,
+	MAX_RECOVERY_QUERIES,
 	MAX_TARIFF_QUERIES,
 	RANKING_SHORTLIST,
 	type TariffCandidate,
@@ -179,6 +182,7 @@ HOW THE SEARCH WORKS
 FOR EACH ITEM
 - Give 2 to 4 phrases, most likely first.
 - Vary them: one naming the article with its material, one naming the article alone, one naming the broader class it belongs to.
+- Make the LAST phrase a deliberately broad one, one or two words: the material or the chapter the goods belong to ("marble", "wooden tableware", "glassware"). The match is literal and all-or-nothing, so a narrow phrase that misses leaves nothing behind. A broad phrase that returns too much is still a result; a precise phrase that returns nothing is not.
 - Use the material named in the description when the tariff is likely to split on it (wood, cotton, steel, plastics, glass, leather).
 - Strip sizes, colours, model numbers, pack counts and marketing words. "SIDE TABLE LARGE MANGO WOOD 24 INCH" is a wooden table.
 - If the description is too vague to classify at all, return an empty phrase list for that item rather than guessing.`;
@@ -264,30 +268,74 @@ export const icegridClassifyAiHandler: ModuleAiHandler = {
 		);
 		const prefixByKey = new Map(prefixMatches.map((entry) => [entry.key, entry]));
 
+		/** Every filable row this item's phrases and printed prefix turned up so far. */
+		const candidatesFor = (item: { key: string; description: string }) => {
+			const prefix = prefixByKey.get(item.key);
+			const terms = termsByKey.get(item.key) ?? [];
+			return mergeCandidates(
+				prefix ? filableCandidates(prefix.matches, 'prefix', prefix.printed) : [],
+				terms.flatMap((term) => filableCandidates(searches.get(term.trim()) ?? [], 'search', term))
+			);
+		};
+
+		// A second round for the items that came back with nothing.
+		//
+		// The schedule is matched literally, so a phrase either lands or it does not, and
+		// a shipment of retail goods routinely produces four phrases that all miss - the
+		// invoice writes CAKE STAND W/ GLASS DOME and the tariff writes neither. Without
+		// this the item reaches the dialog with no candidates and no route to one, which
+		// reads as "the schedule has no code for these goods" when it means "we asked the
+		// wrong words". Two leads, cheapest first:
+		//
+		//   1. A heading the phrases already found. `tableware` answers with `4419
+		//      Tableware and kitchenware, of wood` and nothing filable, and that heading's
+		//      children are the answer. This costs one query and is usually the one.
+		//   2. The words inside the phrases that missed. Broad, but a broad list the
+		//      ranker can read beats an empty one.
+		//
+		// Budgeted separately and spent only on items that need it, so a run where the
+		// first pass worked costs exactly what it did before.
+		let recoveryBudget = MAX_RECOVERY_QUERIES;
+		const recovered = new Map<string, TariffCandidate[]>();
+		for (const item of items) {
+			if (recoveryBudget <= 0) break;
+			if (candidatesFor(item).length > 0) continue;
+
+			const terms = termsByKey.get(item.key) ?? [];
+			const found = terms.flatMap((term) => searches.get(term.trim()) ?? []);
+
+			const headings = headingCodes(found).slice(0, recoveryBudget);
+			recoveryBudget -= headings.length;
+			const fromHeadings = await Promise.all(
+				headings.map(async (code) =>
+					filableCandidates(await searchTariffPrefix(code).catch(() => []), 'broad', code)
+				)
+			);
+			let extra = mergeCandidates(...fromHeadings);
+
+			if (extra.length === 0 && recoveryBudget > 0) {
+				const words = broadenTerms(terms).slice(0, recoveryBudget);
+				recoveryBudget -= words.length;
+				const byWord = await searchTariffBatch(words);
+				extra = mergeCandidates(
+					...words.map((word) => filableCandidates(byWord.get(word) ?? [], 'broad', word))
+				);
+			}
+			if (extra.length > 0) recovered.set(item.key, extra);
+		}
+
 		// Word overlap only picks the shortlist the ranker reads. Capping to the six the
 		// user finally sees would let it decide which codes the model may consider at
 		// all, and a heading like `9403` has sixteen children worth reading.
 		const shortlists = new Map<string, TariffCandidate[]>(
-			items.map((item) => {
-				const prefix = prefixByKey.get(item.key);
-				const terms = termsByKey.get(item.key) ?? [];
-
-				const fromPrefix = prefix
-					? filableCandidates(prefix.matches, 'prefix', prefix.printed)
-					: [];
-				const fromSearch = terms.flatMap((term) =>
-					filableCandidates(searches.get(term.trim()) ?? [], 'search', term)
-				);
-
-				return [
-					item.key,
-					rankTariffCandidates(
-						mergeCandidates(fromPrefix, fromSearch),
-						item.description,
-						RANKING_SHORTLIST
-					)
-				];
-			})
+			items.map((item) => [
+				item.key,
+				rankTariffCandidates(
+					mergeCandidates(candidatesFor(item), recovered.get(item.key) ?? []),
+					item.description,
+					RANKING_SHORTLIST
+				)
+			])
 		);
 
 		// One code is not an ordering, and none is not a list.
