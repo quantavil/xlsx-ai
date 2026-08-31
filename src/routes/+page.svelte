@@ -4,10 +4,12 @@
 	import Header from '$lib/components/Header.svelte';
 	import DataTable from '$lib/table/DataTable.svelte';
 	import AiDrawer from '$lib/components/AiDrawer.svelte';
+	import FindReplaceDrawer from '$lib/components/FindReplaceDrawer.svelte';
 	import RightRibbon from '$lib/components/RightRibbon.svelte';
 	import { importFileToTable } from '$lib/data/index';
 	import {
 		store,
+		findStore,
 		documents,
 		moduleStore,
 		notify,
@@ -16,7 +18,10 @@
 		createFile,
 		newBlankFile,
 		openFile,
-		deleteFile
+		deleteFile,
+		openFindDrawer,
+		closeDrawers,
+		toggleDrawer
 	} from '$lib/workspace.svelte';
 
 	let headerRef = $state<{ focusSearch: () => void } | null>(null);
@@ -54,6 +59,13 @@
 	onMount(() => {
 		function handleGlobalKeyDown(e: KeyboardEvent) {
 			const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+
+			// Global Escape closes active drawers even if focused inside drawer inputs
+			if (e.key === 'Escape' && (store.isAiOpen || findStore.isOpen)) {
+				closeDrawers();
+				return;
+			}
+
 			if (!isCmdOrCtrl) return;
 
 			const target = e.target as HTMLElement | null;
@@ -62,6 +74,11 @@
 				target instanceof HTMLTextAreaElement ||
 				target instanceof HTMLSelectElement;
 
+			if (e.key === 'h' || e.key === 'H') {
+				e.preventDefault();
+				openFindDrawer();
+				return;
+			}
 			if (e.key === 'k' || e.key === 'K') {
 				e.preventDefault();
 				headerRef?.focusSearch();
@@ -69,7 +86,7 @@
 			}
 			if (e.key === '/' || e.key === '?') {
 				e.preventDefault();
-				store.toggleAi();
+				toggleDrawer('ai');
 				return;
 			}
 			if (e.key === ',' || e.key === '<') {
@@ -89,7 +106,6 @@
 					return;
 				}
 			}
-
 
 			if (e.key === 'n' || e.key === 'N') {
 				e.preventDefault();
@@ -133,19 +149,23 @@
 
 	<div class="workspace-body flex-1 flex overflow-hidden relative w-full min-h-0 max-sm:pb-[54px]">
 		<main class="table-main-area flex-1 min-w-0 flex overflow-hidden relative">
-			<DataTable {store} onNotify={notify} />
+			<DataTable {store} {findStore} onNotify={notify} />
 		</main>
 
 		<AiDrawer {store} onOpenSettings={openSettings} onNotify={notify} />
+		<FindReplaceDrawer {findStore} {store} onNotify={notify} onClose={closeDrawers} />
 
 		<RightRibbon
 			{store}
+			{findStore}
 			{moduleStore}
 			theme={getTheme()}
 			onToggleTheme={toggleTheme}
 			onOpenSettings={openSettings}
 			onNotify={notify}
 			onCreateFile={createFile}
+			onToggleAiDrawer={() => toggleDrawer('ai')}
+			onToggleFindDrawer={() => toggleDrawer('find')}
 		/>
 	</div>
 </div>

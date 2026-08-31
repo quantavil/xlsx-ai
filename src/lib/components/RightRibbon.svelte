@@ -2,6 +2,7 @@
 	import Icon from './Icons.svelte';
 	import { preloadData } from '$app/navigation';
 	import type { createTableStore } from '$lib/table/store.svelte';
+	import type { FindStore } from '$lib/table/find.svelte';
 	import type { createModuleStore } from '$lib/modules/module-store.svelte';
 	import type { WorkspaceModule } from '$lib/modules/types';
 	import { downloadTableAsXlsx, exportTableToCsv } from '$lib/data/index';
@@ -11,20 +12,26 @@
 
 	let {
 		store,
+		findStore,
 		moduleStore,
 		theme,
 		onToggleTheme,
 		onOpenSettings,
 		onNotify,
-		onCreateFile
+		onCreateFile,
+		onToggleAiDrawer,
+		onToggleFindDrawer
 	}: {
 		store: ReturnType<typeof createTableStore>;
+		findStore?: FindStore;
 		moduleStore?: ReturnType<typeof createModuleStore>;
 		theme: 'dark' | 'light';
 		onToggleTheme: () => void;
 		onOpenSettings?: () => void;
 		onNotify: NotifyFn;
 		onCreateFile: (table: TableData) => void;
+		onToggleAiDrawer?: () => void;
+		onToggleFindDrawer?: () => void;
 	} = $props();
 
 	let moduleFileInputRefs = $state<Record<string, HTMLInputElement | null>>({});
@@ -228,7 +235,10 @@
 		<!-- AI Assistant Tool Button -->
 		<button
 			class="ribbon-btn btn-ai-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border flex items-center justify-center cursor-pointer transition-all {store.isAiOpen ? 'active !bg-[var(--accent-primary)] !text-[var(--text-inverse)] !border-[var(--accent-primary)] shadow-sm' : 'text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'}"
-			onclick={() => store.toggleAi()}
+			onclick={() => {
+				if (onToggleAiDrawer) onToggleAiDrawer();
+				else store.toggleAi();
+			}}
 			aria-label="Toggle AI Assistant"
 			aria-expanded={store.isAiOpen}
 		>
@@ -240,6 +250,27 @@
 				AI Assistant <kbd class="tooltip-kbd font-mono text-[10px] bg-[var(--surface-1)] border border-[var(--border)] px-1 py-0.5 rounded text-[var(--text-2)]">⌘/</kbd>
 			</span>
 		</button>
+
+		<!-- Find & Replace Tool Button -->
+		{#if findStore}
+			<button
+				class="ribbon-btn btn-find-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border flex items-center justify-center cursor-pointer transition-all {findStore.isOpen ? 'active !bg-[var(--accent-amber)] !text-[var(--text-inverse)] !border-[var(--accent-amber)] shadow-sm' : 'text-[var(--accent-amber)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'}"
+				onclick={() => {
+					if (onToggleFindDrawer) onToggleFindDrawer();
+					else findStore.toggle();
+				}}
+				aria-label="Toggle Find and Replace"
+				aria-expanded={findStore.isOpen}
+			>
+				<Icon name="search" size={17} strokeWidth={2.2} aria-hidden="true" />
+				{#if findStore.isOpen}
+					<span class="ribbon-active-indicator absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-white" aria-hidden="true"></span>
+				{/if}
+				<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
+					Find & Replace <kbd class="tooltip-kbd font-mono text-[10px] bg-[var(--surface-1)] border border-[var(--border)] px-1 py-0.5 rounded text-[var(--text-2)]">⌘H</kbd>
+				</span>
+			</button>
+		{/if}
 
 		<!-- Enabled Workspace Module Buttons -->
 		{#if moduleStore}

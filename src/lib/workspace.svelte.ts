@@ -1,4 +1,5 @@
 import { createTableStore } from '$lib/table/store.svelte';
+import { createFindStore } from '$lib/table/find.svelte';
 import { createDocumentStore } from '$lib/table/documents.svelte';
 import { createModuleStore } from '$lib/modules/module-store.svelte';
 import { createToastStore, type NotifyFn } from '$lib/ui/toast.svelte';
@@ -13,8 +14,48 @@ export const store = createTableStore(undefined, {
 	// A failed write means edits are only in memory — the user has to hear about it.
 	onSaveError: (message) => notify('error', `Could not save: ${message}`, { durationMs: 8000 })
 });
+export const findStore = createFindStore(store);
 export const moduleStore = createModuleStore();
 export const toastStore = createToastStore();
+
+export type ActiveDrawer = 'ai' | 'find' | null;
+
+export function getActiveDrawer(): ActiveDrawer {
+	if (store.isAiOpen) return 'ai';
+	if (findStore.isOpen) return 'find';
+	return null;
+}
+
+export function openAiDrawer() {
+	findStore.close();
+	store.toggleAi(true);
+}
+
+export function openFindDrawer(initialQuery?: string) {
+	store.toggleAi(false);
+	findStore.open(initialQuery);
+}
+
+export function closeDrawers() {
+	store.toggleAi(false);
+	findStore.close();
+}
+
+export function toggleDrawer(drawer: 'ai' | 'find') {
+	if (drawer === 'ai') {
+		if (store.isAiOpen) {
+			store.toggleAi(false);
+		} else {
+			openAiDrawer();
+		}
+	} else if (drawer === 'find') {
+		if (findStore.isOpen) {
+			findStore.close();
+		} else {
+			openFindDrawer();
+		}
+	}
+}
 
 export const notify: NotifyFn = (type, message, options = {}) => {
 	toastStore.notify(type, message, options);

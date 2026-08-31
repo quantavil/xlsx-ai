@@ -2,6 +2,7 @@
 	import Icon from '$lib/components/Icons.svelte';
 	import DropdownCellEditor from './DropdownCellEditor.svelte';
 	import type { createTableStore } from './store.svelte';
+	import type { FindStore } from './find.svelte';
 	import type { CellAlign, Column, ColumnType, CellValue, Row } from '$lib/types';
 	import { COLUMN_TYPE_CONFIG, formatCellValue, getDropdownStyle } from '$lib/constants';
 	import { computeFloatingPosition } from '$lib/ui/position';
@@ -25,9 +26,11 @@
 
 	let {
 		store,
+		findStore,
 		onNotify
 	}: {
 		store: ReturnType<typeof createTableStore>;
+		findStore?: FindStore;
 		onNotify: (type: 'info' | 'success' | 'warning' | 'error', msg: string) => void;
 	} = $props();
 
@@ -137,13 +140,24 @@
 		ro.observe(tableScrollEl);
 		return () => ro.disconnect();
 	});
-	// Keep active cell visible inside virtual window
-	$effect(() => {
-		if (!activeCell || !tableScrollEl || store.filteredRows.length <= 80) return;
-		const idx = activeCell.rowIndex;
+	function scrollToRow(idx: number) {
+		if (!tableScrollEl || store.filteredRows.length <= 80 || idx < 0) return;
 		if (idx < visibleStart) tableScrollEl.scrollTop = idx * ROW_H;
 		else if (idx >= visibleStart + viewportCount - 4)
 			tableScrollEl.scrollTop = (idx - viewportCount + 6) * ROW_H;
+	}
+
+	// Keep active cell visible inside virtual window
+	$effect(() => {
+		if (activeCell) scrollToRow(activeCell.rowIndex);
+	});
+
+	// Keep active find match visible inside virtual window
+	$effect(() => {
+		const match = findStore?.activeMatch;
+		if (!match) return;
+		const idx = store.filteredRows.findIndex((r) => r.id === match.rowId);
+		if (idx !== -1) scrollToRow(idx);
 	});
 
 	// Svelte Action for autofocus
@@ -920,6 +934,18 @@
 													<span>Fit to content</span>
 												</button>
 
+												<button
+													class="popover-item flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+													role="menuitem"
+													onclick={() => {
+														activeColMenu = null;
+														store.selectColumn(col.id);
+													}}
+												>
+													<Icon name="check" size={13} aria-hidden="true" />
+													<span>Select column</span>
+												</button>
+
 												<div class="popover-divider h-px bg-[var(--border)] my-1"></div>
 												<div class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]">Column type</div>
 
@@ -998,11 +1024,23 @@
 						{#each renderedRows as { row, idx: rowIndex } (row.id)}
 							<tr class="data-row table-data-row h-9 border-b border-[var(--table-grid-line)] hover:bg-[var(--table-row-hover)] transition-colors group/row odd:bg-transparent even:bg-[var(--table-row-even)]" aria-rowindex={store.sheetRowFor(row.id)}>
 								<!-- Row Index & Hover Actions -->
-								<td class="td-index w-10 min-w-10 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[10.5px] text-[var(--text-3)] select-none p-0" role="gridcell">
+								<td
+									class="td-index w-10 min-w-10 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[10.5px] text-[var(--text-3)] select-none p-0"
+									role="gridcell"
+								>
 									<!-- Row 1 is the header, so data starts at 2 - the number a formula references. -->
-									<span class="row-num block group-hover/row:hidden" aria-hidden="true">{store.sheetRowFor(row.id)}</span>
+									<button
+										type="button"
+										class="row-num block group-hover/row:hidden w-full h-full text-center bg-transparent border-none font-mono text-[10.5px] text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer p-0 m-0"
+										onclick={() => store.selectRow(row.id)}
+										title="Select row {store.sheetRowFor(row.id)}"
+										aria-label="Select row {store.sheetRowFor(row.id)}"
+									>
+										{store.sheetRowFor(row.id)}
+									</button>
 									<div class="row-actions-hover hidden group-hover/row:flex items-center justify-center gap-0.5 absolute inset-0 bg-[var(--surface-2)]">
 										<button
+											type="button"
 											class="row-action-btn w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] cursor-pointer transition-colors"
 											onclick={() => store.duplicateRow(row.id)}
 											title="Duplicate row"
@@ -1011,6 +1049,7 @@
 											<Icon name="copy" size={11} aria-hidden="true" />
 										</button>
 										<button
+											type="button"
 											class="row-action-btn delete w-5 h-5 rounded flex items-center justify-center text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer transition-colors"
 											onclick={() => store.deleteRow(row.id)}
 											title="Delete row"
@@ -1037,10 +1076,12 @@
 									{@const isRef = highlightedRefs.has(`${rowIndex}::${colIndex}`)}
 									{@const isError = cellVal === ERROR_VALUE}
 									{@const inFill = isInFill(rowIndex, colIndex)}
+									{@const isFindMatch = findStore?.matchKeys.has(`${row.id}::${col.id}`) ?? false}
+									{@const isFindMatchActive = findStore?.activeMatchKey === `${row.id}::${col.id}`}
 									{@const align = store.alignFor(row.id, col.id, colType)}
 									{@const shadow = cellShadow(isActive, rowIndex, colIndex)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {inFill ? 'in-fill outline outline-1 -outline-offset-1 outline-dashed outline-[var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isFindMatch ? 'find-match outline outline-1 -outline-offset-1 outline-[var(--accent-amber)]/50 bg-[var(--accent-amber-bg)]/20' : ''} {isFindMatchActive ? 'find-match-active !outline-2 -outline-offset-1 !outline-[var(--accent-amber)] ring-2 ring-[var(--accent-amber)]/30 z-[4]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {inFill ? 'in-fill outline outline-1 -outline-offset-1 outline-dashed outline-[var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {shadow ? `box-shadow: ${shadow};` : ''} {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
 										aria-selected={isActive || inRange}

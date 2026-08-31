@@ -496,14 +496,34 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		if (!extend || !selectionAnchor || !cell) selectionAnchor = cell;
 	}
 
+	function selectColumn(columnId: string) {
+		const colIndex = columns.findIndex((c) => c.id === columnId);
+		if (colIndex === -1 || filteredRows.length === 0) return;
+		const firstRow = filteredRows[0];
+		const lastRow = filteredRows[filteredRows.length - 1];
+		selectionAnchor = { rowId: firstRow.id, columnId, rowIndex: 0, colIndex };
+		selectionFocus = { rowId: lastRow.id, columnId, rowIndex: filteredRows.length - 1, colIndex };
+	}
+
+	function selectRow(rowId: string) {
+		const rowIndex = filteredRows.findIndex((r) => r.id === rowId);
+		if (rowIndex === -1 || columns.length === 0) return;
+		const firstCol = columns[0];
+		const lastCol = columns[columns.length - 1];
+		selectionAnchor = { rowId, columnId: firstCol.id, rowIndex, colIndex: 0 };
+		selectionFocus = { rowId, columnId: lastCol.id, rowIndex, colIndex: columns.length - 1 };
+	}
+
 	const selectionRect = $derived.by<SelectionRect | null>(() => {
-		if (!selectionFocus) return null;
+		if (!selectionFocus || filteredRows.length === 0 || columns.length === 0) return null;
 		const a = selectionAnchor ?? selectionFocus;
+		const maxRow = filteredRows.length - 1;
+		const maxCol = columns.length - 1;
 		return {
-			r0: Math.min(a.rowIndex, selectionFocus.rowIndex),
-			r1: Math.max(a.rowIndex, selectionFocus.rowIndex),
-			c0: Math.min(a.colIndex, selectionFocus.colIndex),
-			c1: Math.max(a.colIndex, selectionFocus.colIndex)
+			r0: Math.max(0, Math.min(a.rowIndex, selectionFocus.rowIndex, maxRow)),
+			r1: Math.max(0, Math.min(Math.max(a.rowIndex, selectionFocus.rowIndex), maxRow)),
+			c0: Math.max(0, Math.min(a.colIndex, selectionFocus.colIndex, maxCol)),
+			c1: Math.max(0, Math.min(Math.max(a.colIndex, selectionFocus.colIndex), maxCol))
 		};
 	});
 
@@ -869,6 +889,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		setSort,
 		setSearchQuery,
 		setSelection,
+		selectColumn,
+		selectRow,
 		alignFor,
 		alignSelection,
 		toggleAi,
