@@ -8,7 +8,7 @@
 	import AiSection from '$lib/components/settings/AiSection.svelte';
 	import ModulesSection from '$lib/components/settings/ModulesSection.svelte';
 	import ShortcutsSection from '$lib/components/settings/ShortcutsSection.svelte';
-	import type { IconName } from '$lib/components/Icons.svelte';
+	import type { IconName } from '$lib/types';
 
 	const SECTIONS: Array<{ id: string; label: string; icon: IconName; blurb: string }> = [
 		{ id: 'ai', label: 'AI & Models', icon: 'sparkles', blurb: 'Connect your Google Gemini key and pick the model behind every AI action.' },

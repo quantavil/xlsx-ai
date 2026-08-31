@@ -24,14 +24,6 @@
 				['Undo / Redo', ['Ctrl', 'Z']],
 				['Close panel / menu', ['Esc']]
 			]
-		},
-		{
-			title: 'Cursor Mode',
-			items: [
-				['Add / remove cursor', ['Ctrl', 'Click']],
-				['Add cursor above / below', ['Ctrl', 'Alt', '↑ / ↓']],
-				['Back to one cursor', ['Esc']]
-			]
 		}
 	];
 </script>

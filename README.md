@@ -20,6 +20,8 @@
 - **SheetJS Client File I/O & Dynamic Chunking**:
   - **Import**: Drag & drop or upload `.xlsx`, `.xls`, `.csv`, and `.tsv` files with automatic column header deduplication, size limits (10 MB / 10k rows / 100 cols), and type inference heuristics. Formulas a workbook carries are read back as formulas, not flattened to the numbers Excel last computed.
   - **Export**: One-click export to native Excel Workbooks (`.xlsx`, via `write-excel-file`) or CSV files (`.csv`) with automatic formula injection escaping (`=`, `+`, `-`, `@`, `\t`, `\r`) and unique header disambiguation. Exported workbooks keep per-cell alignment, column widths, a bold header row, real Excel number formats for `currency` / `percent` columns, and **formulas as formulas** — `.csv`, which has no formula concept, carries the computed value instead.
+- **Cursor Mode & 1-Click Caret Placement**: Dedicated Cursor Mode toggle beside alignment in the header enables single-click direct caret placement inside text cells via `caretRangeFromPoint`, bypassing box-selection for instant typing.
+- **Find & Replace Drawer**: Comprehensive search drawer (`Ctrl+F` / `Ctrl+H`) with real-time match counts, forward/backward navigation (`Enter` / `Shift+Enter`), match-case, whole-word, and regular expression modes. Scopes automatically to selected ranges or the full sheet, with single-match and replace-all workflows with undo support.
 - **Google Gemini AI Assistant**:
   - **AI Grounding**: Contextually grounds the LLM on your active table schema, summary metrics, and data rows.
   - **Structured Data Operations (`generateObject`)**:
@@ -51,13 +53,15 @@
 | `=` then `↑` / `↓`, `Enter` / `Tab` | Move through and accept a function suggestion |
 | `Escape` (suggestions open) | Close the suggestion list, keeping the edit |
 | Drag the fill handle | Copy the cell along a row or column, stepping its references |
+| `Ctrl + F` / `Ctrl + H` | Open Find & Replace drawer |
 | `Ctrl + K` / `Cmd + K` | Focus instant search bar |
 | `Ctrl + N` / `Cmd + N` | Add new row |
 | `Ctrl + Z` / `Cmd + Z` | Undo last table edit |
 | `Ctrl + Y` / `Cmd + Shift + Z` | Redo table edit |
 | `Ctrl + /` / `Cmd + /` | Toggle AI Assistant drawer |
 | `Ctrl + ,` / `Cmd + ,` | Open Settings |
-| `Escape` | Cancel active cell edit / close panel or menu |
+| `Escape` | Cancel active cell edit / collapse range selection / close panel |
+
 
 ---
 
@@ -309,14 +313,18 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 ### Run Unit Tests (Bun Test)
 ```bash
 bun test
+bun test --coverage   # Native Bun 1.4 code coverage
 ```
-Runs **461 unit tests across 24 files**, covering the table store, the multi-file document
-index, cell alignment, formula evaluation and reference remapping, SheetJS import/export,
+Runs **534 unit tests across 27 files**, covering the table store, single selection and cursor mode, the multi-file document
+index, cell alignment, formula evaluation and reference remapping, SheetJS import/export, Find & Replace scanning and replacement,
 the AI endpoint, structured dropdowns, the duty-structure lookup, tariff-code search and
 ranking, the confirmation dialog's answer model, and the ICEGrid extraction pipeline.
 
 | Suite | Tests | Covers |
 | :--- | ---: | :--- |
+| `cursor-mode` | 12 | 1-click text caret mode, single selection range extension, clamp on filter, escape collapse, undo/redo |
+| `range-edit` | 6 | Excel single-column vertical range replacement rules and single-cell fallbacks |
+| `find-replace` | 15 | Stateless regex search, case-sensitivity, whole-word matching, selection scoping, replace single/all |
 | `formulas` | 31 | Evaluation, `#ERROR!` containment, A1 addressing, completion, point mode, fill and structural reference remapping |
 | `icegrid-golden-fixtures` | 38 | The trusted workbook contract: 37 headers, row counts, blank `Accessories`, `Per = 1`, serial rules, literal IGST rates |
 | `icegrid-sanitize` | 40 | Evidence verification — fabricated quotes, wrong file, unlisted field, numeric support, reordered extraction, trusted prose, fragments of a printed identifier |

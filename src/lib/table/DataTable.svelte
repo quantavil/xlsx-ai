@@ -585,13 +585,13 @@
 			),
 		};
 		const targets = resolveEditTargets(
-			store.selectionRects,
+			store.selectionRect,
 			store.activeCell,
 			requestedCell,
 			store.filteredRows,
 			store.columns,
 		);
-		if (targets.length === 1 && store.selectionRects.length <= 1)
+		if (targets.length === 1)
 			store.setSelection(requestedCell);
 		editTargets = targets;
 		editingCell = { rowId, columnId };
@@ -653,89 +653,65 @@
 	// reset the anchor and a shift-click would collapse the range to a single cell.
 	let pointerExtend = false;
 
-	/** A cell held by a cursor other than the primary one. Only reachable in cursor mode. */
-	function isSecondaryCursor(rowIndex: number, colIndex: number): boolean {
-		if (store.selectionRects.length <= 1) return false;
-		return store.selectionRects.some(
-			(rect, idx) =>
-				idx !== store.primaryIndex &&
-				rowIndex >= rect.r0 &&
-				rowIndex <= rect.r1 &&
-				colIndex >= rect.c0 &&
-				colIndex <= rect.c1,
-		);
-	}
-
 	function isInSelection(rowId: string, columnId: string): boolean {
 		return store.selectionKeys.has(`${rowId}::${columnId}`);
 	}
 
 	/**
-	 * The selection's outline, Excel-style, extended to several cursors.
+	 * The selection's outline, Excel-style.
 	 *
 	 * A range reads as one region because a single border runs around its perimeter, not
 	 * because every cell in it is tinted. Each cell contributes only the edges that sit
 	 * on that perimeter, so the interior grid lines stay untouched. Returned as inset
 	 * shadows because a real border would resize the cell.
 	 *
-	 * Every cursor is drawn at the same weight. Multi-cursor is only safe if you can see
-	 * which cells the next keystroke reaches, and a primary that shouted over the others
-	 * would be exactly the wrong emphasis - they all get written. While the editor is
-	 * open the input draws its own focus ring, so the cell underneath drops its own
-	 * rather than doubling it.
+	 * While the editor is open the input draws its own focus ring, so the cell underneath
+	 * drops its own rather than doubling it.
 	 */
 	function cellShadow(
 		isActive: boolean,
-		isSecondary: boolean,
 		isEditing: boolean,
 		rowIndex: number,
 		colIndex: number,
 	): string {
 		const parts: string[] = [];
-		if ((isActive && !isEditing) || isSecondary) {
+		if (isActive && !isEditing) {
 			parts.push("inset 0 0 0 2px var(--border-focus)");
 		}
 
-		for (const rect of store.selectionRects) {
-			if (rect.r0 === rect.r1 && rect.c0 === rect.c1) continue;
+		const rect = store.selectionRect;
+		if (rect && (rect.r0 !== rect.r1 || rect.c0 !== rect.c1)) {
 			if (
-				rowIndex < rect.r0 ||
-				rowIndex > rect.r1 ||
-				colIndex < rect.c0 ||
-				colIndex > rect.c1
-			)
-				continue;
-			if (rowIndex === rect.r0)
-				parts.push("inset 0 2px 0 0 var(--border-focus)");
-			if (rowIndex === rect.r1)
-				parts.push("inset 0 -2px 0 0 var(--border-focus)");
-			if (colIndex === rect.c0)
-				parts.push("inset 2px 0 0 0 var(--border-focus)");
-			if (colIndex === rect.c1)
-				parts.push("inset -2px 0 0 0 var(--border-focus)");
+				rowIndex >= rect.r0 &&
+				rowIndex <= rect.r1 &&
+				colIndex >= rect.c0 &&
+				colIndex <= rect.c1
+			) {
+				if (rowIndex === rect.r0)
+					parts.push("inset 0 2px 0 0 var(--border-focus)");
+				if (rowIndex === rect.r1)
+					parts.push("inset 0 -2px 0 0 var(--border-focus)");
+				if (colIndex === rect.c0)
+					parts.push("inset 2px 0 0 0 var(--border-focus)");
+				if (colIndex === rect.c1)
+					parts.push("inset -2px 0 0 0 var(--border-focus)");
+			}
 		}
 
 		return parts.join(", ");
 	}
 
-	/** Every (row, column) pair inside all current selection rectangles, in reading order. */
+	/** Every (row, column) pair inside the current selection rectangle, in reading order. */
 	function selectedCells(): Array<{ row: Row; col: Column }> {
+		const rect = store.selectionRect;
+		if (!rect) return [];
 		const out: Array<{ row: Row; col: Column }> = [];
-		const seen = new Set<string>();
-		for (const rect of store.selectionRects) {
-			for (let r = rect.r0; r <= rect.r1; r++) {
-				const row = store.filteredRows[r];
-				if (!row) continue;
-				for (let c = rect.c0; c <= rect.c1; c++) {
-					const col = store.columns[c];
-					if (col) {
-						const key = `${row.id}::${col.id}`;
-						if (!seen.has(key)) {
-							seen.add(key);
-							out.push({ row, col });
-						}
-					}
-				}
+		for (let r = rect.r0; r <= rect.r1; r++) {
+			const row = store.filteredRows[r];
+			if (!row) continue;
+			for (let c = rect.c0; c <= rect.c1; c++) {
+				const col = store.columns[c];
+				if (col) out.push({ row, col });
 			}
 		}
 		return out;
@@ -831,23 +807,19 @@
 		} else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 			e.preventDefault();
 			const step = e.key === "ArrowDown" ? 1 : -1;
-			if (store.cursorMode && (e.ctrlKey || e.metaKey) && e.altKey) {
-				store.addCursor(step);
-			} else {
-				const nextRow = store.filteredRows[rowIndex + step];
-				if (nextRow) {
-					selectCell(
-						nextRow.id,
-						store.columns[colIndex].id,
-						rowIndex + step,
-						colIndex,
-						e.shiftKey,
-					);
-				}
+			const nextRow = store.filteredRows[rowIndex + step];
+			if (nextRow) {
+				selectCell(
+					nextRow.id,
+					store.columns[colIndex].id,
+					rowIndex + step,
+					colIndex,
+					e.shiftKey,
+				);
 			}
 		} else if (e.key === "Escape") {
 			// An Escape that collapsed nothing belongs to whatever panel is open above.
-			if (store.collapseSelections()) e.preventDefault();
+			if (store.collapseSelection()) e.preventDefault();
 		} else if (e.key === "Tab") {
 			e.preventDefault();
 			if (e.shiftKey) {
@@ -1583,10 +1555,6 @@
 									{@const isActive =
 										activeCell?.rowId === row?.id &&
 										activeCell?.columnId === col.id}
-									{@const isSecondary = isSecondaryCursor(
-										rowIndex,
-										colIndex,
-									)}
 									{@const isNumeric = isNumericType(colType)}
 									{@const hasVal =
 										cellVal !== null &&
@@ -1604,7 +1572,6 @@
 											colIndex === 0)}
 									{@const inRange =
 										!isActive &&
-										!isSecondary &&
 										isInSelection(row.id, col.id)}
 									{@const isRef = highlightedRefs.has(
 										`${rowIndex}::${colIndex}`,
@@ -1620,7 +1587,7 @@
 										) ?? false}
 									{@const isFindMatchActive =
 										findStore?.activeMatchKey ===
-										`${row.id}::${col.id}`}
+											`${row.id}::${col.id}`}
 									{@const align = store.alignFor(
 										row.id,
 										col.id,
@@ -1628,7 +1595,6 @@
 									)}
 									{@const shadow = cellShadow(
 										isActive,
-										isSecondary,
 										isEditing,
 										rowIndex,
 										colIndex,
@@ -1642,8 +1608,6 @@
 											? 'numeric-cell font-mono tabular-nums'
 											: ''} {isActive
 											? 'active-cell z-[2]'
-											: ''} {isSecondary
-											? 'secondary-cursor z-[2]'
 											: ''} {inRange
 											? 'in-range bg-[var(--accent-primary)]/10'
 											: ''} {isRef
@@ -1673,9 +1637,7 @@
 											? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};`
 											: ''}"
 										role="gridcell"
-										aria-selected={isActive ||
-											isSecondary ||
-											inRange}
+										aria-selected={isActive || inRange}
 										tabindex={isRovingActive ? 0 : -1}
 										use:registerCellNode={`${row.id}-${col.id}`}
 										onmousedown={(e) => {
@@ -1723,12 +1685,7 @@
 										}}
 										onfocus={() => {
 											if (editingCell) return;
-											// Focus fires on the way into a ctrl-click too, and selecting here would
-											// wipe the other cursors before toggleSelection ever sees the event.
-											if (
-												!isActive &&
-												store.selectionRects.length <= 1
-											) {
+											if (!isActive) {
 												selectCell(
 													row.id,
 													col.id,
@@ -1740,23 +1697,6 @@
 										}}
 										onclick={(e) => {
 											if (pointAnchor) return;
-											// Ctrl-click drops or lifts a cursor, and nothing else. It must not open
-											// an editor: the edit would carry this cell's value into every other
-											// cursor the moment it committed, overwriting cells the user only meant
-											// to mark. Placing a caret and starting an edit are separate gestures.
-											if (
-												store.cursorMode &&
-												(e.ctrlKey || e.metaKey)
-											) {
-												store.toggleSelection({
-													rowId: row.id,
-													columnId: col.id,
-													rowIndex,
-													colIndex,
-												});
-												pointerExtend = false;
-												return;
-											}
 											// Cursor mode: one click puts the caret in the text, like a document.
 											if (
 												store.cursorMode &&
@@ -1784,10 +1724,7 @@
 											// already focuses would collapse that range before startEditing reads
 											// it - the mouse path to a bulk replace. Matches the caret button and
 											// the focus handler, both of which already no-op on the active cell.
-											if (
-												!isActive ||
-												store.selectionRects.length > 1
-											) {
+											if (!isActive) {
 												selectCell(
 													row.id,
 													col.id,

@@ -105,10 +105,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	let searchQuery = $state<string>('');
 	let sortConfig = $state<SortConfig | null>(null);
 	let cellAlign = $state<CellAlignMap>(cloneCellAlign(initialData?.cellAlign ?? {}));
-	// One entry per cursor. Multiple entries are only reachable in cursor mode, where
-	// the sheet behaves like a text buffer with several carets (VS Code style).
-	let selections = $state<CellSelection[]>([]);
-	let primaryIndex = $state<number>(0);
+	// Current selection (anchor + focus). The rectangle between them is derived.
+	let selection = $state<CellSelection | null>(null);
 	let isAiOpen = $state<boolean>(false);
 	// Several keys, one active. Free Gemini keys hit their daily quota mid-job, and the
 	// fix at that moment is to switch, not to re-paste a key from a password manager.
@@ -501,93 +499,27 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	}
 
 	/**
-	 * Moves the primary cursor. `extend` keeps the existing anchor (shift-click,
-	 * shift-arrow), so a range is just the rectangle between anchor and focus.
-	 * Any secondary cursors are dropped: a plain click collapses to one caret.
+	 * Moves the active selection. `extend` keeps the existing anchor (shift-click,
+	 * shift-arrow), so a range is the rectangle between anchor and focus.
 	 */
 	function setSelection(cell: CellRef | null, extend = false) {
 		if (!cell || filteredRows.length === 0 || columns.length === 0) {
-			selections = [];
-			primaryIndex = 0;
+			selection = null;
 			return;
 		}
-		const anchor = extend ? (selections[primaryIndex] ?? selections[0])?.anchor : undefined;
-		selections = [{ anchor: anchor ?? cell, focus: cell }];
-		primaryIndex = 0;
+		const anchor = extend ? (selection?.anchor ?? cell) : cell;
+		selection = { anchor, focus: cell };
 	}
 
 	/**
-	 * Ctrl-click: drops a cursor on `cell`, or lifts the one already covering it.
-	 * The last cursor is never lifted - a sheet with no caret has nothing to type into.
+	 * Escape: collapses a multi-cell range selection to its focus cell.
+	 * Reports whether it changed anything, letting the caller pass an inert Escape on to close a panel.
 	 */
-	function toggleSelection(cell: CellRef) {
-		if (!cursorMode || filteredRows.length === 0 || columns.length === 0) return;
-
-		const hit = selectionRects.findIndex(
-			(rect) =>
-				cell.rowIndex >= rect.r0 &&
-				cell.rowIndex <= rect.r1 &&
-				cell.colIndex >= rect.c0 &&
-				cell.colIndex <= rect.c1
-		);
-
-		if (hit === -1) {
-			selections = [...selections, { anchor: cell, focus: cell }];
-			primaryIndex = selections.length - 1;
-			return;
-		}
-		if (selections.length === 1) return;
-
-		selections = selections.filter((_, idx) => idx !== hit);
-		// Follow the primary cursor to its new index rather than clamping, which would
-		// silently hand the primary role to a different cell.
-		if (hit < primaryIndex) primaryIndex -= 1;
-		else if (primaryIndex >= selections.length) primaryIndex = selections.length - 1;
-	}
-
-	/**
-	 * Ctrl+Alt+Up/Down: extends the stack of cursors by one row, measured from the
-	 * furthest cursor already in the primary's column so repeated presses walk outward.
-	 */
-	function addCursor(direction: -1 | 1) {
-		if (!cursorMode || filteredRows.length === 0 || columns.length === 0) return;
-		const current = selections[primaryIndex]?.focus;
-		if (!current) return;
-
-		const rowsInColumn = selections
-			.filter((s) => s.focus.columnId === current.columnId)
-			.map((s) => s.focus.rowIndex);
-		const edge = direction === -1 ? Math.min(...rowsInColumn) : Math.max(...rowsInColumn);
-		const targetRow = filteredRows[edge + direction];
-		if (!targetRow) return;
-
-		const cell: CellRef = {
-			rowId: targetRow.id,
-			columnId: current.columnId,
-			rowIndex: edge + direction,
-			colIndex: current.colIndex
-		};
-		selections = [...selections, { anchor: cell, focus: cell }];
-		primaryIndex = selections.length - 1;
-	}
-
-	/**
-	 * Escape: back to one caret. Drops secondary cursors first, then shrinks a range
-	 * to its focus, so two presses always land on a single cell. Reports whether it
-	 * changed anything, letting the caller pass an inert Escape on to close a panel.
-	 */
-	function collapseSelections(): boolean {
-		if (selections.length > 1) {
-			selections = [selections[primaryIndex] ?? selections[0]];
-			primaryIndex = 0;
-			return true;
-		}
-		const only = selections[0];
-		if (!only) return false;
-		const { anchor, focus } = only;
+	function collapseSelection(): boolean {
+		if (!selection) return false;
+		const { anchor, focus } = selection;
 		if (anchor.rowId === focus.rowId && anchor.columnId === focus.columnId) return false;
-		selections = [{ anchor: focus, focus }];
-		primaryIndex = 0;
+		selection = { anchor: focus, focus };
 		return true;
 	}
 
@@ -596,13 +528,10 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		if (colIndex === -1 || filteredRows.length === 0) return;
 		const firstRow = filteredRows[0];
 		const lastRow = filteredRows[filteredRows.length - 1];
-		selections = [
-			{
-				anchor: { rowId: firstRow.id, columnId, rowIndex: 0, colIndex },
-				focus: { rowId: lastRow.id, columnId, rowIndex: filteredRows.length - 1, colIndex }
-			}
-		];
-		primaryIndex = 0;
+		selection = {
+			anchor: { rowId: firstRow.id, columnId, rowIndex: 0, colIndex },
+			focus: { rowId: lastRow.id, columnId, rowIndex: filteredRows.length - 1, colIndex }
+		};
 	}
 
 	function selectRow(rowId: string) {
@@ -610,59 +539,50 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		if (rowIndex === -1 || columns.length === 0) return;
 		const firstCol = columns[0];
 		const lastCol = columns[columns.length - 1];
-		selections = [
-			{
-				anchor: { rowId, columnId: firstCol.id, rowIndex, colIndex: 0 },
-				focus: { rowId, columnId: lastCol.id, rowIndex, colIndex: columns.length - 1 }
-			}
-		];
-		primaryIndex = 0;
+		selection = {
+			anchor: { rowId, columnId: firstCol.id, rowIndex, colIndex: 0 },
+			focus: { rowId, columnId: lastCol.id, rowIndex, colIndex: columns.length - 1 }
+		};
 	}
 
 	/**
-	 * Each cursor's rectangle, clamped to what is currently on screen.
+	 * The selection's rectangle, clamped to what is currently on screen.
 	 *
 	 * Derived rather than stored: sorting or searching rebuilds `filteredRows`, and a
 	 * rectangle captured before that points at whatever rows now sit at those indexes.
 	 */
-	const selectionRects = $derived.by<SelectionRect[]>(() => {
-		if (filteredRows.length === 0 || columns.length === 0) return [];
+	const selectionRect = $derived.by<SelectionRect | null>(() => {
+		if (!selection || filteredRows.length === 0 || columns.length === 0) return null;
 		const maxRow = filteredRows.length - 1;
 		const maxCol = columns.length - 1;
 		const clamp = (val: number, max: number) => Math.min(Math.max(val, 0), max);
-		return selections.map(({ anchor, focus }) => ({
+		const { anchor, focus } = selection;
+		return {
 			r0: clamp(Math.min(anchor.rowIndex, focus.rowIndex), maxRow),
 			r1: clamp(Math.max(anchor.rowIndex, focus.rowIndex), maxRow),
 			c0: clamp(Math.min(anchor.colIndex, focus.colIndex), maxCol),
 			c1: clamp(Math.max(anchor.colIndex, focus.colIndex), maxCol)
-		}));
+		};
 	});
 
 	/**
 	 * Every selected cell as `rowId::columnId`.
-	 *
-	 * Flat, so disjoint cursors read as the set they are rather than as the bounding box
-	 * that happens to enclose them - which is what a consumer scoping work to "the
-	 * selection" needs. Emitted as ids so nothing downstream has to re-index; the cells
-	 * themselves still follow the rectangles, so a sort moves which cells these name.
 	 */
 	const selectionKeys = $derived.by<Set<string>>(() => {
 		const keys = new Set<string>();
-		for (const rect of selectionRects) {
-			for (let r = rect.r0; r <= rect.r1; r++) {
-				const row = filteredRows[r];
-				if (!row) continue;
-				for (let c = rect.c0; c <= rect.c1; c++) {
-					const col = columns[c];
-					if (col) keys.add(`${row.id}::${col.id}`);
-				}
+		if (!selectionRect) return keys;
+		for (let r = selectionRect.r0; r <= selectionRect.r1; r++) {
+			const row = filteredRows[r];
+			if (!row) continue;
+			for (let c = selectionRect.c0; c <= selectionRect.c1; c++) {
+				const col = columns[c];
+				if (col) keys.add(`${row.id}::${col.id}`);
 			}
 		}
 		return keys;
 	});
 
-	const activeCell = $derived(selections[primaryIndex]?.focus ?? null);
-	const selectionRect = $derived(selectionRects[primaryIndex] ?? null);
+	const activeCell = $derived(selection?.focus ?? null);
 
 	/** Resolved alignment for one cell: explicit override, else the column type's default. */
 	function alignFor(rowId: string, columnId: string, type: ColumnType): CellAlign {
@@ -671,26 +591,24 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 
 	/** Applies (or with `null`, clears) alignment across every cell in the current selection. */
 	function alignSelection(align: CellAlign | null) {
-		if (selections.length === 0 || filteredRows.length === 0 || columns.length === 0) return;
+		if (!selectionRect || filteredRows.length === 0 || columns.length === 0) return;
 		const next: CellAlignMap = { ...cellAlign };
 		let changed = false;
-		for (const rect of selectionRects) {
-			for (let r = rect.r0; r <= rect.r1; r++) {
-				const row = filteredRows[r];
-				if (!row) continue;
-				for (let c = rect.c0; c <= rect.c1; c++) {
-					const col = columns[c];
-					if (!col) continue;
-					const key = `${row.id}::${col.id}`;
-					if (align) {
-						if (next[key] === align) continue;
-						next[key] = align;
-					} else {
-						if (!(key in next)) continue;
-						delete next[key];
-					}
-					changed = true;
+		for (let r = selectionRect.r0; r <= selectionRect.r1; r++) {
+			const row = filteredRows[r];
+			if (!row) continue;
+			for (let c = selectionRect.c0; c <= selectionRect.c1; c++) {
+				const col = columns[c];
+				if (!col) continue;
+				const key = `${row.id}::${col.id}`;
+				if (align) {
+					if (next[key] === align) continue;
+					next[key] = align;
+				} else {
+					if (!(key in next)) continue;
+					delete next[key];
 				}
+				changed = true;
 			}
 		}
 		if (!changed) return;
@@ -929,11 +847,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		}
 	}
 
-	/** Leaving cursor mode collapses to one caret - secondary cursors have no meaning outside it. */
 	function setCursorMode(on: boolean) {
-		if (cursorMode === on) return;
 		cursorMode = on;
-		if (!cursorMode) collapseSelections();
 	}
 
 	return {
@@ -966,12 +881,6 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		},
 		get selectionKeys() {
 			return selectionKeys;
-		},
-		get selectionRects() {
-			return selectionRects;
-		},
-		get primaryIndex() {
-			return primaryIndex;
 		},
 		get isAiOpen() {
 			return isAiOpen;
@@ -1046,9 +955,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		setSort,
 		setSearchQuery,
 		setSelection,
-		toggleSelection,
-		addCursor,
-		collapseSelections,
+		collapseSelection,
 		selectColumn,
 		selectRow,
 		alignFor,

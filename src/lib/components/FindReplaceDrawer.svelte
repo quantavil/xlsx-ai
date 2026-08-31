@@ -83,8 +83,6 @@
 	const isRangeSelected = $derived(store.selectionKeys.size > 1);
 
 	const rangeLabel = $derived.by<string>(() => {
-		// Disjoint cursors have no address - "A2:C7" would name cells they never selected.
-		if (store.selectionRects.length > 1) return `${store.selectionKeys.size} cells`;
 		const rect = store.selectionRect;
 		if (!rect) return '';
 		const c0Letter = columnLetter(rect.c0);
@@ -102,13 +100,13 @@
 	});
 
 	// Auto-switch to 'selection' scope when the user selects more than one cell while the
-	// drawer is open. Keyed off the rectangles rather than the cell set, which can run to
+	// drawer is open. Keyed off the rectangle rather than the cell set, which can run to
 	// thousands of entries on a whole-column selection.
 	let lastSelectionKey = '';
 	$effect(() => {
-		const rects = store.selectionRects;
-		if (rects.length === 0) return;
-		const key = rects.map((r) => `${r.r0}:${r.r1}:${r.c0}:${r.c1}`).join('|');
+		const rect = store.selectionRect;
+		if (!rect) return;
+		const key = `${rect.r0}:${rect.r1}:${rect.c0}:${rect.c1}`;
 		if (key === lastSelectionKey) return;
 		lastSelectionKey = key;
 		if (store.selectionKeys.size > 1 && findStore.isOpen) findStore.setScope('selection');

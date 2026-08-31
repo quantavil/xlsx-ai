@@ -1,5 +1,4 @@
-import type { ColumnType, CellValue } from './types';
-import type { IconName } from './components/Icons.svelte';
+import type { ColumnType, CellValue, IconName } from './types';
 import { numericCellValue } from './table/cells';
 
 

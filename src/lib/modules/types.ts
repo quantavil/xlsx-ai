@@ -1,6 +1,5 @@
 import type { Component } from 'svelte';
-import type { TableData } from '$lib/types';
-import type { IconName } from '$lib/components/Icons.svelte';
+import type { TableData, IconName } from '$lib/types';
 import type { AiApi } from '$lib/ai/client';
 
 export interface ModuleContext {
