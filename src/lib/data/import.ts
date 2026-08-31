@@ -55,7 +55,8 @@ export function inferColumnTypeFromSamples(values: CellValue[]): ColumnType {
 
 		// Check number (including with commas like 1,200.50)
 		const cleanNum = str.replace(/,/g, '');
-		if (typeof val === 'number' || (!isNaN(Number(cleanNum)) && !isNaN(parseFloat(cleanNum)) && !str.includes(':'))) {
+		const hasLeadingZero = /^0\d+/.test(cleanNum);
+		if (!hasLeadingZero && (typeof val === 'number' || (!isNaN(Number(cleanNum)) && !isNaN(parseFloat(cleanNum)) && !str.includes(':')))) {
 			numCount++;
 			continue;
 		}
@@ -114,40 +115,67 @@ export async function parseSpreadsheetBuffer(
 	const rawMatrix = XLSX.utils.sheet_to_json(ws, {
 		header: 1,
 		defval: null,
-		raw: false
+		raw: true,
+		dateNF: 'yyyy-mm-dd'
 	}) as CellValue[][];
 
 	if (!rawMatrix || rawMatrix.length === 0) {
 		throw new Error('The selected sheet is empty.');
 	}
 
-	// `sheet_to_json` hands back Excel's cached results. Overlay the expressions so a
-	// workbook round-trips as formulas instead of collapsing to the numbers it last
-	// computed. Only cells Excel actually stored a value for are visible here.
+	// `sheet_to_json` hands back Excel's raw values. Overlay expressions so a
+	// workbook round-trips as formulas instead of collapsing to cached results.
+	// Excel's own rendering of each cell is kept alongside: the stored value is the
+	// raw one, but the number *format* is the only thing that says whether 0.15 is a
+	// count or 15%, so type inference reads the rendering instead.
 	// The matrix is origin-shifted to `!ref`'s top-left, so a sheet whose data starts
 	// at B3 puts B3 in `rawMatrix[0][0]` — the address has to be offset to match.
 	const origin = XLSX.utils.decode_range(ws['!ref'] ?? 'A1').s;
+	const displayMatrix: (string | undefined)[][] = [];
 	for (let r = 0; r < rawMatrix.length; r++) {
+		displayMatrix[r] = [];
 		for (let c = 0; c < (rawMatrix[r]?.length ?? 0); c++) {
 			const addr = `${getExcelColumnName(origin.c + c)}${origin.r + r + 1}`;
-			const formula = (ws[addr] as { f?: string } | undefined)?.f;
-			if (formula) rawMatrix[r][c] = formula.startsWith('=') ? formula : `=${formula}`;
+			const cellObj = ws[addr] as { f?: string; v?: unknown; w?: string } | undefined;
+			displayMatrix[r][c] = cellObj?.w;
+			const current = rawMatrix[r][c] as unknown;
+			if (cellObj?.f) {
+				rawMatrix[r][c] = cellObj.f.startsWith('=') ? cellObj.f : `=${cellObj.f}`;
+			} else if (current instanceof Date) {
+				// `cellDates` hands back a Date, which a cell cannot hold. Excel's own
+				// rendering is the date the sheet showed; ISO is the fallback.
+				rawMatrix[r][c] = cellObj?.w ?? current.toISOString().slice(0, 10);
+			} else if (current === null || current === undefined) {
+				if (cellObj?.w !== undefined) {
+					rawMatrix[r][c] = cellObj.w;
+				}
+			}
 		}
 	}
 
-	// Filter out empty trailing rows
-	const nonEmptyMatrix = rawMatrix.filter((row) =>
-		row && row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== '')
-	);
+	// Trim only trailing empty rows so interior blank rows preserve row indices for formula addressing
+	const isRowEmpty = (row?: CellValue[]) =>
+		!row || !row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== '');
 
-	if (nonEmptyMatrix.length === 0) {
+	const rowsMatrix = [...rawMatrix];
+	while (rowsMatrix.length > 0 && isRowEmpty(rowsMatrix[rowsMatrix.length - 1])) {
+		rowsMatrix.pop();
+	}
+
+	if (rowsMatrix.length === 0) {
 		throw new Error('The selected sheet contains no data.');
 	}
 
-	const firstRow = nonEmptyMatrix[0];
+	const firstRow = rowsMatrix[0] ?? [];
 	// #8 Compute max width across sampled rows to avoid dropping jagged tail columns
-	const maxWidth = Math.max(...nonEmptyMatrix.slice(0, 50).map((r) => r?.length ?? 0), firstRow.length);
+	const maxWidth = Math.max(...rowsMatrix.slice(0, 50).map((r) => r?.length ?? 0), firstRow.length);
 	const colCount = Math.min(MAX_IMPORT_COLS, maxWidth);
+	if (maxWidth > MAX_IMPORT_COLS) {
+		const droppedCols = maxWidth - MAX_IMPORT_COLS;
+		onWarning?.(
+			`Imported ${MAX_IMPORT_COLS} columns only. ${droppedCols} column${droppedCols > 1 ? 's were' : ' was'} discarded.`
+		);
+	}
 
 	// Check if first row looks like headers (mostly non-empty strings)
 	const stringCount = firstRow.filter((c) => typeof c === 'string' && isNaN(Number(c))).length;
@@ -170,12 +198,25 @@ export async function parseSpreadsheetBuffer(
 		headerNames.push(uniqueName);
 	}
 
-	const dataRows = firstRowIsHeaders ? nonEmptyMatrix.slice(1) : nonEmptyMatrix;
+	const dataRows = firstRowIsHeaders ? rowsMatrix.slice(1) : rowsMatrix;
 	const clampedRows = dataRows.slice(0, MAX_IMPORT_ROWS);
+	if (dataRows.length > MAX_IMPORT_ROWS) {
+		const droppedRows = dataRows.length - MAX_IMPORT_ROWS;
+		onWarning?.(
+			`Imported ${MAX_IMPORT_ROWS.toLocaleString()} rows only. ${droppedRows.toLocaleString()} row${droppedRows > 1 ? 's were' : ' was'} discarded.`
+		);
+	}
 
-	// Sample column values for type inference
+	// Sample column values for type inference. Only trailing rows were trimmed, so
+	// `clampedRows[i]` is still `displayMatrix[headerOffset + i]`.
+	const headerOffset = firstRowIsHeaders ? 1 : 0;
 	const columns: Column[] = headerNames.map((name, c) => {
-		const sampleVals = clampedRows.slice(0, 50).map((r) => r[c]);
+		const sampleVals = clampedRows.slice(0, 50).map((r, i) => {
+			// Only a bare number is ambiguous - 1200.5 could be a count or a price, 0.15
+			// a count or 15%. Its rendered form carries the format that decides.
+			const raw = r[c];
+			return typeof raw === 'number' ? (displayMatrix[headerOffset + i]?.[c] ?? raw) : raw;
+		});
 		const inferredType = inferColumnTypeFromSamples(sampleVals);
 		return {
 			id: `c${c + 1}`,

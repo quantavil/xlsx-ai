@@ -22,6 +22,18 @@ export function dedupeAndNormalizePatches(
 
 	const validPatches = new Map<string, { row: Row; columnId: string; oldValue: CellValue; newValue: CellValue }>();
 
+	// Map incoming explicit patch values per rowId, so dependent option lookups in a batch
+	// (e.g. changing both parent and child together) resolve against the incoming parent value.
+	const incomingRowPatches = new Map<string, Record<string, CellValue>>();
+	for (const p of patches) {
+		let rowPatches = incomingRowPatches.get(p.rowId);
+		if (!rowPatches) {
+			rowPatches = {};
+			incomingRowPatches.set(p.rowId, rowPatches);
+		}
+		rowPatches[p.columnId] = p.newValue;
+	}
+
 	/**
 	 * Sibling patches the option chosen by `patch` brings with it.
 	 *
@@ -37,14 +49,17 @@ export function dedupeAndNormalizePatches(
 	 */
 	function coupledPatches(row: Row, column: Column, newValue: CellValue): CellPatch[] {
 		if (column.type !== 'dropdown' || typeof newValue !== 'string') return [];
-		const chosen = resolveDropdownOptions(column, row, rows).find(
+		const rowPatches = { ...incomingRowPatches.get(row.id) };
+		delete rowPatches[column.id];
+		const effectiveRow: Row = { ...row, ...rowPatches };
+		const chosen = resolveDropdownOptions(column, effectiveRow, rows).find(
 			(opt) => opt.value.toLowerCase() === newValue.trim().toLowerCase()
 		);
 		if (!chosen) return [];
-		// A reference reads the row as it stands. Changing the referenced column in
-		// this same batch is one hop too far: it would need ordering between fills.
+		// A reference reads the effective row with incoming patches applied, so changing
+		// a parent column in the same batch provides the intended values for dependent fills.
 		const resolve = (value: FillValue): CellValue =>
-			value && typeof value === 'object' ? (row[value.from] ?? null) : value;
+			value && typeof value === 'object' ? (effectiveRow[value.from] ?? null) : value;
 		const blank = (value: CellValue | undefined) => value === null || value === undefined || value === '';
 
 		return [

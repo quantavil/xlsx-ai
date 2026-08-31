@@ -77,11 +77,17 @@
 	async function refreshRates() {
 		if (refreshing) return;
 		refreshing = true;
+		const wasEdited = rateEdited;
+		const startingCurrency = answers.currency;
 		const batch = await requestExchangeRates();
 		if (batch.rates.length > 0) {
 			rates = batch.rates;
-			rateEdited = false;
-			answers.exchangeRate = rateFor(rates, answers.currency) ?? answers.exchangeRate;
+			if (wasEdited && answers.currency === startingCurrency) {
+				rateEdited = true;
+			} else {
+				rateEdited = false;
+				answers.exchangeRate = rateFor(rates, answers.currency) ?? answers.exchangeRate;
+			}
 		}
 		refreshing = false;
 	}
@@ -137,6 +143,8 @@
 		itemSearching[key] = false;
 	}
 
+	let pendingLookups = $state<number>(0);
+
 	/**
 	 * Taking a code pulls its duty structure straight away.
 	 *
@@ -157,24 +165,32 @@
 		if (!next || !item) return;
 
 		if (!dutyByCode[next]) {
-			const { entries } = await requestDutyLookups([next]);
-			const entry = entries[0];
-			if (!entry) return;
-			dutyByCode[next] = {
-				options: entry.drawback.map((c) => ({
-					value: c.serial,
-					...(c.description ? { label: c.description } : {})
-				})),
-				suggested: selectDrawbackSerial(entry.drawback, null).serial,
-				rodtep: entry.rodtep ? 'Yes' : 'N/A'
-			};
+			pendingLookups++;
+			try {
+				const { entries } = await requestDutyLookups([next]);
+				const entry = entries[0];
+				if (entry) {
+					dutyByCode[next] = {
+						options: entry.drawback.map((c) => ({
+							value: c.serial,
+							...(c.description ? { label: c.description } : {})
+						})),
+						suggested: selectDrawbackSerial(entry.drawback, null).serial,
+						rodtep: entry.rodtep ? 'Yes' : 'N/A'
+					};
+				}
+			} finally {
+				pendingLookups--;
+			}
 		}
 
 		// The user may have moved on while the lookup was in flight.
 		if (answers.assignedRitc[key] !== next) return;
 		const duty = dutyByCode[next];
-		item.drawback_schno ??= duty.suggested;
-		item.RODTEP ??= duty.rodtep;
+		if (duty) {
+			item.drawback_schno ??= duty.suggested;
+			item.RODTEP ??= duty.rodtep;
+		}
 	}
 
 	const unassignedCount = $derived(
@@ -627,7 +643,8 @@
 			>Cancel import</button>
 			<button
 				type="button"
-				class="px-3.5 py-1.5 rounded-lg bg-[var(--accent-primary)] text-[12px] font-semibold text-[var(--text-inverse)] hover:opacity-90 transition-opacity"
+				disabled={pendingLookups > 0}
+				class="px-3.5 py-1.5 rounded-lg bg-[var(--accent-primary)] text-[12px] font-semibold text-[var(--text-inverse)] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
 				onclick={() => onDone($state.snapshot(answers) as IcegridAnswers)}
 			>Confirm and import</button>
 		</footer>

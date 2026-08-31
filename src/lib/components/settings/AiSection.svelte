@@ -51,7 +51,7 @@
 		<div class="flex items-center justify-between gap-2">
 			<div class="flex flex-col gap-0.5 min-w-0">
 				<label for="gemini-api-key" class="text-[13.5px] font-semibold text-[var(--text-1)]">API Keys</label>
-				<span class="text-[11.5px] text-[var(--text-3)]">Stored in this browser only — never sent anywhere but Google. Add several and switch when one runs out of quota.</span>
+				<span class="text-[11.5px] text-[var(--text-3)]">Stored in this browser only. Sent to Google through this app's server, which does not store it. Add several and switch when one runs out of quota.</span>
 			</div>
 			{#if store.apiKey}
 				<span class="status-pill status-active inline-flex items-center shrink-0 gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] border border-[var(--accent-primary-border)]">

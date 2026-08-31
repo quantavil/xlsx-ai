@@ -3,11 +3,31 @@ import { createTableStore } from '../../src/lib/table/store.svelte';
 import {
 	createFindStore,
 	compileSearchPattern,
-	replaceString
+	replaceString,
+	executeScan
 } from '../../src/lib/table/find.svelte';
 import type { TableData } from '../../src/lib/types';
 
 describe('Find & Replace Engine', () => {
+	it('searches the whole sheet even when the filter hides every row', () => {
+		const columns = [{ id: 'c1', name: 'Name', type: 'text' as const, width: 160 }];
+		const rows = [
+			{ id: 'r1', c1: 'apple' },
+			{ id: 'r2', c1: 'banana' }
+		];
+		const matches = executeScan(
+			rows,
+			columns,
+			rows,
+			'apple',
+			{ matchCase: false, wholeCell: false, useRegex: false, scope: 'sheet', lookIn: 'values' },
+			new Set<string>(),
+			[] // an active filter matching nothing
+		);
+		expect(matches.map((m) => m.rowId)).toEqual(['r1']);
+	});
+
+
 	describe('compileSearchPattern', () => {
 		it('compiles standard case-insensitive regex', () => {
 			const pattern = compileSearchPattern('apple', {

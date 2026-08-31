@@ -5,6 +5,7 @@
 	import { createAiApi } from '$lib/ai/client';
 	import { validatePatchProposals } from '$lib/ai/patches';
 	import { isNumericType } from '$lib/table/cells';
+	import { documents } from '$lib/workspace.svelte';
 
 	let {
 		store,
@@ -159,6 +160,7 @@
 			return;
 		}
 
+		const capturedDocId = documents.activeId;
 		const controller = beginRequest();
 		activeDiffPreview = null;
 
@@ -175,7 +177,10 @@
 						kind
 					}
 			});
-			if (controller !== activeRequest) return;
+			if (controller !== activeRequest || documents.activeId !== capturedDocId) {
+				controller.abort();
+				return;
+			}
 			const result = data as { data?: { explanation?: unknown; patches?: unknown[] } };
 			if (Array.isArray(result.data?.patches) && result.data.patches.length > 0) {
 				const patches = hydratePatches(result.data.patches);
@@ -262,6 +267,7 @@
 		];
 
 		if (!customPrompt) promptInput = '';
+		const capturedDocId = documents.activeId;
 		const controller = beginRequest();
 
 		try {
@@ -279,7 +285,10 @@
 					},
 					messages: recentMessages
 			});
-			if (controller !== activeRequest) return;
+			if (controller !== activeRequest || documents.activeId !== capturedDocId) {
+				controller.abort();
+				return;
+			}
 
 			const result = data as { data?: { reply?: unknown; patches?: unknown[] } };
 			const reply =

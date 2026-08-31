@@ -115,8 +115,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const rawBody = await request.text();
 		// UTF-8 never encodes to fewer bytes than the string has UTF-16 code units, so a
-		// short string is provably under the cap and needs no encoded copy made of it.
-		if (rawBody.length > MAX_REQUEST_BYTES && new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
+		// long string is provably over the cap and rejects before an encoded copy is made.
+		// The converse does not hold, which is why the encoded length is still measured.
+		if (rawBody.length > MAX_REQUEST_BYTES || new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
 			return json({ error: 'Request payload exceeds the 4 MiB limit.' }, { status: 413 });
 		}
 		body = JSON.parse(rawBody);
@@ -268,8 +269,12 @@ EDIT REQUESTS:
 
 		return json({ success: true, kind: 'chat', data: chat.object });
 	} catch (err: unknown) {
-		console.error('AI SDK Generation Error:', err);
 		const e = (err ?? {}) as Record<string, unknown>;
+		const providerStatus =
+			typeof e.statusCode === 'number' ? e.statusCode : typeof e.status === 'number' ? e.status : 500;
+		const isRetryable = e.isRetryable === true || providerStatus === 429 || providerStatus >= 500;
+		const requestId = request.headers.get('cf-ray') ?? request.headers.get('x-request-id') ?? undefined;
+		console.error('AI SDK Generation Error:', { requestId, model: targetModel, statusCode: providerStatus, isRetryable });
 
 		// The caller went away - nothing to report to.
 		if (request.signal.aborted) return json({ error: 'Request cancelled.' }, { status: 499 });
@@ -281,9 +286,6 @@ EDIT REQUESTS:
 				{ status: 504 }
 			);
 		}
-		// The AI SDK reports the provider's HTTP status as `statusCode`, not `status`.
-		const providerStatus =
-			typeof e.statusCode === 'number' ? e.statusCode : typeof e.status === 'number' ? e.status : 500;
 
 		if (providerStatus === 401 || providerStatus === 403) {
 			return json({ error: 'Gemini rejected the API key or model access.' }, { status: 401 });

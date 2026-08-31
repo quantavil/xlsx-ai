@@ -410,6 +410,25 @@ describe('coupled dropdown fills', () => {
 		expect(out).not.toHaveProperty('r1.dbk_rate');
 	});
 
+	it('resolves coupled fills against the incoming parent when parent and child change together', () => {
+		// r2 starts with RITCCode: '94011000' and drawback_schno: null
+		// A batch changes RITCCode to '94032090' AND drawback_schno to '940301B' (where rate is 2.2)
+		const out = patchMap(
+			dedupeAndNormalizePatches(
+				[
+					{ rowId: 'r2', columnId: 'RITCCode', newValue: '94032090' },
+					{ rowId: 'r2', columnId: 'drawback_schno', newValue: '940301B' }
+				],
+				rows(),
+				columns
+			)
+		);
+		expect(out['r2.RITCCode']).toBe('94032090');
+		expect(out['r2.drawback_schno']).toBe('940301B');
+		expect(out['r2.dbk_rate']).toBe(2.2);
+		expect(out['r2.dbk_desc']).toBe('Predominantly of marble');
+	});
+
 	it('does not cascade: a filled cell fills nothing further', () => {
 		// `dbk_desc` is itself a dropdown carrying a payload. Writing it as a fill must
 		// not expand that payload, or two coupled columns could bounce forever.

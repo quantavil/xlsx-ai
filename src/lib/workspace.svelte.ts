@@ -105,6 +105,7 @@ export function openFile(id: string) {
 }
 
 export function deleteFile(id: string) {
+	store.flushSave();
 	const wasActive = id === documents.activeId;
 	documents.remove(id);
 	if (!wasActive) return;

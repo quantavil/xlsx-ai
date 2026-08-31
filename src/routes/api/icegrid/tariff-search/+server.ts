@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { searchTariff } from '$lib/modules/icegrid/tariff.server';
+import { checkIcegridAccess } from '$lib/server/guard';
 
 /**
  * Proxy one ITC-HS search for the dialog's own search box.
@@ -12,7 +13,11 @@ import { searchTariff } from '$lib/modules/icegrid/tariff.server';
  */
 const RequestSchema = z.object({ query: z.string().min(2).max(120) });
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async (event) => {
+	const guard = checkIcegridAccess(event);
+	if (guard) return guard;
+
+	const { request } = event;
 	const parsed = RequestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
 		return json({ error: 'Expected { query: string } of at least two characters.' }, { status: 400 });

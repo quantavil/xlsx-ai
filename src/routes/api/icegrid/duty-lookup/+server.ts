@@ -2,6 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { fetchDutyLookups } from '$lib/modules/icegrid/duty-lookup.server';
 import { MAX_LOOKUP_CODES } from '$lib/modules/icegrid/duty-lookup';
+import { checkIcegridAccess } from '$lib/server/guard';
 
 /**
  * Proxy the duty-structure lookups the browser cannot make itself.
@@ -15,7 +16,11 @@ const RequestSchema = z.object({
 	ritcs: z.array(z.string().regex(/^\d{8}$/)).max(MAX_LOOKUP_CODES)
 });
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async (event) => {
+	const guard = checkIcegridAccess(event);
+	if (guard) return guard;
+
+	const { request } = event;
 	const parsed = RequestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
 		return json({ error: 'Expected { ritcs: string[] } of eight-digit tariff codes.' }, { status: 400 });

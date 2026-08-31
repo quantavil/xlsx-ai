@@ -23,7 +23,6 @@
 	} from "./cells";
 	import { resolveEditTargets, type EditTarget } from "./range-edit";
 	import {
-		cellAddress,
 		columnLetter,
 		ERROR_VALUE,
 		offsetFormulaRefs,
@@ -468,12 +467,12 @@
 	 */
 	function pointAtCell(
 		colIndex: number,
-		rowIndex: number,
+		rowId: string,
 		extendFrom: string | null,
 	): boolean {
 		if (!editingCell || !expectsReference(editValue, editorCaret))
 			return false;
-		const address = cellAddress(colIndex, rowIndex);
+		const address = `${columnLetter(colIndex)}${store.sheetRowFor(rowId)}`;
 		writeEditor(
 			applyReference(
 				editValue,
@@ -1653,7 +1652,7 @@
 											if (
 												pointAtCell(
 													colIndex,
-													rowIndex,
+													row.id,
 													e.shiftKey
 														? pointAnchor
 														: null,
@@ -1661,10 +1660,7 @@
 											) {
 												e.preventDefault();
 												if (!e.shiftKey)
-													pointAnchor = cellAddress(
-														colIndex,
-														rowIndex,
-													);
+													pointAnchor = `${columnLetter(colIndex)}${store.sheetRowFor(row.id)}`;
 												return;
 											}
 											pointerExtend = e.shiftKey;
@@ -1679,7 +1675,7 @@
 											if (e.buttons === 1 && pointAnchor)
 												pointAtCell(
 													colIndex,
-													rowIndex,
+													row.id,
 													pointAnchor,
 												);
 										}}

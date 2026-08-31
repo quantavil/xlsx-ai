@@ -287,7 +287,16 @@ export function defaultAnswers(input: IcegridConfirmInput): IcegridAnswers {
 
 function applyRitcFields(target: IcegridRow, answer: IcegridRitcAnswer | undefined): void {
 	if (!answer) return;
+	if (!blank(answer.drawback_schno) && answer.drawback_schno !== target.drawback_schno) {
+		target.drawback_schno = answer.drawback_schno;
+		target.dbk_rate = null;
+		target.dbk_desc = null;
+		target.dbk_unit = null;
+		target.ROSLRate = null;
+		target.ROSLCapValue = null;
+	}
 	for (const field of RITC_FIELDS) {
+		if (field === 'drawback_schno') continue;
 		if (!blank(answer[field])) (target as Record<string, unknown>)[field] = answer[field];
 	}
 }

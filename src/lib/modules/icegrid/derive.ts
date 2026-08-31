@@ -11,6 +11,7 @@ import {
 	selectDrawbackSerial,
 	type DutyLookupMap
 } from './duty-lookup';
+import { quoteSupportsValue } from './evidence';
 
 /**
  * How a populated cell came to be filled. Extracted values were already gated on a
@@ -156,7 +157,10 @@ export function composeDescription(
  * row, because a bad template is a shipment-wide fact and reporting it 25 times as a
  * row problem is how the real cause stayed hidden.
  */
-export function describeStyleProblem(style: IcegridDescriptionStyle | null | undefined): string | null {
+export function describeStyleProblem(
+	style: IcegridDescriptionStyle | null | undefined,
+	sourceText?: string
+): string | null {
 	const template = style?.template?.trim() ?? '';
 	if (!template) return 'it carries no template';
 	if (!template.includes('{NAME}')) {
@@ -165,6 +169,29 @@ export function describeStyleProblem(style: IcegridDescriptionStyle | null | und
 	const unknown = template.replace('{NAME}', '').replace('{MATERIALS}', '').match(/\{[^}]*\}/);
 	if (unknown) return `its template carries an unknown placeholder ${unknown[0]}`;
 	if (template.length > 200) return 'its template is far too long to be a goods-class phrase';
+
+	if (sourceText) {
+		const pieces = template
+			.split(/\{[^}]+\}/)
+			.map((p) => p.trim())
+			.filter((p) => p.length > 1);
+
+		for (const piece of pieces) {
+			if (!quoteSupportsValue(sourceText, piece)) {
+				return `its template literal text "${piece}" is not found in the source documents`;
+			}
+		}
+
+		if (style?.spellings) {
+			for (const s of style.spellings) {
+				const filed = s.filed?.trim();
+				if (filed && !quoteSupportsValue(sourceText, filed)) {
+					return `its material spelling "${filed}" is not found in the source documents`;
+				}
+			}
+		}
+	}
+
 	return null;
 }
 
@@ -225,7 +252,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		lookup: 0
 	};
 
-	const styleProblem = descriptionStyle ? describeStyleProblem(descriptionStyle) : null;
+	const styleProblem = descriptionStyle ? describeStyleProblem(descriptionStyle, sourceText) : null;
 	const usableStyle = styleProblem ? null : descriptionStyle;
 	if (styleProblem) {
 		warnings.push(
@@ -347,7 +374,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		// RoDTEP quantity tracks the SQC quantity, not the invoiced quantity - and only
 		// where a RoDTEP claim exists at all. A tariff item absent from the schedule has
 		// no quantity to declare against it.
-		if (row.RODTEP !== 'N/A') set('RoDTEPQty', row.SQCQTY, 'derived');
+		if (row.RODTEP === 'Yes') set('RoDTEPQty', row.SQCQTY, 'derived');
 
 		// The invoice prints the article's own name; a shipping bill files it under the
 		// exporter's goods-class phrase with this line's materials ranked by weight. The
@@ -387,9 +414,32 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		// Under LUT no IGST is paid, so the assessable value and tax are zero. When
 		// IGST is paid the taxable value is the invoice amount at the customs rate.
 		if (row.IGST_PaymentStatus === 'LUT') {
-			set('IGST_Rate', 0, 'derived');
-			set('Taxable_Value', 0, 'derived');
-			set('IGST_Amount', 0, 'derived');
+			const overridden: string[] = [];
+			if (!blank(row.IGST_Rate) && Number(row.IGST_Rate) !== 0) overridden.push(`IGST_Rate: ${row.IGST_Rate}`);
+			if (!blank(row.Taxable_Value) && Number(row.Taxable_Value) !== 0) overridden.push(`Taxable_Value: ${row.Taxable_Value}`);
+			if (!blank(row.IGST_Amount) && Number(row.IGST_Amount) !== 0) overridden.push(`IGST_Amount: ${row.IGST_Amount}`);
+
+			if (row.IGST_Rate !== 0) {
+				if (blank(row.IGST_Rate)) filled.derived++;
+				row.IGST_Rate = 0;
+				marks.IGST_Rate = 'derived';
+			}
+			if (row.Taxable_Value !== 0) {
+				if (blank(row.Taxable_Value)) filled.derived++;
+				row.Taxable_Value = 0;
+				marks.Taxable_Value = 'derived';
+			}
+			if (row.IGST_Amount !== 0) {
+				if (blank(row.IGST_Amount)) filled.derived++;
+				row.IGST_Amount = 0;
+				marks.IGST_Amount = 'derived';
+			}
+
+			if (overridden.length > 0) {
+				warnings.push(
+					`${label}: IGST payment status is LUT. Overrode non-zero tax values (${overridden.join(', ')}) with 0.`
+				);
+			}
 		} else if (!blank(row.ProductAmount) && exchangeRate) {
 			set('Taxable_Value', round2(Number(row.ProductAmount) * exchangeRate), 'derived');
 		}

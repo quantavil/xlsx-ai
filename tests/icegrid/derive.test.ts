@@ -175,8 +175,9 @@ describe('deriveRows', () => {
 	});
 
 	it('zeroes the tax fields under LUT and computes them when IGST is paid', () => {
-		const lut = deriveRows([row({ ...base, IGST_PaymentStatus: 'LUT', ProductAmount: 1440 })], { catalogs });
+		const lut = deriveRows([row({ ...base, IGST_PaymentStatus: 'LUT', ProductAmount: 1440, IGST_Rate: 18 })], { catalogs });
 		expect([lut.rows[0].IGST_Rate, lut.rows[0].Taxable_Value, lut.rows[0].IGST_Amount]).toEqual([0, 0, 0]);
+		expect(lut.warnings.some((w) => w.includes('IGST payment status is LUT') && w.includes('IGST_Rate: 18'))).toBe(true);
 
 		const paid = deriveRows([row({ ...base, IGST_PaymentStatus: 'P', ProductAmount: 1025, IGST_Rate: 18 })], {
 			catalogs,

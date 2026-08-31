@@ -99,7 +99,7 @@ export function executeScan(
 	selectionKeys: ReadonlySet<string>,
 	filteredRows: Row[]
 ): CellMatch[] {
-	if (!query.trim() || !rows.length || !columns.length || !filteredRows.length) return [];
+	if (!query.trim() || !rows.length || !columns.length) return [];
 
 	const pattern = compileSearchPattern(query, options);
 	if (!pattern) return [];
@@ -110,7 +110,7 @@ export function executeScan(
 	const scoped = options.scope === 'selection';
 	if (scoped && selectionKeys.size === 0) return [];
 
-	const targetRows = filteredRows;
+	const targetRows = scoped ? filteredRows : rows;
 	const rowToStorageIdx = new Map(rows.map((r, idx) => [r.id, idx]));
 	const matches: CellMatch[] = [];
 

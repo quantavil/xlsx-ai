@@ -553,15 +553,27 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	 */
 	const selectionRect = $derived.by<SelectionRect | null>(() => {
 		if (!selection || filteredRows.length === 0 || columns.length === 0) return null;
-		const maxRow = filteredRows.length - 1;
-		const maxCol = columns.length - 1;
-		const clamp = (val: number, max: number) => Math.min(Math.max(val, 0), max);
 		const { anchor, focus } = selection;
+
+		let anchorRowIdx = filteredRows.findIndex((r) => r.id === anchor.rowId);
+		let focusRowIdx = filteredRows.findIndex((r) => r.id === focus.rowId);
+
+		if (anchorRowIdx === -1 && focusRowIdx === -1) return null;
+		if (anchorRowIdx === -1) anchorRowIdx = focusRowIdx;
+		if (focusRowIdx === -1) focusRowIdx = anchorRowIdx;
+
+		let anchorColIdx = columns.findIndex((c) => c.id === anchor.columnId);
+		let focusColIdx = columns.findIndex((c) => c.id === focus.columnId);
+
+		if (anchorColIdx === -1 && focusColIdx === -1) return null;
+		if (anchorColIdx === -1) anchorColIdx = focusColIdx;
+		if (focusColIdx === -1) focusColIdx = anchorColIdx;
+
 		return {
-			r0: clamp(Math.min(anchor.rowIndex, focus.rowIndex), maxRow),
-			r1: clamp(Math.max(anchor.rowIndex, focus.rowIndex), maxRow),
-			c0: clamp(Math.min(anchor.colIndex, focus.colIndex), maxCol),
-			c1: clamp(Math.max(anchor.colIndex, focus.colIndex), maxCol)
+			r0: Math.min(anchorRowIdx, focusRowIdx),
+			r1: Math.max(anchorRowIdx, focusRowIdx),
+			c0: Math.min(anchorColIdx, focusColIdx),
+			c1: Math.max(anchorColIdx, focusColIdx)
 		};
 	});
 
@@ -637,7 +649,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		const sanitized = sanitizeAndNormalizeTableData(
 			data.title || DEFAULT_TABLE_TITLE,
 			data.columns || [],
-			data.rows || []
+			data.rows || [],
+			data.cellAlign
 		);
 		title = sanitized.title;
 		columns = cloneColumns(sanitized.columns);

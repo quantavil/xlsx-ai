@@ -99,12 +99,13 @@ describe('collapseSelection (escape)', () => {
 describe('selection rectangles are derived, not stored', () => {
 	it('re-clamps to the visible rows when a search shrinks the sheet', () => {
 		const store = createTableStore(sampleData, { persist: false });
-		store.selectRow('r4');
-		expect(store.selectionRect).toEqual({ r0: 3, r1: 3, c0: 0, c1: 2 });
+		store.setSelection(at('r1', 'c1'));
+		store.setSelection(at('r4', 'c3'), true);
+		expect(store.selectionRect).toEqual({ r0: 0, r1: 3, c0: 0, c1: 2 });
 
 		store.setSearchQuery('Apple');
 		expect(store.filteredRows.length).toBe(1);
-		expect(store.selectionRect?.r1).toBe(0);
+		expect(store.selectionRect).toEqual({ r0: 0, r1: 0, c0: 0, c1: 2 });
 		expect(store.selectionKeys.size).toBe(3);
 	});
 
@@ -124,6 +125,55 @@ describe('selection rectangles are derived, not stored', () => {
 
 		store.setSort('c1');
 		expect([...store.selectionKeys].sort()).toEqual(before);
+	});
+
+	it('preserves selected rowId and recomputes selectionRect after sorting', () => {
+		const store = createTableStore(
+			{
+				title: 'Sort Selection Test',
+				columns: [{ id: 'c1', name: 'Name', type: 'text' }],
+				rows: [
+					{ id: 'r1', c1: 'Apple' },
+					{ id: 'r2', c1: 'Banana' },
+					{ id: 'r3', c1: 'Cherry' }
+				]
+			},
+			{ persist: false }
+		);
+
+		store.setSelection({ rowId: 'r1', columnId: 'c1', rowIndex: 0, colIndex: 0 });
+		expect(store.activeCell?.rowId).toBe('r1');
+		expect(store.selectionRect).toEqual({ r0: 0, r1: 0, c0: 0, c1: 0 });
+
+		store.setSort('c1'); // asc
+		store.setSort('c1'); // desc
+		expect(store.filteredRows[2].id).toBe('r1');
+		expect(store.activeCell?.rowId).toBe('r1');
+		expect(store.selectionRect).toEqual({ r0: 2, r1: 2, c0: 0, c1: 0 });
+		expect([...store.selectionKeys]).toEqual(['r1::c1']);
+	});
+
+	it('points to correct sheetRowFor address when table is sorted', () => {
+		const store = createTableStore(
+			{
+				title: 'Point Mode Test',
+				columns: [{ id: 'c1', name: 'Val', type: 'text' }],
+				rows: [
+					{ id: 'r1', c1: 'Apple' },
+					{ id: 'r2', c1: 'Banana' },
+					{ id: 'r3', c1: 'Cherry' }
+				]
+			},
+			{ persist: false }
+		);
+		expect(store.sheetRowFor('r1')).toBe(2);
+		expect(store.sheetRowFor('r2')).toBe(3);
+		expect(store.sheetRowFor('r3')).toBe(4);
+
+		store.setSort('c1'); // asc
+		store.setSort('c1'); // desc
+		expect(store.sheetRowFor('r3')).toBe(4);
+		expect(store.sheetRowFor('r1')).toBe(2);
 	});
 });
 

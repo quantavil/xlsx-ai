@@ -115,6 +115,21 @@ describe('evidence text handling', () => {
 		// 120 * 2.68 = 321.6, but the document never printed 321.6.
 		expect(quoteSupportsValue('120 PCS at 2.68', 321.6)).toBe(false);
 	});
+
+	it('requires token multiplicity in scrambled quotes', () => {
+		// Single "48" in doc cannot satisfy a quote requiring "48 48 48"
+		const docWithOne48: CombinedExtractionResult = {
+			...extraction,
+			documents: [{ filename: 'invoice.pdf', content: 'SIDE TABLE 48 PCS', charCount: 17 }]
+		};
+		expect(verifyEvidenceSpan(span({ quote: 'SIDE TABLE 48 48 48 PCS' }), docWithOne48).ok).toBe(false);
+
+		const docWithThree48s: CombinedExtractionResult = {
+			...extraction,
+			documents: [{ filename: 'invoice.pdf', content: 'SIDE 48 TABLE 48 48 PCS', charCount: 23 }]
+		};
+		expect(verifyEvidenceSpan(span({ quote: 'SIDE TABLE 48 48 48 PCS' }), docWithThree48s).ok).toBe(true);
+	});
 });
 
 describe('sanitizeIcegridExtraction', () => {

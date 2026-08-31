@@ -63,6 +63,12 @@
 - Duty-structure cache keyed per-item retained stale serials on code switch. Fixed by keying cache per-code (`dutyByCode[code]`).
 - Ranking candidates by shortest description biased toward residual "Other" codes. Fixed by penalizing residual entries and sorting by token prefix overlap.
 - Regular expression with `/g` flag retains state across `.test()` via `lastIndex`. Fixed by using non-global regexes for testing and global regexes only for replacement.
+- `deleteFile` switching active document before debounced pending write flushed corrupted survivor document. Fixed with `store.flushSave()` at top of `deleteFile`.
+- `selectionRect` stored directly or mapped before filter/sort yielded stale row indices. Fixed by deriving `selectionRect` dynamically against `filteredRows`.
+- `parseNumeric` parsed arbitrary text containing digits as numbers. Fixed with strict regex validation `^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$`.
+- `commands.ts` coupled dropdown resolution using pre-batch row prevented parent-child updates in single batch. Fixed by resolving options against effective row with incoming patches (excluding current column).
+- AI SDK error logging printed complete error objects with document bodies to logs. Fixed by sanitizing to `{ requestId, model, statusCode, isRetryable }`.
+- Switching `sheet_to_json` to `raw: true` for precision silently cost every currency, percent and date column its type — the number *format*, not the value, is what says 1200.5 is a price or 0.15 is 15%, and `cellDates` returns a `Date` a `CellValue` cannot hold. Fixed by keeping the raw value while inferring the type from Excel's rendered string (`.w`), and stringifying dates in the matrix.
 
 ## Notes & Discoveries
 - **An import now stops and asks before it writes.** `pipeline.ts` runs `deriveRows` **twice**: once to produce what the extractor, the schedules and the duty lookup propose, which is what fills `IcegridConfirmDialog`, and again over `applyIcegridAnswers(report.rows, answers)` once the filer confirms. That ordering is the whole trick - `set()` is fill-only, so a confirmed answer sits on the raw row before derivation and every consequence recomputes off it: a changed drawback serial pulls its own rate, description, ROSL values and unit, and an IGST status changed to `LUT` zeroes the tax block. Applying answers *after* a single pass would have needed a second set of rules to un-fill what the first pass wrote. Blank answers are skipped rather than written, or confirming would erase the values the schedules are about to supply.

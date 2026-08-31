@@ -12,9 +12,34 @@ function parseNumeric(value: CellValue): number | null {
 	if (typeof value === 'number') return Number.isFinite(value) ? value : null;
 	if (typeof value !== 'string') return null;
 
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-	const parsed = Number.parseFloat(trimmed.replace(/[^0-9.-]/g, ''));
+	let str = value.trim();
+	if (!str) return null;
+
+	let sign = '';
+	if (str.startsWith('-') || str.startsWith('+')) {
+		sign = str[0];
+		str = str.slice(1).trim();
+	}
+
+	// Remove currency symbols, trailing percent, and grouping commas
+	str = str
+		.replace(/^[$€£¥₹₩]\s*|\s*[$€£¥₹₩]$/g, '')
+		.replace(/%\s*$/, '')
+		.replace(/,/g, '')
+		.trim();
+
+	if (!str) return null;
+
+	if (!sign && (str.startsWith('-') || str.startsWith('+'))) {
+		sign = str[0];
+		str = str.slice(1).trim();
+	}
+
+	if (!/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(str)) {
+		return null;
+	}
+
+	const parsed = Number(`${sign}${str}`);
 	return Number.isFinite(parsed) ? parsed : null;
 }
 

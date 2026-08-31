@@ -234,6 +234,47 @@ describe('changing an assigned tariff code', () => {
 			IGST_Rate: 18
 		});
 	});
+
+	it('nulls dependent drawback rates when drawback_schno changes so deriveRows refills them', () => {
+		const rawRow = row({
+			RITCCode: '94038900',
+			drawback_schno: '940301',
+			dbk_rate: 1.5,
+			dbk_desc: 'Others',
+			ROSLRate: null,
+			ROSLCapValue: null,
+			dbk_unit: 'PCS'
+		});
+		const customAnswers: ReturnType<typeof defaultAnswers> = {
+			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null },
+			perRitc: {
+				'94038900': {
+					drawback_schno: '940302B',
+					RODTEP: null,
+					IGST_PaymentStatus: null,
+					IGST_Rate: null
+				}
+			},
+			assignedRitc: {},
+			perItem: {},
+			currency: null,
+			exchangeRate: null
+		};
+		const [applied] = applyIcegridAnswers([rawRow], customAnswers);
+		expect(applied.drawback_schno).toBe('940302B');
+		expect(applied.dbk_rate).toBeNull();
+		expect(applied.dbk_desc).toBeNull();
+		expect(applied.dbk_unit).toBeNull();
+
+		// deriveRows will now refill them from 940302B lookup
+		const { rows } = deriveRows([applied], {
+			catalogs,
+			lookups: new Map([['94038900', LOOKUP]])
+		});
+		expect(rows[0].drawback_schno).toBe('940302B');
+		expect(rows[0].dbk_rate).toBe(2.2);
+		expect(rows[0].ROSLRate).toBe(1);
+	});
 });
 
 describe('defaultAnswers', () => {

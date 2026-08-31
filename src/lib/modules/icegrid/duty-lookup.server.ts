@@ -118,15 +118,43 @@ export async function fetchDutyLookup(ritc: string): Promise<DutyLookupEntry> {
 	return entry;
 }
 
+const MAX_CONCURRENT_LOOKUPS = 6;
+
+async function pooledSettled<T, R>(
+	items: readonly T[],
+	limit: number,
+	fn: (item: T) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+	const results: PromiseSettledResult<R>[] = Array.from({ length: items.length });
+	let nextIndex = 0;
+
+	async function worker() {
+		while (nextIndex < items.length) {
+			const index = nextIndex++;
+			try {
+				const value = await fn(items[index]);
+				results[index] = { status: 'fulfilled', value };
+			} catch (reason) {
+				results[index] = { status: 'rejected', reason };
+			}
+		}
+	}
+
+	const workerCount = Math.min(limit, items.length);
+	const workers = Array.from({ length: workerCount }, () => worker());
+	await Promise.all(workers);
+	return results;
+}
+
 /**
  * Look up every tariff code in a run.
  *
  * Failures are per code and never collective: a code the service cannot answer for
  * simply has no entry, the row falls back to the bundled schedule, and the run says
- * so. Requests go out together because there are only ever a handful.
+ * so.
  */
 export async function fetchDutyLookups(ritcs: readonly string[]): Promise<DutyLookupBatch> {
-	const settled = await Promise.allSettled(ritcs.map((ritc) => fetchDutyLookup(ritc)));
+	const settled = await pooledSettled(ritcs, MAX_CONCURRENT_LOOKUPS, (ritc) => fetchDutyLookup(ritc));
 
 	const entries: DutyLookupEntry[] = [];
 	const warnings: string[] = [];

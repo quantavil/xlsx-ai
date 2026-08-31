@@ -125,4 +125,36 @@ describe('Workspace file index', () => {
 		expect(reloaded.documents.find((d) => d.id === second)?.title).toBe('Report Q3');
 		expect(JSON.parse(localStorage.getItem(LS_DOCS_KEY)!).docs.length).toBe(2);
 	});
+
+	it('leaves survivor stored body unchanged after debounced edit and deleteFile', async () => {
+		const docs = createDocumentStore();
+		const first = docs.hydrate();
+		const store = createTableStore(undefined, { storageKey: () => docs.contentKey() });
+
+		store.loadTable(
+			{ title: 'Survivor', columns: [{ id: 'c1', name: 'A', type: 'text' }], rows: [{ id: 'r1', c1: 'survivor-data' }] },
+			{ undoable: false }
+		);
+		store.flushSave();
+
+		const second = docs.create('Victim');
+		store.loadTable(
+			{ title: 'Victim', columns: [{ id: 'c1', name: 'A', type: 'text' }], rows: [{ id: 'r1', c1: 'victim-data' }] },
+			{ undoable: false }
+		);
+		store.flushSave();
+
+		// Make a debounced edit on the second file
+		store.setCell('r1', 'c1', 'victim-modified');
+		// deleteFile pattern: flushSave then remove
+		store.flushSave();
+		docs.remove(second);
+
+		// Survivor should still have its original content in localStorage
+		const survivorRaw = localStorage.getItem(docContentKey(first));
+		expect(survivorRaw).toBeTruthy();
+		const parsed = JSON.parse(survivorRaw!);
+		expect(parsed.title).toBe('Survivor');
+		expect(parsed.rows[0].c1).toBe('survivor-data');
+	});
 });

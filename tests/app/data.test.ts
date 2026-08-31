@@ -108,6 +108,27 @@ describe('Data Management & SheetJS I/O', () => {
 		expect(table.rows[2][table.columns[2].id]).toBe(0.005);
 	});
 
+	it('keeps the raw value but takes the column type from Excel\'s number format', async () => {
+		const wb = XLSX.utils.book_new();
+		const ws = XLSX.utils.aoa_to_sheet([
+			['When', 'Price', 'Share'],
+			[new Date(Date.UTC(2023, 2, 15)), 1200.505, 0.15],
+			[new Date(Date.UTC(2023, 2, 16)), 990.259, 0.5]
+		]);
+		for (const addr of ['B2', 'B3']) (ws[addr] as { z?: string }).z = '"$"#,##0.00';
+		for (const addr of ['C2', 'C3']) (ws[addr] as { z?: string }).z = '0%';
+		XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+		const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+
+		const table = await importFileToTable(buf, 'formats.xlsx');
+		// The rendering says price and percentage; the raw value keeps the digits the
+		// rendering rounded away, and a date arrives as a string a cell can hold.
+		expect(table.columns.map((c) => c.type)).toEqual(['date', 'currency', 'percent']);
+		expect(table.rows[0][table.columns[1].id]).toBe(1200.505);
+		expect(table.rows[0][table.columns[2].id]).toBe(0.15);
+		expect(String(table.rows[0][table.columns[0].id])).toStartWith('2023-03-15');
+	});
+
 	it('imports from sliced Uint8Array buffer respecting byteOffset', async () => {
 		const wb = XLSX.utils.book_new();
 		const wsData = [
@@ -255,18 +276,61 @@ describe('Data Management & SheetJS I/O', () => {
 		]);
 	});
 
-	it('exports 0-row header-only table without crashing', async () => {
-		const emptyTable: TableData = {
-			title: 'Empty Export',
-			columns: [
-				{ id: 'c1', name: 'ID', type: 'number' },
-				{ id: 'c2', name: 'Name', type: 'text' }
-			],
-			rows: []
-		};
+	it('preserves raw precision and string leading zeroes on import', async () => {
+		const wb = XLSX.utils.book_new();
+		const wsData = [
+			['Code', 'Rate'],
+			['00123', 1.234567]
+		];
+		const ws = XLSX.utils.aoa_to_sheet(wsData);
+		// Format Rate cell to 2 decimal places in Excel
+		ws['B2'].z = '0.00';
+		ws['B2'].w = '1.23';
+		XLSX.utils.book_append_sheet(wb, ws, 'Data');
+		const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
 
-		const csv = await exportTableToCsv(emptyTable);
-		expect(csv.trim()).toBe('ID,Name');
+		const table = await importFileToTable(buf, 'precision.xlsx');
+		expect(table.rows[0].c1).toBe('00123');
+		expect(table.rows[0].c2).toBe(1.234567);
+	});
+
+	it('strictly rejects non-numeric strings in numeric cells', () => {
+		expect(normalizeCellValue('number', 'ABC123')).toBeNull();
+		expect(normalizeCellValue('number', '12.34.56')).toBeNull();
+		expect(normalizeCellValue('currency', 'Price: $100')).toBeNull();
+		expect(normalizeCellValue('number', '$1,250.50')).toBe(1250.5);
+		expect(normalizeCellValue('number', '-$50.25')).toBe(-50.25);
+		expect(normalizeCellValue('number', '00123')).toBe(123);
+	});
+
+	it('preserves interior blank rows so formula cell addresses remain valid', async () => {
+		const wb = XLSX.utils.book_new();
+		const wsData = [
+			['Header'],
+			['First'],
+			[null], // Interior blank row
+			['=A2']  // Formula referencing A2
+		];
+		const ws = XLSX.utils.aoa_to_sheet(wsData);
+		XLSX.utils.book_append_sheet(wb, ws, 'Sheet');
+		const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+
+		const table = await importFileToTable(buf, 'blank_rows.xlsx');
+		expect(table.rows.length).toBe(3);
+		expect(table.rows[0].c1).toBe('First');
+		expect(table.rows[1].c1).toBeNull();
+		expect(table.rows[2].c1).toBe('=A2');
+	});
+
+	it('warns when column or row limits are exceeded', async () => {
+		const warnings: string[] = [];
+		const row101Cols = Array.from({ length: 105 }, (_, i) => `Col${i + 1}`);
+		const rowData = Array.from({ length: 105 }, (_, i) => i);
+		const buf = workbookOf({ Big: [row101Cols, rowData] });
+
+		const table = await importFileToTable(buf, 'big.xlsx', (w) => warnings.push(w));
+		expect(table.columns.length).toBe(100);
+		expect(warnings.some((w) => w.includes('100 columns only') && w.includes('5 columns were discarded'))).toBe(true);
 	});
 });
 

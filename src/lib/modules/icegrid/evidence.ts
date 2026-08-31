@@ -29,20 +29,82 @@ export interface EvidenceCheck {
 const squash = (token: string) => token.replace(/[^a-z0-9]/g, '');
 
 /**
- * Every token of the quote appears in the document, ignoring order.
+ * Smallest token distance a scrambled span is allowed to cover. A quote longer than
+ * half of this widens the window to twice its own length, so a long printed row is
+ * never rejected merely for outgrowing the window meant to hold it.
+ */
+export const MIN_TOKEN_WINDOW = 300;
+
+/**
+ * Every token of the quote appears in the document, respecting multiplicities,
+ * within a bounded window.
  *
  * PDF extraction is the unreliable half of this pipeline: it reorders table columns,
  * splits a visual row across the text stream, and interleaves neighbouring cells. A
  * model that copied the printed row correctly then fails the contiguous check through
  * no fault of its own. Tokens are matched by exact squashed equality, never substring,
- * so `48` can never be found inside `1,448.00`; a fabricated quote still fails, because
- * its invented words and numbers are tokens the document does not contain.
+ * with multiset frequencies within a bounded window.
  */
 function tokensPresent(quote: string, documentText: string): boolean {
 	const wanted = quote.split(' ').map(squash).filter(Boolean);
 	if (wanted.length < 3) return false;
-	const have = new Set(documentText.split(' ').map(squash).filter(Boolean));
-	return wanted.every((token) => have.has(token));
+
+	const wantedCounts = new Map<string, number>();
+	for (const t of wanted) {
+		wantedCounts.set(t, (wantedCounts.get(t) ?? 0) + 1);
+	}
+
+	const docTokens = documentText.split(' ').map(squash).filter(Boolean);
+	if (docTokens.length < wanted.length) return false;
+
+	const windowSize = Math.max(wanted.length * 2, MIN_TOKEN_WINDOW);
+	if (docTokens.length <= windowSize) {
+		const docCounts = new Map<string, number>();
+		for (const t of docTokens) {
+			docCounts.set(t, (docCounts.get(t) ?? 0) + 1);
+		}
+		for (const [token, count] of wantedCounts.entries()) {
+			if ((docCounts.get(token) ?? 0) < count) return false;
+		}
+		return true;
+	}
+
+	const windowCounts = new Map<string, number>();
+	let matchedDistinct = 0;
+	const requiredDistinct = wantedCounts.size;
+
+	for (let i = 0; i < windowSize; i++) {
+		const token = docTokens[i];
+		const current = (windowCounts.get(token) ?? 0) + 1;
+		windowCounts.set(token, current);
+		const needed = wantedCounts.get(token);
+		if (needed !== undefined && current === needed) {
+			matchedDistinct++;
+		}
+	}
+	if (matchedDistinct === requiredDistinct) return true;
+
+	for (let i = windowSize; i < docTokens.length; i++) {
+		const incoming = docTokens[i];
+		const inCount = (windowCounts.get(incoming) ?? 0) + 1;
+		windowCounts.set(incoming, inCount);
+		const inNeeded = wantedCounts.get(incoming);
+		if (inNeeded !== undefined && inCount === inNeeded) {
+			matchedDistinct++;
+		}
+
+		const outgoing = docTokens[i - windowSize];
+		const outCount = windowCounts.get(outgoing)!;
+		const outNeeded = wantedCounts.get(outgoing);
+		if (outNeeded !== undefined && outCount === outNeeded) {
+			matchedDistinct--;
+		}
+		windowCounts.set(outgoing, outCount - 1);
+
+		if (matchedDistinct === requiredDistinct) return true;
+	}
+
+	return false;
 }
 
 /**

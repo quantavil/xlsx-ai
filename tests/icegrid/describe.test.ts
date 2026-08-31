@@ -256,6 +256,30 @@ describe('the goods-class style is checked before it is trusted', () => {
 		expect(describeStyleProblem(null)).toContain('no template');
 	});
 
+	it('validates template literal text and material spelling against sourceText', () => {
+		const sourceText = 'WE ARE EXPORTING HANDICRAFTS OF ARTWARES WITH ALUMINUM';
+		const validStyle = style({
+			template: 'HANDICRAFTS OF {MATERIALS} ARTWARES- {NAME}',
+			spellings: [{ printed: 'Alu', filed: 'ALUMINUM' }]
+		});
+		expect(describeStyleProblem(validStyle, sourceText)).toBeNull();
+
+		const unsupportedTemplate = style({
+			template: 'FABRICATED BANNER {MATERIALS} ARTWARES- {NAME}'
+		});
+		expect(describeStyleProblem(unsupportedTemplate, sourceText)).toContain(
+			'template literal text'
+		);
+
+		const unsupportedSpelling = style({
+			template: 'HANDICRAFTS OF {MATERIALS} ARTWARES- {NAME}',
+			spellings: [{ printed: 'Alu', filed: 'GOLDEN TITANIUM' }]
+		});
+		expect(describeStyleProblem(unsupportedSpelling, sourceText)).toContain(
+			'material spelling'
+		);
+	});
+
 	it('never files a leftover placeholder', () => {
 		expect(
 			composeDescription('Vase', parseMaterials('Alu 1.000'), style({ template: 'X {MATERIAL} {NAME}' }))
