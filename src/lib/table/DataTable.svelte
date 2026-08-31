@@ -160,11 +160,51 @@
 		if (idx !== -1) scrollToRow(idx);
 	});
 
+	/**
+	 * Where in the cell's text the click landed, so cursor mode can open the editor with
+	 * the caret under the pointer instead of selecting the whole value - Word, not Excel.
+	 *
+	 * Only ever set for text columns. Every other type renders a formatted value
+	 * (`1,234.56`, a date) while the editor loads the raw one (`1234.56`, `=SUM(A1:A2)`),
+	 * so an offset measured against the display string would land somewhere arbitrary.
+	 * Null means "put the caret at the end", which is the honest answer in those cases.
+	 */
+	let initialCaretOffset: number | null = null;
+
+	function caretOffsetAt(e: MouseEvent): number | null {
+		if (typeof document === 'undefined') return null;
+		try {
+			const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+			if (range) return textOffset(range.startContainer, range.startOffset);
+			const pos = document.caretPositionFromPoint?.(e.clientX, e.clientY);
+			if (pos) return textOffset(pos.offsetNode, pos.offset);
+		} catch {
+			// Both APIs are non-standard in one engine or the other; end-of-value is fine.
+		}
+		return null;
+	}
+
+	/**
+	 * A caret offset only means a character index when it was measured inside a text
+	 * node. Clicking the cell's padding resolves to the element instead, where the same
+	 * number is a child index - 0 or 1 - and would silently park the caret at the start.
+	 */
+	function textOffset(node: Node | null, offset: number): number | null {
+		return node?.nodeType === Node.TEXT_NODE ? offset : null;
+	}
+
 	// Svelte Action for autofocus
 	function autoFocus(node: HTMLElement) {
 		node.focus();
 		if (node instanceof HTMLInputElement) {
-			node.select();
+			if (store.cursorMode && !renamingColId) {
+				// Placing a caret, not selecting: the next keystroke has to insert, not replace.
+				const offset = Math.min(initialCaretOffset ?? node.value.length, node.value.length);
+				node.setSelectionRange(offset, offset);
+			} else {
+				node.select();
+			}
+			initialCaretOffset = null;
 		}
 	}
 
@@ -426,13 +466,13 @@
 			colIndex: store.columns.findIndex((column) => column.id === columnId)
 		};
 		const targets = resolveEditTargets(
-			store.selectionRect,
+			store.selectionRects,
 			store.activeCell,
 			requestedCell,
 			store.filteredRows,
 			store.columns
 		);
-		if (targets.length === 1) store.setSelection(requestedCell);
+		if (targets.length === 1 && store.selectionRects.length <= 1) store.setSelection(requestedCell);
 		editTargets = targets;
 		editingCell = { rowId, columnId };
 		editValue = typedChar || (initialVal !== null && initialVal !== undefined ? String(initialVal) : '');
@@ -486,20 +526,52 @@
 	// reset the anchor and a shift-click would collapse the range to a single cell.
 	let pointerExtend = false;
 
+	/** A cell held by a cursor other than the primary one. Only reachable in cursor mode. */
+	function isSecondaryCursor(rowIndex: number, colIndex: number): boolean {
+		if (store.selectionRects.length <= 1) return false;
+		return store.selectionRects.some(
+			(rect, idx) =>
+				idx !== store.primaryIndex &&
+				rowIndex >= rect.r0 &&
+				rowIndex <= rect.r1 &&
+				colIndex >= rect.c0 &&
+				colIndex <= rect.c1
+		);
+	}
+
+	function isInSelection(rowId: string, columnId: string): boolean {
+		return store.selectionKeys.has(`${rowId}::${columnId}`);
+	}
+
 	/**
-	 * The selection's outline, Excel-style.
+	 * The selection's outline, Excel-style, extended to several cursors.
 	 *
 	 * A range reads as one region because a single border runs around its perimeter, not
 	 * because every cell in it is tinted. Each cell contributes only the edges that sit
 	 * on that perimeter, so the interior grid lines stay untouched. Returned as inset
 	 * shadows because a real border would resize the cell.
+	 *
+	 * Every cursor is drawn at the same weight. Multi-cursor is only safe if you can see
+	 * which cells the next keystroke reaches, and a primary that shouted over the others
+	 * would be exactly the wrong emphasis - they all get written. While the editor is
+	 * open the input draws its own focus ring, so the cell underneath drops its own
+	 * rather than doubling it.
 	 */
-	function cellShadow(isActive: boolean, rowIndex: number, colIndex: number): string {
+	function cellShadow(
+		isActive: boolean,
+		isSecondary: boolean,
+		isEditing: boolean,
+		rowIndex: number,
+		colIndex: number
+	): string {
 		const parts: string[] = [];
-		if (isActive) parts.push('inset 0 0 0 2px var(--border-focus)');
+		if ((isActive && !isEditing) || isSecondary) {
+			parts.push('inset 0 0 0 2px var(--border-focus)');
+		}
 
-		const rect = store.selectionRect;
-		if (rect && isInSelection(rowIndex, colIndex)) {
+		for (const rect of store.selectionRects) {
+			if (rect.r0 === rect.r1 && rect.c0 === rect.c1) continue;
+			if (rowIndex < rect.r0 || rowIndex > rect.r1 || colIndex < rect.c0 || colIndex > rect.c1) continue;
 			if (rowIndex === rect.r0) parts.push('inset 0 2px 0 0 var(--border-focus)');
 			if (rowIndex === rect.r1) parts.push('inset 0 -2px 0 0 var(--border-focus)');
 			if (colIndex === rect.c0) parts.push('inset 2px 0 0 0 var(--border-focus)');
@@ -509,31 +581,36 @@
 		return parts.join(', ');
 	}
 
-	function isInSelection(rowIndex: number, colIndex: number): boolean {
-		const rect = store.selectionRect;
-		if (!rect) return false;
-		if (rect.r0 === rect.r1 && rect.c0 === rect.c1) return false;
-		return (
-			rowIndex >= rect.r0 && rowIndex <= rect.r1 && colIndex >= rect.c0 && colIndex <= rect.c1
-		);
-	}
-
-	/** Every (row, column) pair inside the current selection rectangle, in reading order. */
+	/** Every (row, column) pair inside all current selection rectangles, in reading order. */
 	function selectedCells(): Array<{ row: Row; col: Column }> {
-		const rect = store.selectionRect;
-		if (!rect) return [];
 		const out: Array<{ row: Row; col: Column }> = [];
-		for (let r = rect.r0; r <= rect.r1; r++) {
-			const row = store.filteredRows[r];
-			if (!row) continue;
-			for (let c = rect.c0; c <= rect.c1; c++) {
-				const col = store.columns[c];
-				if (col) out.push({ row, col });
+		const seen = new Set<string>();
+		for (const rect of store.selectionRects) {
+			for (let r = rect.r0; r <= rect.r1; r++) {
+				const row = store.filteredRows[r];
+				if (!row) continue;
+				for (let c = rect.c0; c <= rect.c1; c++) {
+					const col = store.columns[c];
+					if (col) {
+						const key = `${row.id}::${col.id}`;
+						if (!seen.has(key)) {
+							seen.add(key);
+							out.push({ row, col });
+						}
+					}
+				}
 			}
 		}
 		return out;
 	}
 
+	/**
+	 * The selection as TSV, so it pastes back into Excel as a range.
+	 *
+	 * Only the primary rectangle: TSV is a grid, and disjoint cursors have no grid shape.
+	 * Stacking them would hand back a block the user never selected, which is worse than
+	 * copying the one region they can point at. Excel refuses the same case outright.
+	 */
 	function selectionAsTsv(): string {
 		const rect = store.selectionRect;
 		if (!rect) return '';
@@ -583,18 +660,20 @@
 				const prevCol = store.columns[colIndex - 1];
 				selectCell(currentRow.id, prevCol.id, rowIndex, colIndex - 1, e.shiftKey);
 			}
-		} else if (e.key === 'ArrowDown') {
+		} else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
 			e.preventDefault();
-			if (rowIndex < totalRows - 1) {
-				const nextRow = store.filteredRows[rowIndex + 1];
-				if (nextRow) selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + 1, colIndex, e.shiftKey);
+			const step = e.key === 'ArrowDown' ? 1 : -1;
+			if (store.cursorMode && (e.ctrlKey || e.metaKey) && e.altKey) {
+				store.addCursor(step);
+			} else {
+				const nextRow = store.filteredRows[rowIndex + step];
+				if (nextRow) {
+					selectCell(nextRow.id, store.columns[colIndex].id, rowIndex + step, colIndex, e.shiftKey);
+				}
 			}
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			if (rowIndex > 0) {
-				const prevRow = store.filteredRows[rowIndex - 1];
-				if (prevRow) selectCell(prevRow.id, store.columns[colIndex].id, rowIndex - 1, colIndex, e.shiftKey);
-			}
+		} else if (e.key === 'Escape') {
+			// An Escape that collapsed nothing belongs to whatever panel is open above.
+			if (store.collapseSelections()) e.preventDefault();
 		} else if (e.key === 'Tab') {
 			e.preventDefault();
 			if (e.shiftKey) {
@@ -1066,28 +1145,34 @@
 									{@const isDropdown = colType === 'dropdown'}
 									{@const cellVal = row ? row[col.id] : null}
 									{@const isEditing = editingCell?.rowId === row?.id && editingCell?.columnId === col.id}
+									{@const isMirroredEdit = !isEditing && editingCell !== null && editTargets.some((t) => t.rowId === row?.id && t.columnId === col.id)}
 									{@const isActive = activeCell?.rowId === row?.id && activeCell?.columnId === col.id}
+									{@const isSecondary = isSecondaryCursor(rowIndex, colIndex)}
 									{@const isNumeric = isNumericType(colType)}
 									{@const hasVal = cellVal !== null && cellVal !== undefined && cellVal !== ''}
 									{@const dropdownStyle = isDropdown && hasVal ? getDropdownStyle(String(cellVal)) : null}
 
 									{@const isRovingActive = isActive || (!activeCell && rowIndex === 0 && colIndex === 0)}
-									{@const inRange = !isActive && isInSelection(rowIndex, colIndex)}
+									{@const inRange = !isActive && !isSecondary && isInSelection(row.id, col.id)}
 									{@const isRef = highlightedRefs.has(`${rowIndex}::${colIndex}`)}
 									{@const isError = cellVal === ERROR_VALUE}
 									{@const inFill = isInFill(rowIndex, colIndex)}
 									{@const isFindMatch = findStore?.matchKeys.has(`${row.id}::${col.id}`) ?? false}
 									{@const isFindMatchActive = findStore?.activeMatchKey === `${row.id}::${col.id}`}
 									{@const align = store.alignFor(row.id, col.id, colType)}
-									{@const shadow = cellShadow(isActive, rowIndex, colIndex)}
+									{@const shadow = cellShadow(isActive, isSecondary, isEditing, rowIndex, colIndex)}
 									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none cursor-default text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isFindMatch ? 'find-match outline outline-1 -outline-offset-1 outline-[var(--accent-amber)]/50 bg-[var(--accent-amber-bg)]/20' : ''} {isFindMatchActive ? 'find-match-active !outline-2 -outline-offset-1 !outline-[var(--accent-amber)] ring-2 ring-[var(--accent-amber)]/30 z-[4]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {inFill ? 'in-fill outline outline-1 -outline-offset-1 outline-dashed outline-[var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
+										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none {store.cursorMode ? 'cursor-text' : 'cursor-default'} text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[align]} {isNumeric ? 'numeric-cell font-mono tabular-nums' : ''} {isActive ? 'active-cell z-[2]' : ''} {isSecondary ? 'secondary-cursor z-[2]' : ''} {inRange ? 'in-range bg-[var(--accent-primary)]/10' : ''} {isRef ? 'formula-ref outline outline-1 -outline-offset-1 outline-[var(--accent-sky)] bg-[var(--accent-sky-bg)]' : ''} {isFindMatch ? 'find-match outline outline-1 -outline-offset-1 outline-[var(--accent-amber)]/50 bg-[var(--accent-amber-bg)]/20' : ''} {isFindMatchActive ? 'find-match-active !outline-2 -outline-offset-1 !outline-[var(--accent-amber)] ring-2 ring-[var(--accent-amber)]/30 z-[4]' : ''} {isError ? 'formula-error !text-[var(--accent-rose)] bg-[var(--accent-rose-bg)]' : ''} {inFill ? 'in-fill outline outline-1 -outline-offset-1 outline-dashed outline-[var(--border-focus)]' : ''} {isEditing ? 'editing' : ''} {isMirroredEdit ? 'mirrored-editing bg-[var(--accent-primary-bg)]/40' : ''} {isDropdown ? 'status-cell dropdown-cell' : ''} {isDropdown && hasVal ? 'dropdown-filled-cell' : ''}"
 										style="width: {col.width ? col.width + 'px' : '180px'}; min-width: 70px; {shadow ? `box-shadow: ${shadow};` : ''} {isDropdown && hasVal ? `background: ${inRange ? `${RANGE_TINT}, ` : ''}${dropdownStyle!.bg};` : ''}"
 										role="gridcell"
-										aria-selected={isActive || inRange}
+										aria-selected={isActive || isSecondary || inRange}
 										tabindex={isRovingActive ? 0 : -1}
 										use:registerCellNode={`${row.id}-${col.id}`}
 										onmousedown={(e) => {
+											// Measured here, not on click: by then the editor may already have
+											// replaced the text node the pointer was over.
+											initialCaretOffset =
+												store.cursorMode && colType === 'text' ? caretOffsetAt(e) : null;
 											// preventDefault keeps focus in the editor - without it the
 											// input blurs and commitEdit fires before the click lands.
 											if (pointAtCell(colIndex, rowIndex, e.shiftKey ? pointAnchor : null)) {
@@ -1108,17 +1193,37 @@
 										}}
 										onfocus={() => {
 											if (editingCell) return;
-											if (!isActive) {
+											// Focus fires on the way into a ctrl-click too, and selecting here would
+											// wipe the other cursors before toggleSelection ever sees the event.
+											if (!isActive && store.selectionRects.length <= 1) {
 												selectCell(row.id, col.id, rowIndex, colIndex, pointerExtend);
 											}
 										}}
 										onclick={(e) => {
 											if (pointAnchor) return;
+											// Ctrl-click drops or lifts a cursor, and nothing else. It must not open
+											// an editor: the edit would carry this cell's value into every other
+											// cursor the moment it committed, overwriting cells the user only meant
+											// to mark. Placing a caret and starting an edit are separate gestures.
+											if (store.cursorMode && (e.ctrlKey || e.metaKey)) {
+												store.toggleSelection({ rowId: row.id, columnId: col.id, rowIndex, colIndex });
+												pointerExtend = false;
+												return;
+											}
+											// Cursor mode: one click puts the caret in the text, like a document.
+											if (store.cursorMode && !e.shiftKey) {
+												selectCell(row.id, col.id, rowIndex, colIndex, false);
+												startEditing(row.id, col.id, store.rawCell(row.id, col.id));
+												pointerExtend = false;
+												return;
+											}
 											// A double-click fires this first, so re-selecting the cell the range
 											// already focuses would collapse that range before startEditing reads
 											// it - the mouse path to a bulk replace. Matches the caret button and
 											// the focus handler, both of which already no-op on the active cell.
-											if (!isActive) selectCell(row.id, col.id, rowIndex, colIndex, e.shiftKey);
+											if (!isActive || store.selectionRects.length > 1) {
+												selectCell(row.id, col.id, rowIndex, colIndex, e.shiftKey);
+											}
 											pointerExtend = false;
 											// Same rule on touch: a shift-click selects, it does not open an editor.
 											if (
@@ -1134,7 +1239,11 @@
 									>
 										{#if isDropdown}
 											<div class="status-cell-wrap flex items-center justify-between w-full h-full gap-1">
-												{#if hasVal && dropdownStyle}
+												{#if isMirroredEdit}
+													<span class="status-cell-text status-val font-medium text-[12.5px] truncate text-[var(--accent-primary)]">
+														<span class="truncate">{editValue}</span>
+													</span>
+												{:else if hasVal && dropdownStyle}
 													<span class="status-cell-text status-val font-medium text-[12.5px] truncate" style="color: {dropdownStyle.text};">
 														<span class="truncate">{cellVal}</span>
 													</span>
@@ -1223,6 +1332,11 @@
 													onkeydown={(e) => handleEditorKeyDown(e, rowIndex, colIndex)}
 												/>
 											{/if}
+										{:else if isMirroredEdit}
+											<!-- What this cell will hold once the edit commits. -->
+											<span class="cell-text-display block w-full truncate text-[var(--accent-primary)] font-medium">
+												{editValue}
+											</span>
 										{:else}
 											<span class="cell-text-display block w-full truncate">
 												{formatCellValue(colType, cellVal)}

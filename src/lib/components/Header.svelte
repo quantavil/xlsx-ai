@@ -321,6 +321,19 @@
 			{/each}
 		</div>
 
+		<!-- Cursor mode: one click puts a caret in the cell instead of selecting it -->
+		<button
+			class="cursor-mode-toggle-btn flex items-center justify-center w-7 h-7 rounded-md border transition-all cursor-pointer max-sm:hidden {store.cursorMode
+				? 'bg-[var(--accent-primary)]/15 border-[var(--accent-primary)]/40 text-[var(--accent-primary)] shadow-xs ring-1 ring-[var(--accent-primary)]/25'
+				: 'bg-[var(--surface-2)] border-[var(--border)] text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)]'}"
+			aria-pressed={store.cursorMode}
+			aria-label="Cursor Mode (1-Click Direct Text Edit)"
+			title="Cursor Mode: 1-Click Direct Text Edit ({store.cursorMode ? 'ON' : 'OFF'})"
+			onclick={() => store.setCursorMode(!store.cursorMode)}
+		>
+			<Icon name="cursor-mode" size={13} aria-hidden="true" />
+		</button>
+
 		<div class="history-group flex items-center gap-0.5">
 			<button
 				class="icon-btn flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors"

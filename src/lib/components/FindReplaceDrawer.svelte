@@ -80,12 +80,11 @@
 		}
 	}
 
-	const isRangeSelected = $derived.by<boolean>(() => {
-		const rect = store.selectionRect;
-		return Boolean(rect && (rect.r0 !== rect.r1 || rect.c0 !== rect.c1));
-	});
+	const isRangeSelected = $derived(store.selectionKeys.size > 1);
 
 	const rangeLabel = $derived.by<string>(() => {
+		// Disjoint cursors have no address - "A2:C7" would name cells they never selected.
+		if (store.selectionRects.length > 1) return `${store.selectionKeys.size} cells`;
 		const rect = store.selectionRect;
 		if (!rect) return '';
 		const c0Letter = columnLetter(rect.c0);
@@ -102,19 +101,17 @@
 		return `${c0Letter}${r0Num}:${c1Letter}${r1Num}`;
 	});
 
-	// Auto-switch to 'selection' scope when user selects a range while drawer is open
+	// Auto-switch to 'selection' scope when the user selects more than one cell while the
+	// drawer is open. Keyed off the rectangles rather than the cell set, which can run to
+	// thousands of entries on a whole-column selection.
 	let lastSelectionKey = '';
 	$effect(() => {
-		const rect = store.selectionRect;
-		if (!rect) return;
-		const key = `${rect.r0}:${rect.r1}:${rect.c0}:${rect.c1}`;
-		if (key !== lastSelectionKey) {
-			lastSelectionKey = key;
-			const isMultiCell = rect.r0 !== rect.r1 || rect.c0 !== rect.c1;
-			if (isMultiCell && findStore.isOpen) {
-				findStore.setScope('selection');
-			}
-		}
+		const rects = store.selectionRects;
+		if (rects.length === 0) return;
+		const key = rects.map((r) => `${r.r0}:${r.r1}:${r.c0}:${r.c1}`).join('|');
+		if (key === lastSelectionKey) return;
+		lastSelectionKey = key;
+		if (store.selectionKeys.size > 1 && findStore.isOpen) findStore.setScope('selection');
 	});
 </script>
 

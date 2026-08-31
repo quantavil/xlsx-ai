@@ -1,5 +1,5 @@
 import type { Column, Row } from '$lib/types';
-import type { createTableStore, SelectionRect } from './store.svelte';
+import type { createTableStore } from './store.svelte';
 import { isFormula } from './cells';
 import { columnLetter, sheetRowNumber } from './formulas';
 import type { CellPatch } from './commands';
@@ -96,7 +96,7 @@ export function executeScan(
 	resolvedRows: Row[],
 	query: string,
 	options: FindOptions,
-	selectionRect: SelectionRect | null,
+	selectionKeys: ReadonlySet<string>,
 	filteredRows: Row[]
 ): CellMatch[] {
 	if (!query.trim() || !rows.length || !columns.length || !filteredRows.length) return [];
@@ -104,20 +104,11 @@ export function executeScan(
 	const pattern = compileSearchPattern(query, options);
 	if (!pattern) return [];
 
-	if (options.scope === 'selection' && !selectionRect) {
-		return [];
-	}
-
-	const inSelection = options.scope === 'selection' && selectionRect !== null;
-	let targetRowIds: Set<string> | null = null;
-	let targetColIds: Set<string> | null = null;
-
-	if (inSelection && selectionRect) {
-		const selRows = filteredRows.slice(selectionRect.r0, selectionRect.r1 + 1);
-		const selCols = columns.slice(selectionRect.c0, selectionRect.c1 + 1);
-		targetRowIds = new Set(selRows.map((r) => r.id));
-		targetColIds = new Set(selCols.map((c) => c.id));
-	}
+	// The selection is a flat set of cells, not a bounding box: several cursors scattered
+	// across the sheet scope the search to exactly those cells, never to the rectangle
+	// that happens to enclose them.
+	const scoped = options.scope === 'selection';
+	if (scoped && selectionKeys.size === 0) return [];
 
 	const targetRows = filteredRows;
 	const rowToStorageIdx = new Map(rows.map((r, idx) => [r.id, idx]));
@@ -126,7 +117,6 @@ export function executeScan(
 	for (let r = 0; r < targetRows.length; r++) {
 		const row = targetRows[r];
 		if (!row) continue;
-		if (targetRowIds && !targetRowIds.has(row.id)) continue;
 
 		const storageIdx = rowToStorageIdx.get(row.id) ?? r;
 		const storageRow = rows[storageIdx] ?? row;
@@ -135,7 +125,7 @@ export function executeScan(
 		for (let c = 0; c < columns.length; c++) {
 			const col = columns[c];
 			if (!col || !col.id) continue;
-			if (targetColIds && !targetColIds.has(col.id)) continue;
+			if (scoped && !selectionKeys.has(`${row.id}::${col.id}`)) continue;
 
 			let cellContent: string;
 			if (options.lookIn === 'formulas') {
@@ -200,7 +190,7 @@ export function createFindStore(tableStore: ReturnType<typeof createTableStore>)
 			tableStore.resolvedRows,
 			query,
 			options,
-			tableStore.selectionRect,
+			tableStore.selectionKeys,
 			tableStore.filteredRows
 		);
 	});
@@ -232,12 +222,8 @@ export function createFindStore(tableStore: ReturnType<typeof createTableStore>)
 		}
 		if (initialScope) {
 			options.scope = initialScope;
-		} else {
-			const rect = tableStore.selectionRect;
-			const hasRange = Boolean(rect && (rect.r0 !== rect.r1 || rect.c0 !== rect.c1));
-			if (hasRange) {
-				options.scope = 'selection';
-			}
+		} else if (tableStore.selectionKeys.size > 1) {
+			options.scope = 'selection';
 		}
 		activeMatchIndex = 0;
 	}
