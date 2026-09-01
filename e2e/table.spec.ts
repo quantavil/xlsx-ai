@@ -812,6 +812,77 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(switcher).toHaveValue('gemini-3.6-flash');
 	});
 
+	test('copies complete chat messages and isolated SVG source', async ({ page, context }) => {
+		await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+		await page.evaluate(() => {
+			localStorage.setItem(
+				'xlsx-ai:ai-settings:v1',
+				JSON.stringify({
+					provider: 'gemini',
+					profiles: {
+						gemini: {
+							keys: ['AIzaSyPlaywrightCopyKey123456789'],
+							activeKeyIndex: 0,
+							modelId: 'gemini-3.5-flash-lite',
+							favoriteModels: []
+						},
+						openrouter: { keys: [], activeKeyIndex: 0, modelId: '', favoriteModels: [] }
+					}
+				})
+			);
+		});
+		await page.reload();
+
+		let releaseResponse!: () => void;
+		const responseGate = new Promise<void>((resolve) => (releaseResponse = resolve));
+		await page.route('**/api/ai', async (route) => {
+			await responseGate;
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					success: true,
+					kind: 'chat',
+					data: {
+						reply:
+							'Here is the icon:\n```svg\n<svg viewBox="0 0 10 10"><circle r="4" /></svg>\n```'
+					}
+				})
+			});
+		});
+
+		await page.locator('.right-tool-ribbon button[aria-label="Toggle AI Assistant"]').click();
+		const drawer = page.locator('aside.ai-drawer.open');
+		await drawer.locator('textarea').fill('Create an SVG icon');
+		await drawer.locator('button[aria-label="Send Message"]').click();
+
+		const userMessage = drawer.locator('.message-user');
+		const assistantMessage = drawer.locator('.message-assistant');
+		await expect(userMessage.getByRole('button', { name: 'Copy message text' })).toBeVisible();
+		await expect(assistantMessage.locator('.msg-actions')).toHaveCount(0);
+
+		await userMessage.getByRole('button', { name: 'Copy message text' }).click();
+		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+			'Create an SVG icon'
+		);
+		await expect(page.locator('.toast-item.toast-success')).toContainText('Copied to clipboard');
+
+		releaseResponse();
+		await expect(assistantMessage).toContainText('Here is the icon');
+		await assistantMessage.getByRole('button', { name: 'Copy message text' }).click();
+		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(
+			'Here is the icon'
+		);
+
+		await assistantMessage.getByRole('button', { name: 'Copy SVG source' }).click();
+		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+			'<svg viewBox="0 0 10 10"><circle r="4" /></svg>'
+		);
+		await expect(page.locator('.toast-item.toast-success').last()).toContainText(
+			'Copied SVG source'
+		);
+	});
+
 	test('a filled dropdown cell shows the range highlight like every other column', async ({
 		page
 	}) => {

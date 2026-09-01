@@ -30,7 +30,8 @@
     - 🪄 **Fill Missing**: Identifies missing/null cells and predicts values based on data patterns.
     - 🧹 **Clean Data**: Normalizes inconsistent formats, trims whitespace, and fixes typos.
     - 🔍 **Interactive Diff Preview**: Review proposed cell mutations before clicking **Apply** or **Discard** with stale patch conflict detection.
-  - **Streaming Data Q&A**: Real-time natural language answers, dataset trends, and executive summaries.
+  - **Data Q&A Chat**: Natural language answers, dataset trends, and executive summaries (responses are generated atomically via `generateObject`; a typing cursor is shown while the request is in flight).
+  - **Copy Affordances**: Every chat message (user or assistant) shows a Copy button that puts the message text on the clipboard. When an assistant response contains SVG, a second Copy SVG button appears that copies just the `<svg>…</svg>` element source — surrounding prose and fenced code blocks are stripped, so the clipboard payload is the raw element. Both buttons are always visible (not hover-only) and announce success/error toasts via the workspace notification system.
 - **Zen-Brutalist Design System & Accessibility**:
   - Clean borders, tight radius tokens (0–8px), subtle elevation, and responsive layouts across desktop, tablet, and mobile.
   - Keyboard navigation (`ArrowUp`/`ArrowDown`, `Home`/`End`, `Escape`) and instant actions for column deletion and document replacement with undo (`Ctrl+Z`) — no confirmation modals.
@@ -488,7 +489,7 @@ src/
     ├── components/           # Application UI Shell
     │   ├── Header.svelte        # Files switcher, file title, search, alignment control, undo/redo
     │   ├── RightRibbon.svelte   # AI, modules, add row, export, theme, settings (no file/import)
-    │   ├── AiDrawer.svelte      # AI assistant with structured diff preview & streaming chat
+    │   ├── AiDrawer.svelte      # AI assistant with structured diff preview & chat
     │   ├── Icons.svelte         # Universal SVG icon component and path catalog
     │   └── settings/            # /settings page sections (Ai, Modules, Shortcuts)
     ├── modules/              # Workspace module system

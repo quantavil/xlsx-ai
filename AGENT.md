@@ -107,6 +107,7 @@
   - Safe replacement: When `useRegex` is false, literal replacement is executed via `escapeRegExp` and string replacement callback to safely preserve `$` characters without triggering regex group expansion.
   - Formulas: Scans raw un-evaluated strings from `storageRow` (`tableStore.rows`) and patches them via atomic `applyCellPatches()` for 1-step undo/redo. Formula cells are protected when searching in values.
   - Scope: Auto-detects multi-cell/column selections on open and features real-time segmented scope switcher (`[ Entire Sheet ]` / `[ In Selection (Range/Col) ]`).
+- AI Assistant Copy Affordances: Each chat message (user or assistant) shows a small copy button that copies the message text via `navigator.clipboard.writeText`. When an assistant response contains SVG markup, a second copy button appears that extracts and copies the SVG element source — `extractSvgElement` walks balanced `<svg…>…</svg>` tags so surrounding prose and fenced code blocks do not leak into the clipboard. The buttons render only once a message is complete (`!isStreaming` and non-empty content), are always visible (not hover-only) and use the `copy` icon already present in `Icons.svelte`; `onNotify` surfaces success/error toasts. The existing `whitespace-pre-wrap` rendering is preserved, so the SVG is shown as text and never injected as HTML.
 
 ## Workspace Module Rules
 - Register browser modules only in `src/lib/modules/registry.ts`; register server AI actions only in `src/lib/server/modules/registry.ts`. Runtime-downloaded modules are not supported.

@@ -6,6 +6,7 @@
 	import { validatePatchProposals } from '$lib/ai/patches';
 	import { isNumericType } from '$lib/table/cells';
 	import { documents } from '$lib/workspace.svelte';
+	import { extractSvgElement, isSvgContent } from '$lib/ai/copy';
 
 	let {
 		store,
@@ -72,6 +73,49 @@
 	let promptInput = $state<string>('');
 	let isGenerating = $state<boolean>(false);
 	let activeRequest: AbortController | null = null;
+
+	async function copyToClipboard(
+		text: string,
+		onSuccess: () => void,
+		onError: (msg: string) => void
+	): Promise<boolean> {
+		if (!navigator.clipboard) {
+			onError('Clipboard not supported');
+			return false;
+		}
+		try {
+			await navigator.clipboard.writeText(text);
+			onSuccess();
+			return true;
+		} catch {
+			onError('Failed to copy to clipboard');
+			return false;
+		}
+	}
+
+	async function copySvgSource(
+		content: string,
+		onSuccess: () => void,
+		onError: (msg: string) => void
+	): Promise<boolean> {
+		const svg = extractSvgElement(content);
+		if (!svg) {
+			onError('No SVG element found');
+			return false;
+		}
+		if (!navigator.clipboard) {
+			onError('Clipboard not supported');
+			return false;
+		}
+		try {
+			await navigator.clipboard.writeText(svg);
+			onSuccess();
+			return true;
+		} catch {
+			onError('Failed to copy SVG source');
+			return false;
+		}
+	}
 
 	// Chat message interface
 	interface ChatMessage {
@@ -512,6 +556,30 @@
 							<div class="msg-content whitespace-pre-wrap">{msg.content}</div>
 							{#if msg.isStreaming}
 								<span class="streaming-cursor animate-pulse inline-block text-[var(--accent-primary)]" aria-hidden="true">▋</span>
+							{/if}
+							{#if !msg.isStreaming && msg.content.trim()}
+							<div class="msg-actions flex gap-1 pt-1 text-[10px]">
+								<button
+									class="msg-action-btn inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
+									aria-label="Copy message text"
+									title="Copy message text"
+									onclick={() => copyToClipboard(msg.content, () => onNotify('success', 'Copied to clipboard'), (err) => onNotify("error", err))}
+								>
+									<Icon name="copy" size={11} aria-hidden="true" />
+									<span>Copy</span>
+								</button>
+								{#if msg.role === 'assistant' && isSvgContent(msg.content)}
+									<button
+										class="msg-action-btn inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
+										aria-label="Copy SVG source"
+										title="Copy SVG source"
+										onclick={() => copySvgSource(msg.content, () => onNotify('success', 'Copied SVG source'), (err) => onNotify("error", err))}
+									>
+										<Icon name="copy" size={11} aria-hidden="true" />
+										<span>Copy SVG</span>
+									</button>
+								{/if}
+							</div>
 							{/if}
 						</div>
 					</div>
