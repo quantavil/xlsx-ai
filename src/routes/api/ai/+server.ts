@@ -1,10 +1,15 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
 import { getModuleAiHandler } from '$lib/server/modules/registry';
-import { isSupportedModelId } from '$lib/server/models';
+import { createAiLanguageModel } from '$lib/server/ai-provider';
+import {
+	isSupportedModelId,
+	parseAiProvider,
+	providerLabel,
+	type AiProvider
+} from '$lib/ai/providers';
 
 // A module payload is capped at MAX_COMBINED_BYTES (750 KB) of *extracted text*; JSON
 // escaping of tab/newline-dense TSV plus multi-byte glyphs can roughly double that on the
@@ -98,13 +103,17 @@ export const _CleanFillSchema = z.object({
 });
 
 export const POST: RequestHandler = async ({ request }) => {
+	const providerHeader = request.headers.get('x-ai-provider');
+	const provider = providerHeader === null ? 'gemini' : parseAiProvider(providerHeader);
+	if (!provider) return json({ error: 'Unsupported AI provider.' }, { status: 400 });
+	const providerName = provider === 'gemini' ? 'Gemini' : providerLabel(provider);
 	const apiKey = request.headers.get('x-ai-api-key')?.trim();
 
 	// 1. API Key Auth Validation
 	if (!apiKey || apiKey.length < 20) {
 		return json(
 			{
-				error: 'A valid Google Gemini API key is required. Please provide it in the x-ai-api-key header.'
+				error: `A valid ${providerLabel(provider)} API key is required. Please provide it in the x-ai-api-key header.`
 			},
 			{ status: 401 }
 		);
@@ -136,9 +145,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 
-	const targetModel = request.headers.get('x-ai-model-id')?.trim() || DEFAULT_AI_MODEL;
-	if (!isSupportedModelId(targetModel)) {
-		return json({ error: 'Unsupported Gemini model id.' }, { status: 400 });
+	const requestedModel = request.headers.get('x-ai-model-id')?.trim();
+	const targetModel = requestedModel || (provider === 'gemini' ? DEFAULT_AI_MODEL : '');
+	if (!targetModel) {
+		return json({ error: 'An OpenRouter model must be selected in Settings → AI & Models.' }, { status: 400 });
+	}
+	if (!isSupportedModelId(provider, targetModel)) {
+		return json({ error: `Unsupported ${providerName} model id.` }, { status: 400 });
 	}
 
 	let moduleHandler: ReturnType<typeof getModuleAiHandler>;
@@ -162,13 +175,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		moduleInput = validatedInput.data;
 	}
 
-	const google = createGoogleGenerativeAI({ apiKey });
-	const model = google(targetModel);
+	const requestOrigin = new URL(request.url).origin;
+	const appUrl = /localhost|127\.0\.0\.1/.test(requestOrigin) ? undefined : requestOrigin;
+	const model = createAiLanguageModel({ provider, apiKey, modelId: targetModel, appUrl });
 
 	try {
 		// 3. Trusted workspace module AI operations
 		if (moduleHandler) {
 			const result = await moduleHandler.execute(moduleInput, {
+				provider,
 				apiKey,
 				modelId: targetModel,
 				model,
@@ -274,34 +289,40 @@ EDIT REQUESTS:
 			typeof e.statusCode === 'number' ? e.statusCode : typeof e.status === 'number' ? e.status : 500;
 		const isRetryable = e.isRetryable === true || providerStatus === 429 || providerStatus >= 500;
 		const requestId = request.headers.get('cf-ray') ?? request.headers.get('x-request-id') ?? undefined;
-		console.error('AI SDK Generation Error:', { requestId, model: targetModel, statusCode: providerStatus, isRetryable });
+		console.error('AI SDK Generation Error:', {
+			requestId,
+			provider,
+			model: targetModel,
+			statusCode: providerStatus,
+			isRetryable
+		});
 
 		// The caller went away - nothing to report to.
 		if (request.signal.aborted) return json({ error: 'Request cancelled.' }, { status: 499 });
 		if (isTimeout(err)) {
 			return json(
 				{
-					error: `"${targetModel}" did not respond in time. Some Gemini models are far slower than others - try a Flash model, or pick another in Settings.`
+					error: `"${targetModel}" did not respond in time through ${providerName}. Pick another model in Settings → AI & Models.`
 				},
 				{ status: 504 }
 			);
 		}
 
 		if (providerStatus === 401 || providerStatus === 403) {
-			return json({ error: 'Gemini rejected the API key or model access.' }, { status: 401 });
+			return json({ error: `${providerName} rejected the API key or model access.` }, { status: 401 });
 		}
 		if (providerStatus === 429) {
-			return json({ error: 'Gemini rate limit reached. Try again shortly.' }, { status: 429 });
+			return json({ error: `${providerName} rate limit reached. Try again shortly.` }, { status: 429 });
 		}
 		if (providerStatus === 404) {
 			return json(
-				{ error: `Gemini has no model "${targetModel}". Pick another in Settings → AI & Models.` },
+				{ error: `${providerName} has no model "${targetModel}". Pick another in Settings → AI & Models.` },
 				{ status: 404 }
 			);
 		}
 		// Anything else is a bug in our request (bad schema, oversized prompt) or a provider
 		// fault. Swallowing the detail here is what made import failures undebuggable.
-		return json({ error: `Gemini request failed: ${describeProviderError(err)}` }, { status: 502 });
+		return json({ error: `${providerName} request failed: ${describeProviderError(err)}` }, { status: 502 });
 	}
 };
 

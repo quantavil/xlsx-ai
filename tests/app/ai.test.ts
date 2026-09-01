@@ -200,6 +200,39 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect((await response.json()).error).toContain('Unsupported Gemini model');
 	});
 
+	it('requires an explicit model for OpenRouter generation', async () => {
+		const request = new Request('http://localhost:5173/api/ai', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-ai-provider': 'openrouter',
+				'x-ai-api-key': 'sk-or-v1-valid-test-key'
+			},
+			body: JSON.stringify({ tableContext: { title: 'Test', columns: [], rows: [] } })
+		});
+
+		const response = await POST({ request } as any);
+		expect(response.status).toBe(400);
+		expect((await response.json()).error).toContain('OpenRouter model');
+	});
+
+	it('rejects unknown AI providers before generation', async () => {
+		const request = new Request('http://localhost:5173/api/ai', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-ai-provider': 'unknown',
+				'x-ai-api-key': 'a-valid-looking-api-key',
+				'x-ai-model-id': 'vendor/model'
+			},
+			body: JSON.stringify({ tableContext: { title: 'Test', columns: [], rows: [] } })
+		});
+
+		const response = await POST({ request } as any);
+		expect(response.status).toBe(400);
+		expect((await response.json()).error).toContain('Unsupported AI provider');
+	});
+
 	it('returns 413 before parsing request bodies larger than 4 MiB', async () => {
 		const request = new Request('http://localhost:5173/api/ai', {
 			method: 'POST',

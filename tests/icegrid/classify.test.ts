@@ -59,6 +59,7 @@ afterEach(() => {
 });
 
 const context = (model: ReturnType<typeof stubModel>['model']) => ({
+	provider: 'gemini' as const,
 	apiKey: 'x'.repeat(30),
 	modelId: 'gemini-test',
 	model,

@@ -1,7 +1,9 @@
 import type { LanguageModel } from 'ai';
 import type { z } from 'zod';
+import type { AiProvider } from '$lib/ai/providers';
 
 export interface ModuleAiServerContext {
+	readonly provider: AiProvider;
 	readonly apiKey: string;
 	readonly modelId: string;
 	readonly model: LanguageModel;
