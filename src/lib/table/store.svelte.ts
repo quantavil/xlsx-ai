@@ -860,6 +860,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		aiProfiles = { ...aiProfiles, gemini };
 		persistAiSettings();
 		localStorage.removeItem(LS_API_KEY);
+		localStorage.removeItem(LS_API_KEYS);
+		localStorage.removeItem(LS_AI_MODEL);
+		localStorage.removeItem(LS_FAV_MODELS);
 	}
 
 	function persistAiSettings() {

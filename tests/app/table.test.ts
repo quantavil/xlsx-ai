@@ -487,4 +487,23 @@ describe('AI provider profiles', () => {
 		expect(store.aiModel).toBe('gemini-3.6-flash');
 		expect(store.favoriteModels).toEqual(['gemini-3.6-flash']);
 	});
+
+	it('does not let a migrated legacy model override a later selection', () => {
+		localStorage.removeItem('xlsx-ai:ai-settings:v1');
+		localStorage.setItem('xlsx-ai:gemini-model', 'gemini-3.6-flash');
+		const first = createTableStore(
+			{ title: 'T', columns: [], rows: [] },
+			{ storageKey: 'test:provider-remigration' }
+		);
+		first.hydrate();
+		first.setAiModel('gemini-3.1-pro-preview');
+
+		const reloaded = createTableStore(
+			{ title: 'T', columns: [], rows: [] },
+			{ storageKey: 'test:provider-remigration' }
+		);
+		reloaded.hydrate();
+
+		expect(reloaded.aiModel).toBe('gemini-3.1-pro-preview');
+	});
 });
