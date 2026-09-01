@@ -9,9 +9,10 @@
 	import ModulesSection from '$lib/components/settings/ModulesSection.svelte';
 	import ShortcutsSection from '$lib/components/settings/ShortcutsSection.svelte';
 	import type { IconName } from '$lib/types';
+	import { providerLabel, type AiProvider } from '$lib/ai/providers';
 
 	const SECTIONS: Array<{ id: string; label: string; icon: IconName; blurb: string }> = [
-		{ id: 'ai', label: 'AI & Models', icon: 'sparkles', blurb: 'Connect your Google Gemini key and pick the model behind every AI action.' },
+		{ id: 'ai', label: 'AI & Models', icon: 'sparkles', blurb: 'Connect an AI provider and pick the model behind every AI action.' },
 		{ id: 'modules', label: 'Modules', icon: 'layers', blurb: 'Turn document pipelines on or off for this workspace.' },
 		{ id: 'shortcuts', label: 'Shortcuts', icon: 'keyboard', blurb: 'Every keyboard command available in the grid.' }
 	];
@@ -29,13 +30,18 @@
 	let fetchRequestId = 0;
 	let activeFetchController: AbortController | null = null;
 
-	async function fetchModelsFromGoogle(keyToUse?: string) {
+	function fallbackModels(provider: AiProvider): AiModelConfig[] {
+		return provider === 'gemini' ? AI_MODELS : [];
+	}
+
+	async function fetchModels(keyToUse?: string) {
+		const provider = store.aiProvider;
 		const key = keyToUse ?? (apiKey.trim() || store.apiKey?.trim());
 		activeFetchController?.abort();
 		activeFetchController = null;
 
 		if (!key || key.length < 15) {
-			availableModels = AI_MODELS;
+			availableModels = fallbackModels(provider);
 			modelsFetchError = '';
 			return;
 		}
@@ -48,24 +54,25 @@
 		modelsFetchError = '';
 		try {
 			const res = await fetch('/api/ai/models', {
-				headers: { 'x-ai-api-key': key },
+				headers: { 'x-ai-provider': provider, 'x-ai-api-key': key },
 				signal: controller.signal
 			});
 			const data = await res.json();
-			if (currentRequestId !== fetchRequestId) return;
+			if (currentRequestId !== fetchRequestId || provider !== store.aiProvider) return;
 
 			if (res.ok && data.models && data.models.length > 0) {
 				availableModels = data.models;
 				modelsFetchError = '';
-				notify('success', `Retrieved ${data.models.length} live models from Google AI.`);
+				notify('success', `Retrieved ${data.models.length} live models from ${providerLabel(provider)}.`);
 			} else {
-				modelsFetchError = data.error || 'Failed to retrieve models from Google API.';
+				availableModels = [];
+				modelsFetchError = data.error || `No compatible models returned by ${providerLabel(provider)}.`;
 			}
 		} catch (err: unknown) {
 			if (currentRequestId !== fetchRequestId) return;
 			if (err instanceof Error && err.name === 'AbortError') return;
 			modelsFetchError =
-				err instanceof Error ? err.message : 'Network error connecting to Google AI endpoint.';
+				err instanceof Error ? err.message : `Network error connecting to ${providerLabel(provider)}.`;
 		} finally {
 			if (currentRequestId === fetchRequestId) {
 				isLoadingModels = false;
@@ -81,7 +88,7 @@
 		apiKey = '';
 		isSaved = true;
 		notify('success', 'API key saved.');
-		fetchModelsFromGoogle(clean);
+		fetchModels(clean);
 	}
 
 	/** Drops one saved key. Whatever key is active afterwards decides the model list. */
@@ -93,9 +100,9 @@
 		isSaved = false;
 		isLoadingModels = false;
 		if (store.apiKey) {
-			fetchModelsFromGoogle(store.apiKey);
+			fetchModels(store.apiKey);
 		} else {
-			availableModels = AI_MODELS;
+			availableModels = fallbackModels(store.aiProvider);
 			modelsFetchError = '';
 		}
 		notify('info', 'API key removed.');
@@ -104,14 +111,29 @@
 	function switchApiKey(index: number) {
 		store.useApiKey(index);
 		modelsFetchError = '';
-		if (store.apiKey) fetchModelsFromGoogle(store.apiKey);
+		if (store.apiKey) fetchModels(store.apiKey);
 		notify('info', `Switched to key ${maskApiKey(store.apiKey)}.`);
+	}
+
+	function selectProvider(provider: AiProvider) {
+		if (provider === store.aiProvider) return;
+		activeFetchController?.abort();
+		activeFetchController = null;
+		fetchRequestId++;
+		store.setAiProvider(provider);
+		apiKey = '';
+		showApiKey = false;
+		isSaved = Boolean(store.apiKey);
+		isLoadingModels = false;
+		modelsFetchError = '';
+		availableModels = fallbackModels(provider);
+		if (store.apiKey) fetchModels(store.apiKey);
 	}
 
 	onMount(() => {
 		if (store.apiKey) {
 			isSaved = true;
-			fetchModelsFromGoogle(store.apiKey);
+			fetchModels(store.apiKey);
 		}
 
 		function handleKeyDown(e: KeyboardEvent) {
@@ -210,7 +232,8 @@
 						bind:availableModels
 						{isLoadingModels}
 						{modelsFetchError}
-						onFetchModels={() => fetchModelsFromGoogle()}
+						onFetchModels={() => fetchModels()}
+						onSelectProvider={selectProvider}
 						onSaveKey={saveApiKey}
 						onRemoveKey={removeApiKey}
 						onSwitchKey={switchApiKey}

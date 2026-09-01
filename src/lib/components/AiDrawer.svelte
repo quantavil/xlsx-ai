@@ -22,7 +22,9 @@
 	// starred from the live catalog has no name stored here, and half a list of
 	// "Gemini 3.7 Flash" next to half a list of "gemini-3.5-flash-lite" reads as a bug.
 	let switchableModels = $derived(
-		store.favoriteModels.includes(store.aiModel)
+		!store.aiModel
+			? store.favoriteModels
+			: store.favoriteModels.includes(store.aiModel)
 			? store.favoriteModels
 			: [store.aiModel, ...store.favoriteModels]
 	);
@@ -154,8 +156,8 @@
 	// Trigger structured transformation (fill missing or clean)
 	async function runStructuredOperation(kind: 'fill_missing' | 'clean') {
 		const key = store.apiKey?.trim();
-		if (!key) {
-			onNotify('warning', 'Please configure your Google Gemini API key in Settings.');
+		if (!key || !store.aiModel) {
+			onNotify('warning', 'Please configure an AI provider, API key, and model in Settings.');
 			onOpenSettings?.();
 			return;
 		}
@@ -166,7 +168,12 @@
 
 		try {
 			const truncatedRows = rowsForPrompt();
-			const ai = createAiApi({ apiKey: key, modelId: store.aiModel, signal: controller.signal });
+			const ai = createAiApi({
+				provider: store.aiProvider,
+				apiKey: key,
+				modelId: store.aiModel,
+				signal: controller.signal
+			});
 			const data: unknown = await ai.request({
 					tableContext: {
 						title: store.title,
@@ -185,7 +192,7 @@
 			if (Array.isArray(result.data?.patches) && result.data.patches.length > 0) {
 				const patches = hydratePatches(result.data.patches);
 				if (patches.length === 0) {
-					onNotify('warning', 'Gemini returned no valid changes for the current table.');
+					onNotify('warning', 'AI returned no valid changes for the current table.');
 					return;
 				}
 
@@ -251,8 +258,8 @@
 		if (!text) return;
 
 		const key = store.apiKey?.trim();
-		if (!key) {
-			onNotify('warning', 'Please configure your Google Gemini API key in Settings.');
+		if (!key || !store.aiModel) {
+			onNotify('warning', 'Please configure an AI provider, API key, and model in Settings.');
 			onOpenSettings?.();
 			return;
 		}
@@ -276,7 +283,12 @@
 				.filter((m) => !m.isStreaming)
 				.slice(-10)
 				.map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }));
-			const ai = createAiApi({ apiKey: key, modelId: store.aiModel, signal: controller.signal });
+			const ai = createAiApi({
+				provider: store.aiProvider,
+				apiKey: key,
+				modelId: store.aiModel,
+				signal: controller.signal
+			});
 			const data: unknown = await ai.request({
 					tableContext: {
 						title: store.title,
@@ -358,7 +370,7 @@
 					<Icon name="sparkles" size={15} />
 				</div>
 				<div class="drawer-headings min-w-0">
-					<h3 class="text-[13.5px] font-bold tracking-tight text-[var(--text-1)] m-0 leading-none">Gemini Assistant</h3>
+					<h3 class="text-[13.5px] font-bold tracking-tight text-[var(--text-1)] m-0 leading-none">AI Assistant</h3>
 				</div>
 			</div>
 
@@ -377,16 +389,16 @@
 		</div>
 
 		<!-- API Key Prompt Banner (shown when key not configured) -->
-		{#if !store.apiKey}
+		{#if !store.apiKey || !store.aiModel}
 			<div class="api-key-banner m-3 p-3 bg-[var(--accent-amber-bg)] border border-[var(--accent-amber-border)] rounded-xl flex flex-col gap-1.5">
 				<div class="banner-top flex items-center gap-2 text-[var(--accent-amber)] font-semibold text-[12.5px]">
 					<div class="banner-badge-icon w-5 h-5 rounded flex items-center justify-center bg-[var(--accent-amber-bg)] text-[var(--accent-amber)]" aria-hidden="true">
 						<Icon name="key" size={13} />
 					</div>
-					<div class="banner-title font-semibold">Gemini API Key Required</div>
+					<div class="banner-title font-semibold">AI Configuration Required</div>
 				</div>
 				<p class="banner-desc text-[12px] text-[var(--text-2)] leading-relaxed m-0">
-					Configure your Google Gemini API key in Settings to unlock AI cell filling, data cleaning, and dataset queries.
+					Choose a provider, API key, and model in Settings to unlock AI cell filling, data cleaning, and dataset queries.
 				</p>
 				{#if onOpenSettings}
 					<button class="banner-cta-btn inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-1)] hover:bg-[var(--surface-3)] cursor-pointer w-fit mt-1 transition-colors" onclick={onOpenSettings} aria-label="Configure API key in settings">
@@ -526,7 +538,7 @@
 				<textarea
 					rows="1"
 					bind:this={promptEl}
-					placeholder="Ask Gemini about this table..."
+					placeholder="Ask AI about this table..."
 					aria-label="Message for AI Assistant"
 					class="bg-transparent border-none outline-none text-[12.5px] text-[var(--text-1)] w-full resize-none overflow-y-auto placeholder:text-[var(--text-3)] font-normal leading-relaxed"
 					bind:value={promptInput}

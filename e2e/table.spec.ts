@@ -399,6 +399,31 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(page.locator('.title-text')).toContainText('SaaS Revenue');
 	});
 
+	test('switches between independent Gemini and OpenRouter settings', async ({ page }) => {
+		await page.locator('.right-tool-ribbon button.settings-toggle-btn').click();
+		const settingsPage = page.locator('.settings-page');
+		const providerPicker = settingsPage.locator('[aria-label="Select AI provider"]');
+		const keyInput = settingsPage.locator('input.api-key-input');
+
+		await expect(providerPicker.getByRole('button', { name: 'Gemini' })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+		await providerPicker.getByRole('button', { name: 'OpenRouter' }).click();
+		await expect(keyInput).toHaveAttribute('placeholder', 'sk-or-v1-...');
+		await expect(settingsPage.getByRole('link', { name: /OpenRouter Keys/ })).toHaveAttribute(
+			'href',
+			'https://openrouter.ai/settings/keys'
+		);
+		await expect(settingsPage.locator('.model-scroll-container')).toContainText(
+			'No models matching'
+		);
+
+		await providerPicker.getByRole('button', { name: 'Gemini' }).click();
+		await expect(keyInput).toHaveAttribute('placeholder', 'AIzaSy...');
+		await expect(settingsPage.locator('[role="radio"]').first()).toBeVisible();
+	});
+
 	test('file creation and import live only in the Files menu, not the ribbon', async ({ page }) => {
 		const ribbon = page.locator('.right-tool-ribbon');
 		await expect(ribbon.locator('button.btn-new-sheet')).toHaveCount(0);

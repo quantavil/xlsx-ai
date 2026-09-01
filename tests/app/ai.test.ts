@@ -3,6 +3,17 @@ import { _RequestSchema, _CleanFillSchema, _renderTsv, POST } from '../../src/ro
 import { isSupportedModelId } from '../../src/lib/ai/providers';
 
 describe('Server AI Endpoint (/api/ai)', () => {
+	it('wires provider selection through settings and uses provider-neutral assistant copy', async () => {
+		const settingsPageSource = await Bun.file('src/routes/settings/+page.svelte').text();
+		const aiSectionSource = await Bun.file('src/lib/components/settings/AiSection.svelte').text();
+		const aiDrawerSource = await Bun.file('src/lib/components/AiDrawer.svelte').text();
+		expect(settingsPageSource).toContain("'x-ai-provider': provider");
+		expect(aiSectionSource).toContain('Select AI provider');
+		expect(aiDrawerSource).toContain('AI Assistant');
+		expect(aiDrawerSource).toContain('provider: store.aiProvider');
+		expect(aiDrawerSource).not.toContain('Ask Gemini');
+	});
+
 	it('validates model ids against the selected provider', () => {
 		expect(isSupportedModelId('openrouter', 'anthropic/claude-sonnet-4')).toBe(true);
 		expect(isSupportedModelId('openrouter', 'gemini-3.6-flash')).toBe(false);

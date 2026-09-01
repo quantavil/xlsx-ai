@@ -2,6 +2,7 @@
 	import Icon from '$lib/components/Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import { maskApiKey, type AiModelConfig } from '$lib/constants';
+	import { AI_PROVIDERS, providerLabel, type AiProvider } from '$lib/ai/providers';
 
 	let {
 		store,
@@ -14,7 +15,8 @@
 		onFetchModels,
 		onSaveKey,
 		onRemoveKey,
-		onSwitchKey
+		onSwitchKey,
+		onSelectProvider
 	}: {
 		store: ReturnType<typeof createTableStore>;
 		apiKey: string;
@@ -27,6 +29,7 @@
 		onSaveKey: () => void;
 		onRemoveKey: (index: number) => void;
 		onSwitchKey: (index: number) => void;
+		onSelectProvider: (provider: AiProvider) => void;
 	} = $props();
 
 	let modelSearch = $state('');
@@ -42,16 +45,49 @@
 			);
 		})
 	);
+
+	let providerUi = $derived(
+		store.aiProvider === 'gemini'
+			? {
+					placeholder: 'AIzaSy...',
+					href: 'https://aistudio.google.com/app/apikey',
+					link: 'Google AI Studio'
+				}
+			: {
+					placeholder: 'sk-or-v1-...',
+					href: 'https://openrouter.ai/settings/keys',
+					link: 'OpenRouter Keys'
+				}
+	);
+	let selectedModelUnavailable = $derived(
+		Boolean(store.aiModel) && !availableModels.some((model) => model.id === store.aiModel)
+	);
 </script>
 
 <div class="settings-section ai-section flex flex-col gap-5">
+	<div class="card-setting bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-5 flex items-center justify-between gap-4">
+		<div class="flex flex-col gap-0.5">
+			<span class="text-[13.5px] font-semibold text-[var(--text-1)]">Provider</span>
+			<span class="text-[11.5px] text-[var(--text-3)]">Credentials and model choices stay separate for each provider.</span>
+		</div>
+		<div class="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-1" aria-label="Select AI provider">
+			{#each AI_PROVIDERS as provider}
+				<button
+					type="button"
+					class="px-3 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors {store.aiProvider === provider ? 'bg-[var(--accent-primary)] text-[var(--text-inverse)]' : 'text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-hover)]'}"
+					aria-pressed={store.aiProvider === provider}
+					onclick={() => onSelectProvider(provider)}
+				>{provider === 'gemini' ? 'Gemini' : 'OpenRouter'}</button>
+			{/each}
+		</div>
+	</div>
 
 	<!-- API Key Card -->
 	<div class="card-setting bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-5 flex flex-col gap-3.5">
 		<div class="flex items-center justify-between gap-2">
 			<div class="flex flex-col gap-0.5 min-w-0">
-				<label for="gemini-api-key" class="text-[13.5px] font-semibold text-[var(--text-1)]">API Keys</label>
-				<span class="text-[11.5px] text-[var(--text-3)]">Stored in this browser only. Sent to Google through this app's server, which does not store it. Add several and switch when one runs out of quota.</span>
+				<label for="ai-api-key" class="text-[13.5px] font-semibold text-[var(--text-1)]">{providerLabel(store.aiProvider)} API Keys</label>
+				<span class="text-[11.5px] text-[var(--text-3)]">Stored in this browser only. Forwarded through this app's server, which does not store it. Add several and switch when one runs out of quota.</span>
 			</div>
 			{#if store.apiKey}
 				<span class="status-pill status-active inline-flex items-center shrink-0 gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] border border-[var(--accent-primary-border)]">
@@ -66,10 +102,10 @@
 		<div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
 			<div class="relative flex-1 flex items-center">
 				<input
-					id="gemini-api-key"
+					id="ai-api-key"
 					type={showApiKey ? 'text' : 'password'}
 					bind:value={apiKey}
-					placeholder="AIzaSy..."
+					placeholder={providerUi.placeholder}
 					class="api-key-input w-full bg-[var(--surface-1)] border border-[var(--border)] rounded-lg px-3 py-1.5 pr-8 font-mono text-[12.5px] text-[var(--text-1)] outline-none focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] transition-colors"
 					autocomplete="off"
 					spellcheck="false"
@@ -136,12 +172,12 @@
 		<div class="flex items-center gap-1 text-[11.5px] text-[var(--text-3)]">
 			<span>Need an API key?</span>
 			<a
-				href="https://aistudio.google.com/app/apikey"
+				href={providerUi.href}
 				target="_blank"
 				rel="noreferrer"
 				class="inline-flex items-center gap-0.5 text-[var(--accent-primary)] hover:underline font-medium"
 			>
-				<span>Google AI Studio</span>
+				<span>{providerUi.link}</span>
 				<Icon name="external-link" size={11} />
 			</a>
 		</div>
@@ -168,7 +204,7 @@
 				class="inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium rounded-lg bg-[var(--surface-1)] border border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text-2)] hover:text-[var(--text-1)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
 				onclick={onFetchModels}
 				disabled={isLoadingModels || !store.apiKey}
-				title="Fetch live models from Google API"
+				title="Fetch live models from {providerLabel(store.aiProvider)}"
 			>
 				<Icon name={isLoadingModels ? 'loader' : 'sparkles'} size={12} class={isLoadingModels ? 'animate-spin text-[var(--accent-primary)]' : ''} />
 				<span>{isLoadingModels ? 'Fetching...' : 'Fetch live models'}</span>
@@ -179,6 +215,12 @@
 			<div class="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--accent-rose-bg)] border border-[var(--accent-rose-border)] text-[var(--accent-rose)] text-[12px]">
 				<Icon name="x" size={13} />
 				<span>{modelsFetchError}</span>
+			</div>
+		{/if}
+		{#if selectedModelUnavailable}
+			<div class="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--accent-amber-bg)] border border-[var(--accent-amber-border)] text-[var(--accent-amber)] text-[12px]">
+				<Icon name="alert-triangle" size={13} />
+				<span>Previously selected model <span class="font-mono">{store.aiModel}</span> is unavailable. Choose another model.</span>
 			</div>
 		{/if}
 
@@ -205,7 +247,7 @@
 
 		<!-- Scrollable Model Container -->
 		<div class="model-scroll-container max-h-[340px] overflow-y-auto pr-1 -mr-1">
-			<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="radiogroup" aria-label="Available Google Gemini Models">
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5" role="radiogroup" aria-label="Available {providerLabel(store.aiProvider)} models">
 				{#each filteredModels as model (model.id)}
 					{@const isSelected = store.aiModel === model.id}
 					{@const isFavorite = store.favoriteModels.includes(model.id)}
