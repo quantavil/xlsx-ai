@@ -1,6 +1,7 @@
 import type { ModuleContext } from '../types';
 import type { CombinedExtractionResult } from './readers';
 import { IcegridAiReportSchema, type IcegridAiReport } from './schema';
+import { providerLabel } from '$lib/ai/providers';
 
 /**
  * One request for all selected files. Returns the raw candidate rows *with* their
@@ -10,12 +11,13 @@ export async function requestIcegridExtraction(
 	extraction: CombinedExtractionResult,
 	context: ModuleContext
 ): Promise<IcegridAiReport> {
+	const label = providerLabel(context.ai.provider);
 	if (!context.ai.apiKey || context.ai.apiKey.trim().length < 20) {
-		throw new Error('Google Gemini API key is missing or invalid. Please configure it in Settings.');
+		throw new Error(`${label} API key is missing or invalid. Please configure it in Settings.`);
 	}
 
 	context.onProgress(
-		`Sending ${extraction.sourceFiles.length} document(s) to Gemini AI (${context.ai.modelId})...`
+		`Sending ${extraction.sourceFiles.length} document(s) to ${label} (${context.ai.modelId})...`
 	);
 
 	const payload = {
@@ -48,12 +50,12 @@ export async function requestIcegridExtraction(
 		result.success !== true ||
 		!('data' in result)
 	) {
-		throw new Error('Malformed or empty extraction response from Gemini.');
+		throw new Error(`Malformed or empty extraction response from ${label}.`);
 	}
 
 	const parsed = IcegridAiReportSchema.safeParse(result.data);
 	if (!parsed.success) {
-		throw new Error('Gemini output did not conform to the ICEGrid report schema.');
+		throw new Error(`${label} output did not conform to the ICEGrid report schema.`);
 	}
 
 	return parsed.data;

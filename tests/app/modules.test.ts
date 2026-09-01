@@ -21,7 +21,7 @@ describe('Workspace Modules Framework', () => {
 			multiple: true
 		});
 		expect(icegrid?.defaultEnabled).toBe(true);
-		expect(icegrid?.requirements.gemini).toBe(true);
+		expect(icegrid?.requirements.ai).toBe(true);
 	});
 
 	it('registers unique stable module ids', () => {
@@ -73,8 +73,9 @@ describe('Workspace Modules Framework', () => {
 
 		// Trigger runModule
 		const runPromise = store.runModule('icegrid', [mockFile], {
+			provider: 'openrouter',
 			apiKey: 'AIzaSyFakeKey1234567890',
-			modelId: 'gemini-3.7-flash-lite'
+			modelId: 'anthropic/claude-sonnet-4'
 		});
 
 		// Disabling while running triggers cancelRun

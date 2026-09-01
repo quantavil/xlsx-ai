@@ -44,8 +44,8 @@
 	let exportMenuItemsRef = $state<HTMLButtonElement[]>([]);
 
 	async function handleModuleTrigger(mod: WorkspaceModule) {
-		if (mod.requirements.gemini && (!store.apiKey || store.apiKey.trim().length < 20)) {
-			onNotify('warning', `Google Gemini API key required for ${mod.name}. Please configure it in Settings.`);
+		if (mod.requirements.ai && (!store.apiKey || store.apiKey.trim().length < 20 || !store.aiModel)) {
+			onNotify('warning', `AI provider, API key, and model required for ${mod.name}. Please configure them in Settings.`);
 			onOpenSettings?.();
 			return;
 		}
@@ -61,6 +61,7 @@
 		showWarnings = false;
 		try {
 			const result = await moduleStore.runModule(mod.id, files, {
+				provider: store.aiProvider,
 				apiKey: store.apiKey,
 				modelId: store.aiModel
 			});

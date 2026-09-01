@@ -28,8 +28,8 @@
 							<div class="flex items-center gap-1.5 flex-wrap">
 								<span class="text-[13px] font-semibold text-[var(--text-1)]">{mod.name}</span>
 								<span class="text-[10.5px] font-mono px-1.5 py-0.2 rounded bg-[var(--surface-3)] text-[var(--text-3)]">v{mod.version}</span>
-								{#if mod.requirements.gemini}
-									<span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]">Gemini</span>
+								{#if mod.requirements.ai}
+									<span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]">AI</span>
 								{/if}
 							</div>
 							<p class="text-[12px] text-[var(--text-2)] m-0 leading-relaxed">{mod.description}</p>

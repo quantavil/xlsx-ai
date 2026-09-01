@@ -29,7 +29,7 @@ export interface WorkspaceModule {
 	version: string;
 	defaultEnabled: boolean;
 	requirements: {
-		gemini: boolean;
+		ai: boolean;
 	};
 	ribbon: ModuleRibbonAction;
 	/** Optional panel rendered inside this module's Settings card. */

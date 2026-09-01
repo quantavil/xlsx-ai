@@ -37,7 +37,7 @@ export const icegridModule: WorkspaceModule = {
 	version: '1.1.0',
 	defaultEnabled: true,
 	requirements: {
-		gemini: true
+		ai: true
 	},
 	ribbon: {
 		label: 'ICEGrid Documents',

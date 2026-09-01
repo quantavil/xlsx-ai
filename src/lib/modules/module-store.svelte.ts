@@ -1,6 +1,7 @@
 import { BUILTIN_MODULES, getModuleById } from './registry';
 import type { WorkspaceModule, ModuleResult } from './types';
 import { createAiApi } from '$lib/ai/client';
+import type { AiProvider } from '$lib/ai/providers';
 
 export const LS_MODULES_KEY = 'xlsx-ai:modules:v1';
 
@@ -90,7 +91,7 @@ export function createModuleStore() {
 	async function runModule(
 		id: string,
 		files: File[],
-		context: { apiKey: string; modelId: string }
+		context: { provider: AiProvider; apiKey: string; modelId: string }
 	): Promise<ModuleResult | null> {
 		const mod = getModuleById(id);
 		if (!mod || !isEnabled(id)) {
@@ -108,6 +109,7 @@ export function createModuleStore() {
 
 		try {
 			const ai = createAiApi({
+				provider: context.provider,
 				apiKey: context.apiKey,
 				modelId: context.modelId,
 				signal: controller.signal
