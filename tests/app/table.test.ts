@@ -443,3 +443,48 @@ describe('favourite models', () => {
 		expect(store.favoriteModels).toEqual(['gemini-3.1-pro-preview']);
 	});
 });
+
+describe('AI provider profiles', () => {
+	it('keeps credentials, models, and favourites isolated by provider', () => {
+		const store = createTableStore({ title: 'T', columns: [], rows: [] }, { persist: false });
+		store.addApiKey('AIzaSyGeminiKey1234567890');
+		store.setAiModel('gemini-3.6-flash');
+		store.toggleFavoriteModel('gemini-3.6-flash');
+
+		store.setAiProvider('openrouter');
+		expect(store.aiProvider).toBe('openrouter');
+		expect(store.apiKey).toBe('');
+		expect(store.aiModel).toBe('');
+		expect(store.favoriteModels).toEqual([]);
+
+		store.addApiKey('sk-or-v1-openrouter-test-key');
+		store.setAiModel('anthropic/claude-sonnet-4');
+		store.toggleFavoriteModel('anthropic/claude-sonnet-4');
+		store.setAiProvider('gemini');
+
+		expect(store.apiKey).toBe('AIzaSyGeminiKey1234567890');
+		expect(store.aiModel).toBe('gemini-3.6-flash');
+		expect(store.favoriteModels).toEqual(['gemini-3.6-flash']);
+	});
+
+	it('migrates legacy Gemini settings into the Gemini profile', () => {
+		localStorage.removeItem('xlsx-ai:ai-settings:v1');
+		localStorage.setItem(
+			'xlsx-ai:gemini-keys',
+			JSON.stringify({ keys: ['AIzaSyLegacyKey'], active: 0 })
+		);
+		localStorage.setItem('xlsx-ai:gemini-model', 'gemini-3.6-flash');
+		localStorage.setItem('xlsx-ai:gemini-favorites', JSON.stringify(['gemini-3.6-flash']));
+
+		const store = createTableStore(
+			{ title: 'T', columns: [], rows: [] },
+			{ storageKey: 'test:provider-migration' }
+		);
+		store.hydrate();
+
+		expect(store.aiProvider).toBe('gemini');
+		expect(store.apiKeys).toEqual(['AIzaSyLegacyKey']);
+		expect(store.aiModel).toBe('gemini-3.6-flash');
+		expect(store.favoriteModels).toEqual(['gemini-3.6-flash']);
+	});
+});

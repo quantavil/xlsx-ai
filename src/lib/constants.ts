@@ -14,6 +14,9 @@ export const LS_AI_MODEL = 'xlsx-ai:gemini-model';
 export const LS_API_KEYS = 'xlsx-ai:gemini-keys';
 /** Model ids starred in Settings; the chat switcher offers these instead of the full list. */
 export const LS_FAV_MODELS = 'xlsx-ai:gemini-favorites';
+/** Provider-scoped credentials, models and favorites. Legacy Gemini keys migrate here. */
+export const LS_AI_SETTINGS = 'xlsx-ai:ai-settings:v1';
+export const DEFAULT_AI_PROVIDER = 'gemini' as const;
 
 /** Last 4 characters, enough to tell two saved keys apart without showing either. */
 export function maskApiKey(key: string): string {

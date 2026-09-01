@@ -18,10 +18,13 @@ import {
 	LS_API_KEYS,
 	LS_FAV_MODELS,
 	LS_AI_MODEL,
+	LS_AI_SETTINGS,
+	DEFAULT_AI_PROVIDER,
 	DEFAULT_AI_MODEL,
 	DEFAULT_TABLE_TITLE,
 	COLUMN_TYPE_CONFIG
 } from '$lib/constants';
+import type { AiProvider, AiProviderProfile } from '$lib/ai/providers';
 import { normalizeCellValue, numericCellValue, defaultAlignForType, isFormula, isNumericType } from './cells';
 import {
 	aggregatesOwnColumn,
@@ -108,13 +111,17 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	// Current selection (anchor + focus). The rectangle between them is derived.
 	let selection = $state<CellSelection | null>(null);
 	let isAiOpen = $state<boolean>(false);
-	// Several keys, one active. Free Gemini keys hit their daily quota mid-job, and the
-	// fix at that moment is to switch, not to re-paste a key from a password manager.
-	let apiKeys = $state<string[]>([]);
-	let activeKeyIndex = $state<number>(0);
+	let aiProvider = $state<AiProvider>(DEFAULT_AI_PROVIDER);
+	let aiProfiles = $state<Record<AiProvider, AiProviderProfile>>({
+		gemini: { keys: [], activeKeyIndex: 0, modelId: DEFAULT_AI_MODEL, favoriteModels: [] },
+		openrouter: { keys: [], activeKeyIndex: 0, modelId: '', favoriteModels: [] }
+	});
+	const activeAiProfile = $derived(aiProfiles[aiProvider]);
+	const apiKeys = $derived(activeAiProfile.keys);
+	const activeKeyIndex = $derived(activeAiProfile.activeKeyIndex);
 	const apiKey = $derived(apiKeys[activeKeyIndex] ?? '');
-	let aiModel = $state<string>(DEFAULT_AI_MODEL);
-	let favoriteModels = $state<string[]>([]);
+	const aiModel = $derived(activeAiProfile.modelId);
+	const favoriteModels = $derived(activeAiProfile.favoriteModels);
 	let history = $state<HistoryEntry[]>([]);
 	let future = $state<HistoryEntry[]>([]);
 	let hydrated = $state<boolean>(false);
@@ -756,22 +763,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 				}
 			}
 
-			hydrateApiKeys();
-
-			const savedFavorites = localStorage.getItem(LS_FAV_MODELS);
-			if (savedFavorites) {
-				const parsed: unknown = JSON.parse(savedFavorites);
-				if (Array.isArray(parsed)) favoriteModels = parsed.filter((id) => typeof id === 'string');
-			}
-
-			// Hydrate AI Model from localStorage (migrate obsolete/shut-down models)
-			const savedModel = localStorage.getItem(LS_AI_MODEL);
-			const retired =
-				!savedModel ||
-				savedModel.includes('gemini-2.0') ||
-				savedModel.includes('undefined') ||
-				RETIRED_AI_MODELS.includes(savedModel);
-			aiModel = retired ? DEFAULT_AI_MODEL : savedModel;
+			hydrateAiSettings();
 		} catch (e) {
 			console.error('Failed to hydrate from localStorage', e);
 			result = { status: 'invalid' };
@@ -782,38 +774,102 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		return result;
 	}
 
-	/** Reads the key list, folding in the single key older builds stored. */
-	function hydrateApiKeys() {
-		const saved = localStorage.getItem(LS_API_KEYS);
+	function clampKeyIndex(keys: string[], index: number): number {
+		return keys.length === 0 ? 0 : Math.min(Math.max(0, Math.trunc(index)), keys.length - 1);
+	}
+
+	function normalizeProfile(value: unknown, defaultModel: string): AiProviderProfile {
+		if (!value || typeof value !== 'object') {
+			return { keys: [], activeKeyIndex: 0, modelId: defaultModel, favoriteModels: [] };
+		}
+		const raw = value as Record<string, unknown>;
+		const keys = Array.isArray(raw.keys)
+			? raw.keys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0)
+			: [];
+		const active = typeof raw.activeKeyIndex === 'number' ? raw.activeKeyIndex : 0;
+		return {
+			keys,
+			activeKeyIndex: clampKeyIndex(keys, active),
+			modelId: typeof raw.modelId === 'string' ? raw.modelId.trim() : defaultModel,
+			favoriteModels: Array.isArray(raw.favoriteModels)
+				? raw.favoriteModels.filter((id): id is string => typeof id === 'string')
+				: []
+		};
+	}
+
+	/** Hydrates provider profiles, then folds the old Gemini-only settings into Gemini. */
+	function hydrateAiSettings() {
+		const saved = localStorage.getItem(LS_AI_SETTINGS);
 		if (saved) {
 			const parsed: unknown = JSON.parse(saved);
-			if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { keys?: unknown }).keys)) {
-				const { keys, active } = parsed as { keys: unknown[]; active?: unknown };
-				apiKeys = keys.filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
-				activeKeyIndex = typeof active === 'number' ? clampKeyIndex(active) : 0;
+			if (parsed && typeof parsed === 'object') {
+				const raw = parsed as Record<string, unknown>;
+				const profiles = raw.profiles as Record<string, unknown> | undefined;
+				aiProfiles = {
+					gemini: normalizeProfile(profiles?.gemini, DEFAULT_AI_MODEL),
+					openrouter: normalizeProfile(profiles?.openrouter, '')
+				};
+				aiProvider = raw.provider === 'openrouter' ? 'openrouter' : 'gemini';
 			}
 		}
 
-		const legacy = localStorage.getItem(LS_API_KEY);
-		if (legacy && !apiKeys.includes(legacy)) {
-			apiKeys = [legacy, ...apiKeys];
-			activeKeyIndex = 0;
-			persistApiKeys();
+		let gemini = aiProfiles.gemini;
+		const savedKeys = localStorage.getItem(LS_API_KEYS);
+		if (savedKeys) {
+			const parsed: unknown = JSON.parse(savedKeys);
+			if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { keys?: unknown }).keys)) {
+				const { keys, active } = parsed as { keys: unknown[]; active?: unknown };
+				const migratedKeys = keys.filter(
+					(key): key is string => typeof key === 'string' && key.trim().length > 0
+				);
+				if (migratedKeys.length > 0 && gemini.keys.length === 0) {
+					gemini = {
+						...gemini,
+						keys: migratedKeys,
+						activeKeyIndex: clampKeyIndex(migratedKeys, typeof active === 'number' ? active : 0)
+					};
+				}
+			}
 		}
+
+		const legacyKey = localStorage.getItem(LS_API_KEY);
+		if (legacyKey && !gemini.keys.includes(legacyKey)) {
+			gemini = { ...gemini, keys: [legacyKey, ...gemini.keys], activeKeyIndex: 0 };
+		}
+
+		const savedFavorites = localStorage.getItem(LS_FAV_MODELS);
+		if (savedFavorites && gemini.favoriteModels.length === 0) {
+			const parsed: unknown = JSON.parse(savedFavorites);
+			if (Array.isArray(parsed)) {
+				gemini = {
+					...gemini,
+					favoriteModels: parsed.filter((id): id is string => typeof id === 'string')
+				};
+			}
+		}
+
+		const savedModel = localStorage.getItem(LS_AI_MODEL);
+		if (savedModel) gemini = { ...gemini, modelId: savedModel };
+		const retired =
+			!gemini.modelId ||
+			gemini.modelId.includes('gemini-2.0') ||
+			gemini.modelId.includes('undefined') ||
+			RETIRED_AI_MODELS.includes(gemini.modelId);
+		if (retired) gemini = { ...gemini, modelId: DEFAULT_AI_MODEL };
+
+		aiProfiles = { ...aiProfiles, gemini };
+		persistAiSettings();
 		localStorage.removeItem(LS_API_KEY);
 	}
 
-	function clampKeyIndex(index: number): number {
-		return apiKeys.length === 0 ? 0 : Math.min(Math.max(0, Math.trunc(index)), apiKeys.length - 1);
+	function persistAiSettings() {
+		if (typeof localStorage === 'undefined') return;
+		localStorage.setItem(LS_AI_SETTINGS, JSON.stringify({ provider: aiProvider, profiles: aiProfiles }));
 	}
 
-	function persistApiKeys() {
-		if (typeof localStorage === 'undefined') return;
-		if (apiKeys.length === 0) {
-			localStorage.removeItem(LS_API_KEYS);
-			return;
-		}
-		localStorage.setItem(LS_API_KEYS, JSON.stringify({ keys: apiKeys, active: activeKeyIndex }));
+	function replaceActiveProfile(profile: AiProviderProfile) {
+		aiProfiles = { ...aiProfiles, [aiProvider]: profile };
+		persistAiSettings();
 	}
 
 	/** Adds a key and makes it active; re-adding a stored key just selects it. */
@@ -822,42 +878,44 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		if (!clean) return;
 		const existing = apiKeys.indexOf(clean);
 		if (existing >= 0) {
-			activeKeyIndex = existing;
+			replaceActiveProfile({ ...activeAiProfile, activeKeyIndex: existing });
 		} else {
-			apiKeys = [...apiKeys, clean];
-			activeKeyIndex = apiKeys.length - 1;
+			const keys = [...apiKeys, clean];
+			replaceActiveProfile({ ...activeAiProfile, keys, activeKeyIndex: keys.length - 1 });
 		}
-		persistApiKeys();
 	}
 
 	function removeApiKey(index: number) {
 		if (index < 0 || index >= apiKeys.length) return;
-		apiKeys = apiKeys.filter((_, i) => i !== index);
+		const keys = apiKeys.filter((_, i) => i !== index);
 		// Keep whichever key was active still active, unless it was the one removed.
-		activeKeyIndex = clampKeyIndex(index < activeKeyIndex ? activeKeyIndex - 1 : activeKeyIndex);
-		persistApiKeys();
+		const nextIndex = clampKeyIndex(
+			keys,
+			index < activeKeyIndex ? activeKeyIndex - 1 : activeKeyIndex
+		);
+		replaceActiveProfile({ ...activeAiProfile, keys, activeKeyIndex: nextIndex });
 	}
 
 	function useApiKey(index: number) {
 		if (index < 0 || index >= apiKeys.length) return;
-		activeKeyIndex = index;
-		persistApiKeys();
+		replaceActiveProfile({ ...activeAiProfile, activeKeyIndex: index });
 	}
 
 	function toggleFavoriteModel(modelId: string) {
-		favoriteModels = favoriteModels.includes(modelId)
+		const next = favoriteModels.includes(modelId)
 			? favoriteModels.filter((id) => id !== modelId)
 			: [...favoriteModels, modelId];
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem(LS_FAV_MODELS, JSON.stringify(favoriteModels));
-		}
+		replaceActiveProfile({ ...activeAiProfile, favoriteModels: next });
 	}
 
 	function setAiModel(newModel: string) {
-		aiModel = newModel.trim();
-		if (typeof localStorage !== 'undefined') {
-			localStorage.setItem(LS_AI_MODEL, aiModel);
-		}
+		replaceActiveProfile({ ...activeAiProfile, modelId: newModel.trim() });
+	}
+
+	function setAiProvider(provider: AiProvider) {
+		if (provider === aiProvider) return;
+		aiProvider = provider;
+		persistAiSettings();
 	}
 
 	function setCursorMode(on: boolean) {
@@ -897,6 +955,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		},
 		get isAiOpen() {
 			return isAiOpen;
+		},
+		get aiProvider() {
+			return aiProvider;
 		},
 		get apiKey() {
 			return apiKey;
@@ -978,6 +1039,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		addApiKey,
 		removeApiKey,
 		useApiKey,
+		setAiProvider,
 		toggleFavoriteModel,
 		setAiModel,
 		loadTable,
