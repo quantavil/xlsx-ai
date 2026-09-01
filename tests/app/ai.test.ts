@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'bun:test';
 import { _RequestSchema, _CleanFillSchema, _renderTsv, POST } from '../../src/routes/api/ai/+server';
+import { isSupportedModelId } from '../../src/lib/ai/providers';
 
 describe('Server AI Endpoint (/api/ai)', () => {
+	it('validates model ids against the selected provider', () => {
+		expect(isSupportedModelId('openrouter', 'anthropic/claude-sonnet-4')).toBe(true);
+		expect(isSupportedModelId('openrouter', 'gemini-3.6-flash')).toBe(false);
+		expect(isSupportedModelId('gemini', 'anthropic/claude-sonnet-4')).toBe(false);
+		expect(isSupportedModelId('gemini', 'gemini-3.6-flash')).toBe(true);
+	});
+
 	it('validates request schema with Zod', () => {
 		const validPayload = {
 			tableContext: {

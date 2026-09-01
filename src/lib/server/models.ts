@@ -1,11 +1,8 @@
-// Single source of truth for "can this workspace talk to that Gemini model id".
-// Used by both the model listing endpoint and the generation endpoint so the picker can
-// never offer a model the generation route would then reject.
+import { isSupportedModelId as isProviderSupportedModelId } from '$lib/ai/providers';
 
-const SPECIALIZED = /(?:image|imagen|embedding|audio|speech|tts|live|robotics|aqa|transcribe|veo|lyria)/i;
-
+/** Backward-compatible Gemini validator for existing server callers. */
 export function isSupportedModelId(modelId: string): boolean {
-	if (!/^gemini-[a-z0-9][a-z0-9._-]{2,80}$/i.test(modelId)) return false;
-	if (SPECIALIZED.test(modelId)) return false;
-	return true;
+	return isProviderSupportedModelId('gemini', modelId);
 }
+
+export { isProviderSupportedModelId };

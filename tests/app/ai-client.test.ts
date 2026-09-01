@@ -19,8 +19,9 @@ describe('shared AI client capability', () => {
 		}) as typeof fetch;
 
 		const ai = createAiApi({
-			apiKey: 'AIzaSyValidTestKey123456789012345',
-			modelId: 'gemini-2.5-flash',
+			provider: 'openrouter',
+			apiKey: 'sk-or-v1-valid-test-key',
+			modelId: 'anthropic/claude-sonnet-4',
 			signal: controller.signal
 		});
 		const result = await ai.request<{ success: boolean; data: { rows: number } }>({
@@ -29,11 +30,13 @@ describe('shared AI client capability', () => {
 		});
 
 		expect(result.data.rows).toBe(2);
-		expect(ai.apiKey).toBe('AIzaSyValidTestKey123456789012345');
-		expect(ai.modelId).toBe('gemini-2.5-flash');
+		expect(ai.provider).toBe('openrouter');
+		expect(ai.apiKey).toBe('sk-or-v1-valid-test-key');
+		expect(ai.modelId).toBe('anthropic/claude-sonnet-4');
 		expect(capturedRequest?.url).toBe('http://localhost/api/ai');
-		expect(capturedRequest?.headers.get('x-ai-api-key')).toBe('AIzaSyValidTestKey123456789012345');
-		expect(capturedRequest?.headers.get('x-ai-model-id')).toBe('gemini-2.5-flash');
+		expect(capturedRequest?.headers.get('x-ai-provider')).toBe('openrouter');
+		expect(capturedRequest?.headers.get('x-ai-api-key')).toBe('sk-or-v1-valid-test-key');
+		expect(capturedRequest?.headers.get('x-ai-model-id')).toBe('anthropic/claude-sonnet-4');
 		expect(capturedRequest?.signal).toBe(controller.signal);
 		expect(await capturedRequest?.json()).toEqual({
 			operation: { kind: 'module', moduleId: 'icegrid', action: 'extract' },

@@ -3,6 +3,7 @@ export interface AiRequestOptions {
 }
 
 export interface AiApi {
+	readonly provider: AiProvider;
 	readonly apiKey: string;
 	readonly modelId: string;
 	request<TResponse>(payload: unknown, options?: AiRequestOptions): Promise<TResponse>;
@@ -10,6 +11,7 @@ export interface AiApi {
 }
 
 export interface CreateAiApiOptions {
+	provider?: AiProvider;
 	apiKey: string;
 	modelId: string;
 	signal?: AbortSignal;
@@ -34,6 +36,7 @@ async function readAiError(response: Response): Promise<string> {
 }
 
 export function createAiApi(options: CreateAiApiOptions): AiApi {
+	const provider = options.provider ?? 'gemini';
 	const apiKey = options.apiKey.trim();
 	const modelId = options.modelId.trim();
 
@@ -45,6 +48,7 @@ export function createAiApi(options: CreateAiApiOptions): AiApi {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
+				'x-ai-provider': provider,
 				'x-ai-api-key': apiKey,
 				'x-ai-model-id': modelId
 			},
@@ -60,6 +64,7 @@ export function createAiApi(options: CreateAiApiOptions): AiApi {
 	}
 
 	return {
+		provider,
 		apiKey,
 		modelId,
 		async request<TResponse>(
@@ -72,3 +77,4 @@ export function createAiApi(options: CreateAiApiOptions): AiApi {
 		requestStream
 	};
 }
+import type { AiProvider } from './providers';
