@@ -43,6 +43,7 @@ import {
 } from './schema';
 import { dedupeAndNormalizePatches, convertColumnTypeAtomic, type CellPatch } from './commands';
 import { createLocalStorageAdapter, type SaveStatus } from './persistence';
+import { compileFilters, type ColumnFilter, type ColumnFilters } from './filters';
 
 
 export interface TableStoreOptions {
@@ -107,6 +108,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	let rows = $state<Row[]>(cloneRows(sanitizedInitial.rows));
 	let searchQuery = $state<string>('');
 	let sortConfig = $state<SortConfig | null>(null);
+	let columnFilters = $state<ColumnFilters>({});
 	let cellAlign = $state<CellAlignMap>(cloneCellAlign(initialData?.cellAlign ?? {}));
 	// Current selection (anchor + focus). The rectangle between them is derived.
 	let selection = $state<CellSelection | null>(null);
@@ -205,7 +207,13 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			});
 		}
 
-		// 2. Sort Config
+		// 2. Column Filters (AND, over the same resolved values search reads)
+		const tests = compileFilters(columns || [], columnFilters);
+		if (tests.length > 0) {
+			result = result.filter((row) => !!row && tests.every((test) => test(row)));
+		}
+
+		// 3. Sort Config
 		if (sortConfig) {
 			const { columnId, direction } = sortConfig;
 			const col = (columns || []).find((c) => c && c.id === columnId);
@@ -478,6 +486,11 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		if (sortConfig?.columnId === columnId) {
 			sortConfig = null;
 		}
+		if (columnFilters[columnId] !== undefined) {
+			const next = { ...columnFilters };
+			delete next[columnId];
+			columnFilters = next;
+		}
 		triggerSave();
 	}
 
@@ -503,6 +516,28 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 
 	function setSearchQuery(query: string) {
 		searchQuery = query;
+	}
+
+	function setColumnFilter(columnId: string, filter: ColumnFilter) {
+		const col = columns.find((c) => c.id === columnId);
+		if (!col) return;
+		columnFilters = { ...columnFilters, [columnId]: filter };
+	}
+
+	function clearColumnFilter(columnId: string) {
+		if (!(columnId in columnFilters)) return;
+		const next = { ...columnFilters };
+		delete next[columnId];
+		columnFilters = next;
+	}
+
+	function clearAllFilters() {
+		if (Object.keys(columnFilters).length === 0) return;
+		columnFilters = {};
+	}
+
+	function isColumnFiltered(columnId: string): boolean {
+		return columnId in columnFilters;
 	}
 
 	/**
@@ -665,6 +700,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		cellAlign = cloneCellAlign(sanitized.cellAlign ?? {});
 		searchQuery = '';
 		sortConfig = null;
+		columnFilters = {};
 		setSelection(null);
 		triggerSave();
 	}
@@ -743,6 +779,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		// one file overwrite it with another file's contents.
 		history = [];
 		future = [];
+		columnFilters = {};
+		searchQuery = '';
+		sortConfig = null;
 
 		if (!persist || typeof localStorage === 'undefined') {
 			hydrated = true;
@@ -947,6 +986,12 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		get sortConfig() {
 			return sortConfig;
 		},
+		get columnFilters() {
+			return columnFilters;
+		},
+		get hasActiveFilters() {
+			return Object.keys(columnFilters).length > 0;
+		},
 		get activeCell() {
 			return activeCell;
 		},
@@ -1031,6 +1076,10 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		updateColumnWidth,
 		setSort,
 		setSearchQuery,
+		setColumnFilter,
+		clearColumnFilter,
+		clearAllFilters,
+		isColumnFiltered,
 		setSelection,
 		collapseSelection,
 		selectColumn,

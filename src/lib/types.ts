@@ -145,6 +145,7 @@ export type IconName =
 	| 'external-link'
 	| 'star'
 	| 'star-filled'
-	| 'loader';
+	| 'loader'
+	| 'filter';
 
 

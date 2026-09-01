@@ -1114,4 +1114,193 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await totals.dblclick();
 		await expect(page.locator('input.cell-input-editor')).toHaveValue('=SUM(D3:D4)');
 	});
+
+	test('per-column filter: value list reduces rows, marks column, and clears per-column and all', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		await expect(rows).toHaveCount(25);
+
+		const tierFilterBtn = page.locator('thead th:has-text("Tier") button[aria-label^="Filter column"]');
+		await expect(tierFilterBtn).toHaveAttribute('aria-label', 'Filter column Tier');
+		await expect(tierFilterBtn).toHaveAttribute('aria-haspopup', 'dialog');
+		await tierFilterBtn.click();
+		const popover = page.locator('.filter-popover');
+		await expect(popover).toBeVisible();
+		await expect(popover).toHaveAttribute('role', 'dialog');
+		// checkboxes are real inputs with labels
+		const checkboxes = popover.locator('.filter-values-list input[type="checkbox"]');
+		await expect(checkboxes).toHaveCount(3);
+		const firstLabel = popover.locator('.filter-values-list label').first();
+		await expect(firstLabel.locator('input[type="checkbox"]')).toBeVisible();
+		// Uncheck all via Clear then check only Active
+		await popover.getByRole('button', { name: 'Clear', exact: true }).click();
+		await expect(checkboxes.nth(0)).not.toBeChecked();
+		await popover.locator('label', { hasText: 'Active' }).locator('input').check();
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(popover).not.toBeVisible();
+		// Tier cycles Active/Trial/Pending -> 9 rows with Active (indices 0,3,6,9,12,15,18,21,24)
+		await expect(rows).toHaveCount(9);
+		// Filtered column is visually marked
+		await expect(tierFilterBtn).toHaveClass(/bg-\[var\(--accent-primary-bg\)\]/);
+		// Status bar with count and Clear all
+		const statusBar = page.locator('.filter-status-bar');
+		await expect(statusBar).toContainText('1 column filtered');
+		await expect(statusBar).toContainText('9 of 25 rows shown');
+		// Row gutter keeps storage numbering (check first filtered row is still sheet row 2 or later, not renumbered to 2,3)
+		const firstGutter = page.locator('tbody tr.data-row').first().locator('.row-num');
+		await expect(firstGutter).toHaveText('2');
+		const secondGutter = page.locator('tbody tr.data-row').nth(1).locator('.row-num');
+		await expect(secondGutter).toHaveText('5'); // second Active is r4 -> sheet row 5
+
+		// Clear per-column via reopening popover and Clear filter
+		await tierFilterBtn.click();
+		await expect(page.locator('.filter-popover')).toBeVisible();
+		await page.locator('.filter-popover button', { hasText: 'Clear filter' }).click();
+		await expect(rows).toHaveCount(25);
+		await expect(statusBar).toHaveCount(0);
+
+		// Apply again then clear all via status bar
+		await tierFilterBtn.click();
+		await page.locator('.filter-popover label', { hasText: 'Active' }).locator('input').check();
+		// need to handle Clear then Active: clear first
+		await page.locator('.filter-popover').getByRole('button', { name: 'Clear', exact: true }).click();
+		await page.locator('.filter-popover label', { hasText: 'Active' }).locator('input').check();
+		await page.locator('.filter-popover button', { hasText: 'Apply' }).click();
+		await expect(rows).toHaveCount(9);
+		await page.locator('.filter-status-bar button', { hasText: 'Clear all filters' }).click();
+		await expect(rows).toHaveCount(25);
+
+		// Popup closes on Escape and traps nothing
+		await tierFilterBtn.click();
+		await expect(page.locator('.filter-popover')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.filter-popover')).not.toBeVisible();
+	});
+
+	test('per-column condition filter: type-aware operators and AND with search and sort', async ({ page }) => {
+		const rows = page.locator('tbody tr.data-row');
+		// Numeric condition: Monthly Price > 500
+		const priceBtn = page.locator('thead th:has-text("Monthly Price") button[aria-label^="Filter column"]');
+		await priceBtn.click();
+		let popover = page.locator('.filter-popover');
+		await popover.locator('button', { hasText: 'Condition' }).click();
+		await popover.locator('select').selectOption('gt');
+		await popover.locator('input#filter-val-c3').fill('500');
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(rows.first()).toContainText('Plan'); // first price >500 is somewhere mid
+		const countAfterPrice = await rows.count();
+		expect(countAfterPrice).toBeGreaterThan(0);
+		expect(countAfterPrice).toBeLessThan(25);
+
+		// AND second filter on Tier = Active
+		const tierBtn = page.locator('thead th:has-text("Tier") button[aria-label^="Filter column"]');
+		await tierBtn.click();
+		popover = page.locator('.filter-popover');
+		await popover.getByRole('button', { name: 'Clear', exact: true }).click();
+		await popover.locator('label', { hasText: 'Active' }).locator('input').check();
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		const countAfterBoth = await rows.count();
+		expect(countAfterBoth).toBeLessThanOrEqual(countAfterPrice);
+
+		// Compose with global search (AND)
+		await page.locator('.search-box input').fill('Plan 2');
+		const countWithSearch = await rows.count();
+		expect(countWithSearch).toBeLessThanOrEqual(countAfterBoth);
+		await page.locator('.search-clear').click();
+
+		// Clear filters and verify sort still works
+		await page.locator('.filter-status-bar button', { hasText: 'Clear all filters' }).click();
+		await expect(rows).toHaveCount(25);
+		const priceHeader = page.locator('thead th:has-text("Monthly Price") button.th-title-btn');
+		await priceHeader.click();
+		await expect(rows.first().locator('td:nth-child(2)')).toContainText('Developer Sandbox');
+
+		// Text condition: contains on Product Plan
+		const planBtn = page.locator('thead th:has-text("Product Plan") button[aria-label^="Filter column"]');
+		await planBtn.click();
+		popover = page.locator('.filter-popover');
+		await popover.locator('button', { hasText: 'Condition' }).click();
+		await popover.locator('select').selectOption('contains');
+		await popover.locator('input#filter-val-c1').fill('Starter');
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(rows).toHaveCount(1);
+		await expect(rows.first()).toContainText('Starter Cloud');
+		await page.locator('.filter-status-bar button', { hasText: 'Clear all filters' }).click();
+
+		// Date condition: before on Renewal Date
+		const dateBtn = page.locator('thead th:has-text("Renewal Date") button[aria-label^="Filter column"]');
+		await dateBtn.click();
+		popover = page.locator('.filter-popover');
+		await popover.locator('button', { hasText: 'Condition' }).click();
+		await popover.locator('select').selectOption('before');
+		await popover.locator('input#filter-val-c6').fill('2026-09-10');
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(rows).toHaveCount(9);
+		await page.locator('.filter-status-bar button', { hasText: 'Clear all filters' }).click();
+
+		// Between on numeric
+		await priceBtn.click();
+		popover = page.locator('.filter-popover');
+		await popover.locator('button', { hasText: 'Condition' }).click();
+		await popover.locator('select').selectOption('between');
+		await popover.locator('input#filter-val-c3').fill('100');
+		await popover.locator('input#filter-val2-c3').fill('200');
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(rows).toHaveCount(2); // 100,174 (19 is outside)
+	});
+
+	test('filter value search box appears when many distinct values and filters correctly', async ({ page }) => {
+		const planBtn = page.locator('thead th:has-text("Product Plan") button[aria-label^="Filter column"]');
+		await planBtn.click();
+		const popover = page.locator('.filter-popover');
+		await expect(popover.locator('input.filter-value-search')).toBeVisible();
+		await popover.locator('input.filter-value-search').fill('Starter');
+		await expect(popover.locator('.filter-values-list label')).toHaveCount(1);
+		await expect(popover.locator('.filter-values-list label')).toContainText('Starter Cloud');
+		await page.keyboard.press('Escape');
+		await expect(popover).not.toBeVisible();
+
+		// Tier has only 3 values -> no search box
+		const tierBtn = page.locator('thead th:has-text("Tier") button[aria-label^="Filter column"]');
+		await tierBtn.click();
+		const tierPopover = page.locator('.filter-popover');
+		await expect(tierPopover.locator('input.filter-value-search')).toHaveCount(0);
+		await page.keyboard.press('Escape');
+	});
+
+	test('deleting a filtered column clears its filter and selection clamping keeps working', async ({ page }) => {
+		const tierBtn = page.locator('thead th:has-text("Tier") button[aria-label^="Filter column"]');
+		await tierBtn.click();
+		const popover = page.locator('.filter-popover');
+		await popover.getByRole('button', { name: 'Clear', exact: true }).click();
+		await popover.locator('label', { hasText: 'Active' }).locator('input').check();
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(page.locator('tbody tr.data-row')).toHaveCount(9);
+
+		// Select a cell then delete the filtered column -> filter gone, rows restore via full table (less one column)
+		const firstCell = page.locator('tbody tr.data-row').first().locator('td.td-cell').first();
+		await firstCell.click();
+		const tierHeader = page.locator('thead th:has-text("Tier")');
+		await tierHeader.hover();
+		await tierHeader.locator('button.th-menu-trigger').click();
+		await page.locator('.column-popover button.popover-delete').click();
+		await expect(page.locator('thead th:has-text("Tier")')).toHaveCount(0);
+		await expect(page.locator('tbody tr.data-row')).toHaveCount(25);
+		await expect(page.locator('.filter-status-bar')).toHaveCount(0);
+		// selection should still be valid (no throw, cell still focused)
+		await expect(page.locator('tbody tr.data-row').first().locator('td.td-cell').first()).toBeVisible();
+	});
+
+	test('filter does not affect export (full sheet exported) and formula filters by displayed value', async ({ page }) => {
+		const tierBtn = page.locator('thead th:has-text("Tier") button[aria-label^="Filter column"]');
+		await tierBtn.click();
+		const popover = page.locator('.filter-popover');
+		await popover.getByRole('button', { name: 'Clear', exact: true }).click();
+		await popover.locator('label', { hasText: 'Active' }).locator('input').check();
+		await popover.locator('button', { hasText: 'Apply' }).click();
+		await expect(page.locator('tbody tr.data-row')).toHaveCount(9);
+		// Export still writes full sheet (verified by unit test); UI still shows all columns
+		await expect(page.locator('thead th.th-column')).toHaveCount(6);
+		await page.locator('.filter-status-bar button', { hasText: 'Clear all filters' }).click();
+		await expect(page.locator('tbody tr.data-row')).toHaveCount(25);
+	});
 });

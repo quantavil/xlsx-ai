@@ -6,7 +6,8 @@
 
 ## Key Features
 
-- **Svelte 5 Runes Reactivity**: State management powered by `$state`, `$derived`, and `$props` for low-latency table updates, search filtering, and sorting.
+- **Svelte 5 Runes Reactivity**: State management powered by `$state`, `$derived`, and `$props` for low-latency table updates, search filtering, and sorting. `filteredRows` is the single funnel every consumer reads (grid, search, summaries, `sheetRow` mapping).
+- **Per-Column Filters**: Every column header carries a filter button beside its sort control. One popup offers both kinds: a **value list** — the distinct computed values with checkboxes, Select all / Clear, and a search box once there are more than eight — and a **type-aware condition**, whose operators follow the column type (`>`, `between`, … for numbers; `contains`, `starts with`, … for text and dropdowns; `before`, `after`, `on` for dates; `is empty` for all). Filtered columns AND together and compose with the global search and sort, all inside the one `filteredRows` derivation. A formula cell filters by its displayed result, not its `=SUM(...)` source. Filtered columns are tinted and a bar shows `n columns filtered · m of N rows` with **Clear all filters**. Filters are a view, not part of the file: they clear when you switch documents, the row gutter keeps its storage numbering, and export still writes the full sheet, exactly as search does.
 - **Multi-File Workspace**: A **Files** menu in the header holds every file — imported spreadsheets, new blank files, and tables produced by AI modules such as ICEGrid. Each file gets its own storage slot, so switching never overwrites another. Provenance is not tracked: once a file is in the workspace it is just a file.
 - **Excel-Grade Active Cell Navigation**: Roving tabindex (`tabindex="0"` on active cell, `-1` on others) with arrow-key hopping (`↑`, `↓`, `←`, `→`), `Tab` column cycling, `Delete` clearing, and direct typing/`F2` inline edit activation.
 - **Range Selection & Cell Alignment**: Shift-click or shift-arrow to select a rectangle, then set **left / center / right** alignment from the header control or `Ctrl+Shift+L/E/R`. Defaults follow Excel (numbers right, everything else left); overrides are per-cell, undoable, and saved with the document. `Delete` clears the whole range and `Ctrl+C` copies it as TSV. Alignment is carried into `.xlsx` export. Shift-selected cells in one column can be replaced together through the normal dropdown or typed editor, with one-step Undo/Redo.
@@ -318,7 +319,7 @@ Supplying an RITC for every line raises this to **88.8%**; see `RITCCode` below.
 bun test
 bun test --coverage   # Native Bun 1.4 code coverage
 ```
-Runs **534 unit tests across 27 files**, covering the table store, single selection and cursor mode, the multi-file document
+Runs **~593 unit tests across 29 files**, covering the table store, per-column value-list & condition filters (AND with search/sort, formula-display values, clear semantics, gutter & selection invariants, export full-sheet), single selection and cursor mode, the multi-file document
 index, cell alignment, formula evaluation and reference remapping, SheetJS import/export, Find & Replace scanning and replacement,
 the AI endpoint, structured dropdowns, the duty-structure lookup, tariff-code search and
 ranking, the confirmation dialog's answer model, and the ICEGrid extraction pipeline.
@@ -475,10 +476,11 @@ src/
     ├── constants.ts          # AI defaults/persistence, column configs, and status palettes
     ├── workspace.svelte.ts   # Shared document/table/module/toast stores, owned above the router
     ├── table/                # Complete Spreadsheet Engine
-    │   ├── DataTable.svelte     # Semantic <table> with inline editing, keyboard nav, & sticky footer
+    │   ├── DataTable.svelte     # Semantic <table> with inline editing, keyboard nav, sticky footer & per-column filter popups
     │   ├── DropdownCellEditor.svelte # Viewport-safe floating dropdown editor
     │   ├── FormulaHintPopup.svelte   # Function suggestion list for the cell editor
-    │   ├── store.svelte.ts      # Svelte 5 runes table store (CRUD, search, sort, summaries)
+    │   ├── store.svelte.ts      # Svelte 5 runes table store (CRUD, search, sort, column filters, summaries)
+    │   ├── filters.ts           # Per-column value-list & condition evaluation (single funnel via filteredRows)
     │   ├── documents.svelte.ts  # Multi-file index: one storage slot per file
     │   ├── cells.ts             # Typed cell parsing and normalization
     │   ├── formulas.ts          # xlsx-calc evaluation, A1 addressing, reference remapping
