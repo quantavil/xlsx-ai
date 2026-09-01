@@ -2,12 +2,12 @@
 
 ## Structure
 - SvelteKit 2 + Svelte 5 runes (`$state`, `$derived`, `$props`) running on Bun 1.4+. `src/routes/+layout.ts` owns `export const ssr = false` for every route.
-- Deploys to Cloudflare Pages via `@sveltejs/adapter-cloudflare` (output `.svelte-kit/cloudflare`, build command `bun run build`). Since nothing is server-rendered, the only code in the Pages Function is `/api/ai*`; the `nodejs_als` compatibility flag is required for the AI SDK (it uses `AsyncLocalStorage`). No environment variables — the Gemini key arrives per-request in the `x-ai-api-key` header.
+- Deploys to Cloudflare Pages via `@sveltejs/adapter-cloudflare` (output `.svelte-kit/cloudflare`, build command `bun run build`). Since nothing is server-rendered, the only code in the Pages Function is `/api/ai*`; the `nodejs_als` compatibility flag is required for the AI SDK (it uses `AsyncLocalStorage`). No environment variables — the selected Gemini or OpenRouter key arrives per-request with `x-ai-provider`, `x-ai-api-key`, and `x-ai-model-id`.
 - Core Modules:
   - `src/lib/table/`: `DataTable.svelte`, `DropdownCellEditor.svelte`, `FormulaHintPopup.svelte`, `store.svelte.ts`, `find.svelte.ts` (pure scanner + find/replace store), `documents.svelte.ts` (multi-file index), `cells.ts`, `formulas.ts` (evaluation + reference remapping), `formula-hints.ts` (completion catalog + caret logic), `range-edit.ts`, `commands.ts`, `schema.ts`, `persistence.ts`.
   - `src/lib/components/`: `Header.svelte` (Files switcher + title + search + alignment control), `RightRibbon.svelte` (AI, find/replace, modules, add row, export, theme, settings — **not** file creation or import), `AiDrawer.svelte`, `FindReplaceDrawer.svelte`, `Icons.svelte`, `settings/` (`AiSection.svelte`, `ModulesSection.svelte`, `ShortcutsSection.svelte`) — rendered on the `/settings` page behind a three-item section rail (`nav.settings-sidebar`), not a modal.
   - `src/lib/modules/`: `types.ts`, `registry.ts`, `module-store.svelte.ts`, `icegrid/` (`index.ts`, `pipeline.ts`, `columns.ts`, `readers.ts`, `schema.ts`, `extract.ts`, `ai.server.ts`, `evidence.ts`, `sanitize.ts`, `derive.ts`, `validate.ts`, `to-table.ts`, `profile.ts`, `confirm.ts`, `confirm.client.ts`, `exchange-rate.ts`, `tariff.ts`, `tariff.server.ts`, `duty-lookup*.ts`, `IcegridSettings.svelte`, `IcegridConfirmDialog.svelte`, `catalogs/`).
-  - `src/lib/server/`: `models.ts` (single source of truth for allowed Gemini model ids, shared by both API routes) and `modules/` (server-only AI handler types + static module action registry).
+  - `src/lib/server/`: `ai-provider.ts` (Gemini/OpenRouter AI SDK model factory) and `modules/` (server-only AI handler types + static module action registry). `src/lib/ai/providers.ts` owns shared provider ids, labels, profiles, and provider-aware model validation.
   - `src/lib/data/`: `import.ts`, `export.ts`, `index.ts`. There are no sample datasets — a new workspace opens a blank file.
   - `src/lib/ai/`: `client.ts`, `patches.ts`.
   - `src/lib/ui/`: `position.ts`, `combobox.ts`, `menu.ts`, `ToastHost.svelte`, `toast.svelte.ts`.
@@ -112,6 +112,6 @@
 - Register browser modules only in `src/lib/modules/registry.ts`; register server AI actions only in `src/lib/server/modules/registry.ts`. Runtime-downloaded modules are not supported.
 - Use stable lowercase module IDs. Keep module-specific readers, schemas, prompts, validation, mapping, and server handlers inside the module directory.
 - Every module manifest must declare its ribbon label, `IconName`, file-picker accept list, and multiple-selection behavior. `RightRibbon.svelte` must render this metadata generically and must not branch on a module ID.
-- Modules receive the active Gemini configuration and JSON/streaming access through `ModuleContext.ai`. Server handlers receive the authenticated model and may use the installed AI SDK; do not create another endpoint, provider, key store, or model selector.
+- Modules receive the active provider configuration and JSON/streaming access through `ModuleContext.ai`. Server handlers receive the authenticated provider-neutral model and may use the installed AI SDK; do not create another endpoint, provider, key store, or model selector.
 - Modules must respect the run `AbortSignal`, return `TableData` plus warnings, and never directly import or mutate the table store, Settings state, or toast store.
 - Disabling a running module must abort it and prevent late results from replacing the table. Add tests for manifests, inputs, cancellation, validation, and returned table data.

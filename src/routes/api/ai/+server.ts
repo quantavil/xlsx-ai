@@ -7,8 +7,7 @@ import { createAiLanguageModel } from '$lib/server/ai-provider';
 import {
 	isSupportedModelId,
 	parseAiProvider,
-	providerLabel,
-	type AiProvider
+	providerLabel
 } from '$lib/ai/providers';
 
 // A module payload is capped at MAX_COMBINED_BYTES (750 KB) of *extracted text*; JSON

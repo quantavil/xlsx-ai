@@ -1,5 +1,5 @@
 import { BUILTIN_MODULES, getModuleById } from './registry';
-import type { WorkspaceModule, ModuleResult } from './types';
+import type { ModuleResult } from './types';
 import { createAiApi } from '$lib/ai/client';
 import type { AiProvider } from '$lib/ai/providers';
 

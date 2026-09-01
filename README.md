@@ -1,6 +1,6 @@
 # xlsx-ai — Fast, Modern AI Spreadsheet Workspace
 
-**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, **xlsx-calc**, and official **Google Gemini** generative models (`gemini-3.5-flash-lite` default, `gemini-3.6-flash`, `gemini-3.1-pro-preview`).
+**xlsx-ai** is a high-performance, Zen-brutalist spreadsheet and data workspace application built with **SvelteKit 2**, **Svelte 5 Runes**, **Bun**, **TypeScript**, **SheetJS CE (`xlsx`)**, **xlsx-calc**, and AI SDK providers for **Google Gemini** and **OpenRouter**.
 
 ---
 
@@ -22,7 +22,9 @@
   - **Export**: One-click export to native Excel Workbooks (`.xlsx`, via `write-excel-file`) or CSV files (`.csv`) with automatic formula injection escaping (`=`, `+`, `-`, `@`, `\t`, `\r`) and unique header disambiguation. Exported workbooks keep per-cell alignment, column widths, a bold header row, real Excel number formats for `currency` / `percent` columns, and **formulas as formulas** — `.csv`, which has no formula concept, carries the computed value instead.
 - **Cursor Mode & 1-Click Caret Placement**: Dedicated Cursor Mode toggle beside alignment in the header enables single-click direct caret placement inside text cells via `caretRangeFromPoint`, bypassing box-selection for instant typing.
 - **Find & Replace Drawer**: Comprehensive search drawer (`Ctrl+F` / `Ctrl+H`) with real-time match counts, forward/backward navigation (`Enter` / `Shift+Enter`), match-case, whole-word, and regular expression modes. Scopes automatically to selected ranges or the full sheet, with single-match and replace-all workflows with undo support.
-- **Google Gemini AI Assistant**:
+- **Gemini or OpenRouter AI Assistant**:
+  - **Provider Profiles**: Save independent API-key rings, selected models, and favorites for Gemini and OpenRouter. Existing Gemini settings migrate automatically.
+  - **Compatible Model Catalogs**: Fetch live provider catalogs; OpenRouter exposes only text models that advertise structured-output support, which every current AI workflow requires.
   - **AI Grounding**: Contextually grounds the LLM on your active table schema, summary metrics, and data rows.
   - **Structured Data Operations (`generateObject`)**:
     - 🪄 **Fill Missing**: Identifies missing/null cells and predicts values based on data patterns.
@@ -437,13 +439,13 @@ production and preview environments. The AI SDK needs Node's `AsyncLocalStorage`
 function throws at runtime without it. Every push to `main` deploys; pull requests get
 preview URLs.
 
-**No environment variables are needed.** The Gemini key is supplied by the browser on each
-request via the `x-ai-api-key` header and is never stored server-side, so the function
-holds no secret.
+**No environment variables are needed.** The selected Gemini or OpenRouter key is supplied
+by the browser on each request via the `x-ai-api-key` header, alongside `x-ai-provider` and
+`x-ai-model-id`. Keys remain in browser local storage and are never stored server-side.
 
 Free-tier fit: static asset requests are free and unlimited, so only AI calls count against
 the 100,000/day Workers quota that Pages Functions share. The 10 ms CPU ceiling excludes
-time awaiting `fetch`, so streaming a Gemini response costs almost no CPU. The bundled
+time awaiting `fetch`, so waiting for a provider response costs almost no CPU. The bundled
 function is 170 KB gzipped, against a 3 MB limit.
 
 ---
@@ -461,15 +463,15 @@ src/
 │   ├── +page.svelte          # Workspace assembling Header, DataTable, Ribbon, and AiDrawer
 │   ├── settings/+page.svelte # Settings route with AI / Modules / Shortcuts section rail
 │   ├── api/ai/
-│   │   ├── +server.ts        # Unified Gemini AI endpoint (x-ai-api-key authentication)
-│   │   └── models/+server.ts # Gemini model catalog endpoint
+│   │   ├── +server.ts        # Unified Gemini/OpenRouter AI endpoint
+│   │   └── models/+server.ts # Provider-aware structured-output model catalogs
 │   └── api/icegrid/          # Read-only proxies for services that send no CORS headers
 │       ├── duty-lookup/      # Drawback + RoDTEP, per tariff code
 │       ├── exchange-rate/    # The customs rate board
 │       └── tariff-search/    # DGFT ITC-HS search, for the dialog's own search box
 └── lib/
     ├── types.ts              # Strict TypeScript definitions
-    ├── constants.ts          # Official Gemini models, column configs, and status palettes
+    ├── constants.ts          # AI defaults/persistence, column configs, and status palettes
     ├── workspace.svelte.ts   # Shared document/table/module/toast stores, owned above the router
     ├── table/                # Complete Spreadsheet Engine
     │   ├── DataTable.svelte     # Semantic <table> with inline editing, keyboard nav, & sticky footer
@@ -496,7 +498,7 @@ src/
     │       ├── pipeline.ts         # The run: read -> extract -> sanitize -> derive -> validate
     │       │                       # (dynamically imported, so its 168 KB of data stays lazy)
     │       ├── readers.ts          # Local PDF/XLS/XLSX text extraction with file boundaries
-    │       ├── ai.server.ts        # Both Gemini contracts: extraction, and tariff search + ranking
+    │       ├── ai.server.ts        # Provider-neutral extraction and tariff ranking contracts
     │       ├── schema.ts           # Candidate rows, evidence spans, clean report (Zod)
     │       ├── columns.ts          # The 37 filed columns, plus internal ones the rules need
     │       ├── evidence.ts         # Quote verification: does the source really say this?
@@ -521,12 +523,13 @@ src/
     │               ├── schedules.ts    # Drawback AIR + RoDTEP 4R snapshots, keyed by RITC
     │               └── provenance.ts   # Notification/SHA metadata, split out to stay eager-safe
     ├── server/               # Server-only code
-    │   ├── models.ts            # Allowed Gemini model ids, shared by both API routes
+    │   ├── ai-provider.ts       # AI SDK model factory for Gemini and OpenRouter
     │   └── modules/             # Server AI handler types + static action registry
     ├── data/                 # SheetJS I/O
     │   ├── import.ts            # SheetJS workbook parser & column type inference
     │   ├── export.ts            # CSV/XLSX export & formula injection mitigation
-    ├── ai/                   # Gemini AI Pipeline
+    ├── ai/                   # Shared AI provider and browser transport
+    │   ├── providers.ts         # Provider ids, labels, profiles, and model validation
     │   ├── client.ts            # Browser-side /api/ai transport
     │   └── patches.ts           # Patch conflict verification
     └── ui/                   # Feedback & Headless UI
