@@ -260,6 +260,97 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		}
 	});
 
+	it('formats only structured text models from the OpenRouter catalog', async () => {
+		const { GET } = await import('../../src/routes/api/ai/models/+server');
+		const originalFetch = globalThis.fetch;
+		let capturedRequest: Request | undefined;
+		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			capturedRequest = new Request(input, init);
+			return Response.json({
+				data: [
+					{
+						id: 'anthropic/claude-sonnet-4',
+						name: 'Claude Sonnet 4',
+						description: 'Structured reasoning model',
+						context_length: 200_000,
+						supported_parameters: ['structured_outputs'],
+						architecture: { output_modalities: ['text'] }
+					},
+					{
+						id: 'vendor/plain-chat',
+						name: 'Plain Chat',
+						context_length: 32_000,
+						supported_parameters: ['temperature'],
+						architecture: { output_modalities: ['text'] }
+					},
+					{
+						id: 'vendor/image-model',
+						name: 'Image Model',
+						context_length: 32_000,
+						supported_parameters: ['structured_outputs'],
+						architecture: { output_modalities: ['image'] }
+					}
+				]
+			});
+		}) as typeof fetch;
+
+		try {
+			const response = await GET({
+				request: new Request('http://localhost:5173/api/ai/models', {
+					headers: {
+						'x-ai-provider': 'openrouter',
+						'x-ai-api-key': 'sk-or-v1-valid-test-key'
+					}
+				})
+			} as any);
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data.models.map((model: { id: string }) => model.id)).toEqual([
+				'anthropic/claude-sonnet-4'
+			]);
+			expect(data.models[0].contextWindow).toBe('200k tokens');
+			expect(capturedRequest?.url).toContain('openrouter.ai/api/v1/models');
+			expect(capturedRequest?.headers.get('authorization')).toBe(
+				'Bearer sk-or-v1-valid-test-key'
+			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it('rejects unknown AI providers on the model catalog route', async () => {
+		const { GET } = await import('../../src/routes/api/ai/models/+server');
+		const response = await GET({
+			request: new Request('http://localhost:5173/api/ai/models', {
+				headers: {
+					'x-ai-provider': 'unknown',
+					'x-ai-api-key': 'a-valid-looking-api-key'
+				}
+			})
+		} as any);
+		expect(response.status).toBe(400);
+	});
+
+	it('maps OpenRouter model catalog rate limits', async () => {
+		const { GET } = await import('../../src/routes/api/ai/models/+server');
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => new Response('', { status: 429 })) as unknown as typeof fetch;
+		try {
+			const response = await GET({
+				request: new Request('http://localhost:5173/api/ai/models', {
+					headers: {
+						'x-ai-provider': 'openrouter',
+						'x-ai-api-key': 'sk-or-v1-valid-test-key'
+					}
+				})
+			} as any);
+			expect(response.status).toBe(429);
+			expect((await response.json()).error).toContain('OpenRouter');
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
 	it('detects patch conflicts when live cell value does not match proposal oldValue', async () => {
 		const { validatePatchProposals } = await import('../../src/lib/ai/patches');
 		const table = {

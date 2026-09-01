@@ -1,7 +1,12 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
-import { isSupportedModelId } from '$lib/server/models';
+import {
+	isSupportedModelId,
+	parseAiProvider,
+	providerLabel,
+	type AiProvider
+} from '$lib/ai/providers';
 
 const GoogleModelItemSchema = z.object({
 	name: z.string(),
@@ -16,128 +21,151 @@ const GoogleModelsPageSchema = z.object({
 	nextPageToken: z.string().optional()
 });
 
-export const GET: RequestHandler = async ({ request }) => {
-	const apiKey = request.headers.get('x-ai-api-key')?.trim();
+const OpenRouterModelSchema = z.object({
+	id: z.string(),
+	name: z.string().optional(),
+	description: z.string().optional(),
+	context_length: z.number().optional(),
+	supported_parameters: z.array(z.string()).optional(),
+	architecture: z.object({ output_modalities: z.array(z.string()).optional() }).optional()
+});
 
-	if (!apiKey || apiKey.length < 15) {
-		return json({ error: 'A valid Gemini API key is required to fetch available models.' }, { status: 401 });
-	}
+const OpenRouterModelsSchema = z.object({ data: z.array(OpenRouterModelSchema) });
 
+function contextWindow(tokens?: number): string {
+	if (!tokens) return 'Unknown';
+	if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M tokens`;
+	if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k tokens`;
+	return `${tokens} tokens`;
+}
+
+async function providerFetch(url: string, headers: HeadersInit): Promise<Response> {
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), 10_000);
 	try {
-		const allRawModels: z.infer<typeof GoogleModelItemSchema>[] = [];
-		let pageToken: string | undefined = undefined;
-		const seenTokens = new Set<string>();
-		let pageCount = 0;
-		const MAX_PAGES = 5;
+		return await fetch(url, { method: 'GET', headers, signal: controller.signal });
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
 
-		do {
-			if (pageToken) {
-				if (seenTokens.has(pageToken) || pageCount >= MAX_PAGES) break;
-				seenTokens.add(pageToken);
-			}
-			pageCount++;
+function upstreamError(provider: AiProvider, status: number): Response {
+	const label = providerLabel(provider);
+	if (status === 401 || status === 403) {
+		return json({ error: `Invalid or unauthorized ${label} API key.` }, { status: 401 });
+	}
+	if (status === 429) {
+		return json({ error: `${label} model listing rate limit exceeded.` }, { status: 429 });
+	}
+	return json({ error: `${label} API returned HTTP ${status}.` }, { status });
+}
 
-			const url = new URL('https://generativelanguage.googleapis.com/v1beta/models');
-			url.searchParams.set('pageSize', '100');
-			if (pageToken) {
-				url.searchParams.set('pageToken', pageToken);
-			}
+async function listGeminiModels(apiKey: string): Promise<Response> {
+	const allRawModels: z.infer<typeof GoogleModelItemSchema>[] = [];
+	let pageToken: string | undefined;
+	const seenTokens = new Set<string>();
+	let pageCount = 0;
 
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 10_000);
-
-			let res: Response;
-			try {
-				res = await fetch(url.toString(), {
-					method: 'GET',
-					headers: {
-						'Content-Type': 'application/json',
-						'x-goog-api-key': apiKey
-					},
-					signal: controller.signal
-				});
-			} finally {
-				clearTimeout(timeoutId);
-			}
-
-			if (!res.ok) {
-				if (res.status === 401 || res.status === 403) {
-					return json({ error: 'Invalid or unauthorized Gemini API key.' }, { status: 401 });
-				}
-				if (res.status === 429) {
-					return json({ error: 'Gemini model listing rate limit exceeded.' }, { status: 429 });
-				}
-				return json({ error: `Google AI API returned HTTP ${res.status}.` }, { status: res.status });
-			}
-
-			const jsonBody = await res.json();
-			const parsed = GoogleModelsPageSchema.safeParse(jsonBody);
-			if (!parsed.success) {
-				return json({ error: 'Unexpected response schema from Google AI.' }, { status: 502 });
-			}
-
-			if (parsed.data.models) {
-				allRawModels.push(...parsed.data.models);
-			}
-
-			pageToken = parsed.data.nextPageToken;
-		} while (pageToken && allRawModels.length < 500);
-
-		// Only list models the generation endpoint will actually accept.
-		const eligibleModels = allRawModels.filter((m) => {
-			const id = (m.name || '').replace(/^models\//, '');
-			const methods: string[] = m.supportedGenerationMethods || [];
-			if (!isSupportedModelId(id)) return false;
-			return methods.length === 0 || methods.includes('generateContent');
+	do {
+		if (pageToken) {
+			if (seenTokens.has(pageToken) || pageCount >= 5) break;
+			seenTokens.add(pageToken);
+		}
+		pageCount++;
+		const url = new URL('https://generativelanguage.googleapis.com/v1beta/models');
+		url.searchParams.set('pageSize', '100');
+		if (pageToken) url.searchParams.set('pageToken', pageToken);
+		const response = await providerFetch(url.toString(), {
+			'Content-Type': 'application/json',
+			'x-goog-api-key': apiKey
 		});
+		if (!response.ok) return upstreamError('gemini', response.status);
+		const parsed = GoogleModelsPageSchema.safeParse(await response.json());
+		if (!parsed.success) {
+			return json({ error: 'Unexpected response schema from Google Gemini.' }, { status: 502 });
+		}
+		allRawModels.push(...(parsed.data.models ?? []));
+		pageToken = parsed.data.nextPageToken;
+	} while (pageToken && allRawModels.length < 500);
 
-		const formattedModels = eligibleModels.map((m) => {
-			const id = m.name.replace(/^models\//, '');
-			const inputLimit = m.inputTokenLimit;
-			let contextWindow = '1M tokens';
-			if (inputLimit) {
-				if (inputLimit >= 1_000_000) contextWindow = `${Math.round(inputLimit / 1_000_000)}M tokens`;
-				else if (inputLimit >= 1_000) contextWindow = `${Math.round(inputLimit / 1_000)}k tokens`;
-				else contextWindow = `${inputLimit} tokens`;
-			}
-
+	const models = allRawModels
+		.filter((item) => {
+			const id = item.name.replace(/^models\//, '');
+			const methods = item.supportedGenerationMethods ?? [];
+			return isSupportedModelId('gemini', id) && (methods.length === 0 || methods.includes('generateContent'));
+		})
+		.map((item) => {
+			const id = item.name.replace(/^models\//, '');
 			let speed: 'Ultra-Fast' | 'Fast' | 'Balanced' = 'Fast';
-			if (id.includes('flash-lite')) speed = 'Ultra-Fast';
+			if (id.includes('flash-lite') || id.includes('flash')) speed = 'Ultra-Fast';
 			else if (id.includes('pro') || id.includes('thinking')) speed = 'Balanced';
-			else if (id.includes('flash')) speed = 'Ultra-Fast';
-
-			let badge: string | undefined = undefined;
+			let badge: string | undefined;
 			if (id === DEFAULT_AI_MODEL) badge = 'Default';
 			else if (id.includes('pro')) badge = 'Pro';
 			else if (id.includes('exp') || id.includes('preview')) badge = 'Preview';
-
 			return {
 				id,
-				name: m.displayName || id,
-				description: m.description || `Official Google Generative Model (${id}).`,
+				name: item.displayName || id,
+				description: item.description || `Official Google Generative Model (${id}).`,
 				badge,
 				speed,
-				contextWindow
+				contextWindow: contextWindow(item.inputTokenLimit)
 			};
 		});
+	models.sort((a, b) => {
+		if (a.id === DEFAULT_AI_MODEL) return -1;
+		if (b.id === DEFAULT_AI_MODEL) return 1;
+		return b.id.localeCompare(a.id, undefined, { numeric: true });
+	});
+	return json({ success: true, count: models.length, models });
+}
 
-		// Default first, then newest-looking ids, then alphabetical.
-		formattedModels.sort((a, b) => {
-			if (a.id === DEFAULT_AI_MODEL) return -1;
-			if (b.id === DEFAULT_AI_MODEL) return 1;
-			return b.id.localeCompare(a.id, undefined, { numeric: true });
-		});
+async function listOpenRouterModels(apiKey: string): Promise<Response> {
+	const response = await providerFetch('https://openrouter.ai/api/v1/models?output_modalities=text', {
+		Authorization: `Bearer ${apiKey}`,
+		'Content-Type': 'application/json'
+	});
+	if (!response.ok) return upstreamError('openrouter', response.status);
+	const parsed = OpenRouterModelsSchema.safeParse(await response.json());
+	if (!parsed.success) {
+		return json({ error: 'Unexpected response schema from OpenRouter.' }, { status: 502 });
+	}
+	const models = parsed.data.data
+		.filter(
+			(item) =>
+				isSupportedModelId('openrouter', item.id) &&
+				(item.architecture?.output_modalities ?? []).includes('text') &&
+				(item.supported_parameters ?? []).includes('structured_outputs')
+		)
+		.map((item) => ({
+			id: item.id,
+			name: item.name || item.id,
+			description: item.description || `OpenRouter model (${item.id}).`,
+			speed: 'Balanced' as const,
+			contextWindow: contextWindow(item.context_length)
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+	return json({ success: true, count: models.length, models });
+}
 
-		return json({
-			success: true,
-			count: formattedModels.length,
-			models: formattedModels
-		});
-	} catch (err: unknown) {
-		if (err instanceof Error && err.name === 'AbortError') {
-			return json({ error: 'Model request to Google timed out.' }, { status: 504 });
+export const GET: RequestHandler = async ({ request }) => {
+	const providerHeader = request.headers.get('x-ai-provider');
+	const provider = providerHeader === null ? 'gemini' : parseAiProvider(providerHeader);
+	if (!provider) return json({ error: 'Unsupported AI provider.' }, { status: 400 });
+	const apiKey = request.headers.get('x-ai-api-key')?.trim();
+	if (!apiKey || apiKey.length < 15) {
+		const keyLabel = provider === 'gemini' ? 'Gemini' : providerLabel(provider);
+		return json(
+			{ error: `A valid ${keyLabel} API key is required to fetch available models.` },
+			{ status: 401 }
+		);
+	}
+	try {
+		return provider === 'gemini' ? await listGeminiModels(apiKey) : await listOpenRouterModels(apiKey);
+	} catch (error: unknown) {
+		if (error instanceof Error && error.name === 'AbortError') {
+			return json({ error: `Model request to ${providerLabel(provider)} timed out.` }, { status: 504 });
 		}
-		return json({ error: 'Failed to connect to Google AI endpoint.' }, { status: 502 });
+		return json({ error: `Failed to connect to ${providerLabel(provider)} endpoint.` }, { status: 502 });
 	}
 };
-
