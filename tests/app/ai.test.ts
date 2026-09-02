@@ -3,6 +3,41 @@ import { _RequestSchema, _CleanFillSchema, _renderTsv, POST } from '../../src/ro
 import { isSupportedModelId } from '../../src/lib/ai/providers';
 
 describe('Server AI Endpoint (/api/ai)', () => {
+	it('reads status and message from the final provider error in a retry wrapper', async () => {
+		const route = (await import('../../src/routes/api/ai/+server')) as Record<string, unknown>;
+		const inspectProviderError = route._inspectProviderError as (error: unknown) => unknown;
+		const providerError = Object.assign(new Error('provider failed'), {
+			statusCode: 503,
+			isRetryable: true,
+			responseBody: JSON.stringify({
+				error: { message: 'This model is currently experiencing high demand.' }
+			})
+		});
+		const retryError = Object.assign(new Error('Failed after 3 attempts'), {
+			lastError: providerError,
+			errors: [providerError]
+		});
+
+		expect(inspectProviderError(retryError)).toEqual({
+			statusCode: 503,
+			isRetryable: true,
+			message: 'This model is currently experiencing high demand.'
+		});
+	});
+
+	it('describes exhausted selected-model capacity without suggesting fallback', async () => {
+		const route = (await import('../../src/routes/api/ai/+server')) as Record<string, unknown>;
+		const capacityErrorMessage = route._capacityErrorMessage as (
+			provider: string,
+			modelId: string,
+			attempts: number
+		) => string;
+
+		expect(capacityErrorMessage('Gemini', 'gemini-3.8-flash', 5)).toBe(
+			'Gemini model "gemini-3.8-flash" is temporarily overloaded after 5 attempts. Try importing again shortly.'
+		);
+	});
+
 	it('wires provider selection through settings and uses provider-neutral assistant copy', async () => {
 		const settingsPageSource = await Bun.file('src/routes/settings/+page.svelte').text();
 		const aiSectionSource = await Bun.file('src/lib/components/settings/AiSection.svelte').text();

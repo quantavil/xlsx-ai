@@ -2,6 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { generateObject } from 'ai';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
+import { ICEGRID_GENERATION_MAX_RETRIES } from '$lib/modules/icegrid/ai.server';
 import { getModuleAiHandler } from '$lib/server/modules/registry';
 import { createAiLanguageModel } from '$lib/server/ai-provider';
 import {
@@ -100,6 +101,39 @@ export const _CleanFillSchema = z.object({
 	explanation: z.string().describe('Brief explanation of what was filled or cleaned'),
 	patches: z.array(_PatchSchema)
 });
+
+type ProviderErrorDetails = {
+	statusCode: number;
+	isRetryable: boolean;
+	message: string;
+};
+
+export function _inspectProviderError(err: unknown): ProviderErrorDetails {
+	let current: unknown = err;
+	let statusCode = 500;
+	let isRetryable = false;
+	let message = describeProviderError(err);
+
+	for (let hops = 0; current && hops < 8; hops++) {
+		const node = current as Record<string, unknown>;
+		if (typeof node.statusCode === 'number') statusCode = node.statusCode;
+		else if (typeof node.status === 'number') statusCode = node.status;
+		if (node.isRetryable === true) isRetryable = true;
+		const described = describeProviderError(current);
+		if (described !== 'unknown provider error') message = described;
+		current = node.lastError ?? node.cause;
+	}
+
+	return {
+		statusCode,
+		isRetryable: isRetryable || statusCode === 429 || statusCode >= 500,
+		message
+	};
+}
+
+export function _capacityErrorMessage(provider: string, modelId: string, attempts: number): string {
+	return `${provider} model "${modelId}" is temporarily overloaded after ${attempts} attempts. Try importing again shortly.`;
+}
 
 export const POST: RequestHandler = async ({ request }) => {
 	const providerHeader = request.headers.get('x-ai-provider');
@@ -283,10 +317,8 @@ EDIT REQUESTS:
 
 		return json({ success: true, kind: 'chat', data: chat.object });
 	} catch (err: unknown) {
-		const e = (err ?? {}) as Record<string, unknown>;
-		const providerStatus =
-			typeof e.statusCode === 'number' ? e.statusCode : typeof e.status === 'number' ? e.status : 500;
-		const isRetryable = e.isRetryable === true || providerStatus === 429 || providerStatus >= 500;
+		const providerError = _inspectProviderError(err);
+		const { statusCode: providerStatus, isRetryable } = providerError;
 		const requestId = request.headers.get('cf-ray') ?? request.headers.get('x-request-id') ?? undefined;
 		console.error('AI SDK Generation Error:', {
 			requestId,
@@ -319,9 +351,24 @@ EDIT REQUESTS:
 				{ status: 404 }
 			);
 		}
+		if (providerStatus === 503) {
+			return json(
+				{
+					error:
+						moduleHandler?.moduleId === 'icegrid'
+							? _capacityErrorMessage(
+									providerName,
+									targetModel,
+									ICEGRID_GENERATION_MAX_RETRIES + 1
+								)
+							: `${providerName} model "${targetModel}" is temporarily overloaded. Try again shortly.`
+				},
+				{ status: 503 }
+			);
+		}
 		// Anything else is a bug in our request (bad schema, oversized prompt) or a provider
 		// fault. Swallowing the detail here is what made import failures undebuggable.
-		return json({ error: `${providerName} request failed: ${describeProviderError(err)}` }, { status: 502 });
+		return json({ error: `${providerName} request failed: ${providerError.message}` }, { status: 502 });
 	}
 };
 
