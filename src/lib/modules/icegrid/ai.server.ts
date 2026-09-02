@@ -53,6 +53,8 @@ export const IcegridExtractInputSchema = z.object({
 	content: z.string().min(1).max(750_000)
 });
 
+export const ICEGRID_GENERATION_MAX_RETRIES = 4;
+
 /**
  * The extraction contract.
  *
@@ -122,6 +124,7 @@ Extract every commercial-invoice line item as one row, with evidence spans for e
 
 		const result = await generateObject({
 			model: context.model,
+			maxRetries: ICEGRID_GENERATION_MAX_RETRIES,
 			instructions: ICEGRID_SYSTEM_PROMPT,
 			prompt,
 			schema: IcegridExtractionSchema,
@@ -239,6 +242,7 @@ export const icegridClassifyAiHandler: ModuleAiHandler = {
 		if (needSearch.length > 0) {
 			const { object } = await generateObject({
 				model: context.model,
+				maxRetries: ICEGRID_GENERATION_MAX_RETRIES,
 				instructions: ICEGRID_CLASSIFY_PROMPT,
 				prompt: `Items:\n${[...ids]
 					.map(([id, key]) => {
@@ -346,6 +350,7 @@ export const icegridClassifyAiHandler: ModuleAiHandler = {
 		if (rankable.length > 0) {
 			const { object } = await generateObject({
 				model: context.model,
+				maxRetries: ICEGRID_GENERATION_MAX_RETRIES,
 				instructions: ICEGRID_RANK_PROMPT,
 				prompt: [...rankIds]
 					.map(([id, key]) => {

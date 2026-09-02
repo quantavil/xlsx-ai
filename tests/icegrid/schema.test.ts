@@ -7,6 +7,14 @@ import {
 } from '../../src/lib/modules/icegrid/schema';
 
 describe('ICEGrid Schema Validation', () => {
+	it('allows four retries for transient ICEGrid generation failures', async () => {
+		const aiServer = (await import('../../src/lib/modules/icegrid/ai.server')) as Record<
+			string,
+			unknown
+		>;
+		expect(aiServer.ICEGRID_GENERATION_MAX_RETRIES).toBe(4);
+	});
+
 	const validRow = {
 		InvoiceSNo: 1,
 		ItemSNo: 1,
