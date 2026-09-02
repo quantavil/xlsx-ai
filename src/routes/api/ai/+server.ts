@@ -2,7 +2,6 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { generateObject } from 'ai';
 import { DEFAULT_AI_MODEL } from '$lib/constants';
-import { ICEGRID_GENERATION_MAX_RETRIES } from '$lib/modules/icegrid/ai.server';
 import { getModuleAiHandler } from '$lib/server/modules/registry';
 import { createAiLanguageModel } from '$lib/server/ai-provider';
 import {
@@ -105,6 +104,7 @@ export const _CleanFillSchema = z.object({
 type ProviderErrorDetails = {
 	statusCode: number;
 	isRetryable: boolean;
+	attempts: number;
 	message: string;
 };
 
@@ -112,6 +112,7 @@ export function _inspectProviderError(err: unknown): ProviderErrorDetails {
 	let current: unknown = err;
 	let statusCode = 500;
 	let isRetryable = false;
+	let attempts = 1;
 	let message = describeProviderError(err);
 
 	for (let hops = 0; current && hops < 8; hops++) {
@@ -119,6 +120,7 @@ export function _inspectProviderError(err: unknown): ProviderErrorDetails {
 		if (typeof node.statusCode === 'number') statusCode = node.statusCode;
 		else if (typeof node.status === 'number') statusCode = node.status;
 		if (node.isRetryable === true) isRetryable = true;
+		if (Array.isArray(node.errors)) attempts = Math.max(attempts, node.errors.length);
 		const described = describeProviderError(current);
 		if (described !== 'unknown provider error') message = described;
 		current = node.lastError ?? node.cause;
@@ -127,6 +129,7 @@ export function _inspectProviderError(err: unknown): ProviderErrorDetails {
 	return {
 		statusCode,
 		isRetryable: isRetryable || statusCode === 429 || statusCode >= 500,
+		attempts,
 		message
 	};
 }
@@ -359,7 +362,7 @@ EDIT REQUESTS:
 							? _capacityErrorMessage(
 									providerName,
 									targetModel,
-									ICEGRID_GENERATION_MAX_RETRIES + 1
+									providerError.attempts
 								)
 							: `${providerName} model "${targetModel}" is temporarily overloaded. Try again shortly.`
 				},

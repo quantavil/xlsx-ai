@@ -13,14 +13,15 @@ describe('Server AI Endpoint (/api/ai)', () => {
 				error: { message: 'This model is currently experiencing high demand.' }
 			})
 		});
-		const retryError = Object.assign(new Error('Failed after 3 attempts'), {
+		const retryError = Object.assign(new Error('Failed after 5 attempts'), {
 			lastError: providerError,
-			errors: [providerError]
+			errors: Array(5).fill(providerError)
 		});
 
 		expect(inspectProviderError(retryError)).toEqual({
 			statusCode: 503,
 			isRetryable: true,
+			attempts: 5,
 			message: 'This model is currently experiencing high demand.'
 		});
 	});
