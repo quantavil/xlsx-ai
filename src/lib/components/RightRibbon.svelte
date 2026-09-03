@@ -9,7 +9,7 @@
 	import { handleMenuKeydown } from '$lib/ui/menu';
 	import type { NotifyFn } from '$lib/ui/toast.svelte';
 	import type { TableData } from '$lib/types';
-	import { documents, isSourceOpen } from '$lib/workspace.svelte';
+	import { documents, isSourceOpen, toggleDrawer } from '$lib/workspace.svelte';
 
 	let {
 		store,
@@ -285,8 +285,11 @@
 					: hasSourceFiles
 						? 'text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'
 						: 'text-[var(--text-2)] bg-transparent border-transparent hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)]'}"
-				onclick={onToggleSourceDrawer}
-				aria-label="Toggle Source Documents"
+				onclick={() => {
+					if (onToggleSourceDrawer) onToggleSourceDrawer();
+					else toggleDrawer('source');
+				}}
+				aria-label={isSourceOpen() ? 'Close Source Documents' : 'Toggle Source Documents'}
 				aria-expanded={isSourceOpen()}
 			>
 				<Icon name="file-text" size={17} strokeWidth={2} aria-hidden="true" />

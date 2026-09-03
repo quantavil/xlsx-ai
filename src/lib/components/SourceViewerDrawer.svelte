@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icons.svelte';
 	import { documents, isSourceOpen, closeDrawers } from '$lib/workspace.svelte';
 	import type { NotifyFn } from '$lib/ui/toast.svelte';
@@ -13,58 +13,72 @@
 		onClose?: () => void;
 	} = $props();
 
+	const LS_DRAWER_WIDTH_KEY = 'xlsx-ai:source-viewer-width';
+	const DEFAULT_WIDTH = 520;
+	const MIN_WIDTH = 340;
+
 	let files = $state<StoredSourceFile[]>([]);
 	let selectedIndex = $state(0);
 	let isLoading = $state(false);
 	let activeBlobUrl = $state<string | null>(null);
+	let drawerWidth = $state(DEFAULT_WIDTH);
+	let isResizing = $state(false);
 
 	const activeDocId = $derived(documents.activeId);
 	const activeFile = $derived(files[selectedIndex] ?? null);
 	const isOpen = $derived(isSourceOpen());
 
+	onMount(() => {
+		try {
+			const saved = localStorage.getItem(LS_DRAWER_WIDTH_KEY);
+			if (saved) {
+				const num = parseInt(saved, 10);
+				if (!isNaN(num) && num >= MIN_WIDTH) {
+					drawerWidth = Math.min(num, Math.max(MIN_WIDTH, window.innerWidth - 320));
+				}
+			}
+		} catch {
+			// private browsing fallback
+		}
+	});
+
 	// Whenever the drawer opens or active document changes, fetch files from IndexedDB
 	$effect(() => {
 		if (isOpen && activeDocId) {
 			loadFiles(activeDocId);
-		} else if (!isOpen) {
-			cleanupBlobUrl();
 		}
 	});
 
-	// Whenever selected file changes, create an object URL for preview
+	// Whenever selected file changes, manage object URL with automatic Svelte effect teardown.
+	// We never read activeBlobUrl inside the effect so it does not re-trigger itself in a loop.
 	$effect(() => {
-		cleanupBlobUrl();
-		if (activeFile && activeFile.blob) {
-			activeBlobUrl = URL.createObjectURL(activeFile.blob);
-		}
-	});
-
-	onDestroy(() => {
-		cleanupBlobUrl();
-	});
-
-	function cleanupBlobUrl() {
-		if (activeBlobUrl) {
-			URL.revokeObjectURL(activeBlobUrl);
+		const file = activeFile;
+		if (isOpen && file && file.blob) {
+			const url = URL.createObjectURL(file.blob);
+			activeBlobUrl = url;
+			return () => {
+				URL.revokeObjectURL(url);
+			};
+		} else {
 			activeBlobUrl = null;
 		}
-	}
+	});
 
 	let loadToken = 0;
 
 	async function loadFiles(docId: string) {
 		const token = ++loadToken;
 		isLoading = true;
+		files = [];
 		try {
 			const loaded = await loadSourceFiles(docId);
 			if (token !== loadToken || docId !== documents.activeId) return;
 			files = loaded;
-			if (selectedIndex >= loaded.length) {
-				selectedIndex = 0;
-			}
+			selectedIndex = 0;
 		} catch {
 			if (token !== loadToken || docId !== documents.activeId) return;
 			files = [];
+			selectedIndex = 0;
 		} finally {
 			if (token === loadToken) {
 				isLoading = false;
@@ -76,6 +90,64 @@
 		if (e.key === 'Escape' && isOpen) {
 			e.stopPropagation();
 			onClose();
+		}
+	}
+
+	function persistWidth(w: number) {
+		try {
+			localStorage.setItem(LS_DRAWER_WIDTH_KEY, String(w));
+		} catch {
+			// private mode fallback
+		}
+	}
+
+	function startResize(e: MouseEvent) {
+		e.preventDefault();
+		isResizing = true;
+
+		function onMouseMove(ev: MouseEvent) {
+			const ribbonWidth = 48;
+			const newWidth = window.innerWidth - ev.clientX - ribbonWidth;
+			const maxAllowed = Math.max(MIN_WIDTH, window.innerWidth - 320);
+			drawerWidth = Math.max(MIN_WIDTH, Math.min(maxAllowed, newWidth));
+		}
+
+		function onMouseUp() {
+			isResizing = false;
+			window.removeEventListener('mousemove', onMouseMove);
+			window.removeEventListener('mouseup', onMouseUp);
+			window.removeEventListener('blur', onMouseUp);
+			persistWidth(drawerWidth);
+		}
+
+		window.addEventListener('mousemove', onMouseMove);
+		window.addEventListener('mouseup', onMouseUp);
+		window.addEventListener('blur', onMouseUp);
+	}
+
+	function resetWidth() {
+		drawerWidth = DEFAULT_WIDTH;
+		persistWidth(DEFAULT_WIDTH);
+	}
+
+	function handleResizeKeydown(e: KeyboardEvent) {
+		const maxAllowed = Math.max(MIN_WIDTH, window.innerWidth - 320);
+		if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			drawerWidth = Math.min(maxAllowed, drawerWidth + 24);
+			persistWidth(drawerWidth);
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			drawerWidth = Math.max(MIN_WIDTH, drawerWidth - 24);
+			persistWidth(drawerWidth);
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			drawerWidth = MIN_WIDTH;
+			persistWidth(drawerWidth);
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			drawerWidth = maxAllowed;
+			persistWidth(drawerWidth);
 		}
 	}
 
@@ -101,14 +173,54 @@
 
 <svelte:window onkeydown={handleDrawerKeydown} />
 
+{#if isResizing}
+	<div
+		class="fixed inset-0 z-[100] cursor-col-resize select-none"
+		style="user-select: none; -webkit-user-select: none;"
+		aria-hidden="true"
+	></div>
+{/if}
+
 <aside
-	class="source-viewer-drawer relative h-full bg-[var(--surface-1)] border-l border-[var(--border-strong)] z-10 flex flex-col shrink-0 overflow-hidden transition-all duration-200 ease-out {isOpen
-		? 'open w-[480px] max-w-[560px] opacity-100 visible'
-		: 'closed w-0 border-l-transparent opacity-0 pointer-events-none invisible'}"
+	class="source-viewer-drawer relative h-full bg-[var(--surface-1)] border-l border-[var(--border-strong)] z-10 flex flex-col shrink-0 overflow-hidden {isResizing
+		? 'transition-none select-none'
+		: 'transition-all duration-200 ease-out'} {isOpen
+		? 'open opacity-100 visible'
+		: 'closed !w-0 border-l-transparent opacity-0 pointer-events-none invisible'}"
+	style={isOpen ? `width: ${drawerWidth}px; max-width: calc(100vw - 320px);` : 'width: 0px;'}
 	aria-label="Source Document Viewer"
 >
-	<div class="drawer-inner w-[480px] min-w-[480px] h-full flex flex-col overflow-hidden bg-[var(--surface-1)]">
-		<!-- Header -->
+	{#if isOpen}
+		<!-- Draggable left border resize handle -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<div
+			class="resize-handle absolute left-0 top-0 bottom-0 w-2.5 cursor-col-resize z-30 flex items-center justify-center select-none group hover:bg-[var(--accent-primary)]/15 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary)]"
+			onmousedown={startResize}
+			ondblclick={resetWidth}
+			onkeydown={handleResizeKeydown}
+			title="Drag to resize (Double-click to reset)"
+			aria-label="Resize document viewer"
+			role="separator"
+			aria-orientation="vertical"
+			aria-valuenow={drawerWidth}
+			aria-valuemin={MIN_WIDTH}
+			aria-valuemax={Math.max(MIN_WIDTH, typeof window !== 'undefined' ? window.innerWidth - 320 : 1200)}
+			tabindex="0"
+		>
+			<div
+				class="w-1 h-8 rounded-full bg-[var(--border-strong)] group-hover:bg-[var(--accent-primary)] transition-colors {isResizing
+					? '!bg-[var(--accent-primary)]'
+					: ''}"
+			></div>
+		</div>
+	{/if}
+
+	<div
+		class="drawer-inner h-full flex flex-col overflow-hidden bg-[var(--surface-1)]"
+		style={`width: ${drawerWidth}px;`}
+	>
+		<!-- Header (without redundant close X button; user toggles via ribbon/badge/Esc) -->
 		<div class="drawer-header flex items-center justify-between p-3.5 border-b border-[var(--border)] shrink-0 gap-3">
 			<div class="header-left flex items-center gap-2.5 min-w-0">
 				<div class="badge-icon flex items-center justify-center w-7 h-7 rounded-md bg-[var(--surface-2)] text-[var(--accent-primary)] border border-[var(--border)] shrink-0 shadow-sm" aria-hidden="true">
@@ -139,14 +251,6 @@
 						<Icon name="download" size={14} />
 					</button>
 				{/if}
-				<button
-					class="action-btn w-7 h-7 rounded-md text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] flex items-center justify-center cursor-pointer transition-colors"
-					onclick={onClose}
-					title="Close (Esc)"
-					aria-label="Close source documents drawer"
-				>
-					<Icon name="x" size={15} />
-				</button>
 			</div>
 		</div>
 
@@ -170,7 +274,11 @@
 		{/if}
 
 		<!-- Body Viewport -->
-		<div class="viewer-body flex-1 overflow-hidden relative bg-[var(--surface-2)] flex flex-col">
+		<div
+			class="viewer-body flex-1 overflow-hidden relative bg-[var(--surface-2)] flex flex-col {isResizing
+				? 'pointer-events-none'
+				: ''}"
+		>
 			{#if isLoading}
 				<div class="loading-state flex flex-col items-center justify-center h-full gap-2 text-[var(--text-3)]">
 					<Icon name="loader" size={24} class="animate-spin text-[var(--accent-primary)]" />

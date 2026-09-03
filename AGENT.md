@@ -56,6 +56,7 @@
 - `commands.ts` coupled dropdown resolution using pre-batch row prevented parent-child updates in single batch. Fixed by resolving options against effective row with incoming patches (excluding current column).
 - AI SDK error logging printed complete error objects with document bodies to logs. Fixed by sanitizing to `{ requestId, model, statusCode, isRetryable }`.
 - Non-interactive `agy --print` runs hit an internal 300s socket timeout when reasoning effort is high on broad tasks. Keep briefs narrow or avoid unbounded single-turn code generation.
+- Svelte 5 effect reading/writing blob URL state in drawer caused infinite reactive loop (maximum update depth exceeded), freezing grid and menus. Fixed with pure effect teardown `return () => URL.revokeObjectURL(url)`.
 
 ## Notes & Discoveries
 - **Confirmation dialog**: `pipeline.ts` runs `deriveRows` before confirmation to generate proposals, and re-derives over confirmed answers so downstream fields recompute. Dialog asks per unique RITC plus invoice-wide block.

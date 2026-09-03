@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import 'fake-indexeddb/auto';
 import { saveSourceFiles, loadSourceFiles, deleteSourceFiles } from '../../src/lib/table/source-files';
 
