@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from './Icons.svelte';
 	import type { createTableStore } from '$lib/table/store.svelte';
 	import type { CellValue } from '$lib/types';
@@ -123,9 +124,73 @@
 		role: 'user' | 'assistant';
 		content: string;
 		isStreaming?: boolean;
+		usage?: {
+			promptTokens?: number;
+			completionTokens?: number;
+			totalTokens?: number;
+		};
+		latencyMs?: number;
 	}
 
 	let messages = $state<ChatMessage[]>([]);
+
+	const BOOKMARKS_KEY = 'xlsx-ai:prompt-bookmarks:v1';
+
+	interface PromptBookmark {
+		id: string;
+		label: string;
+		prompt: string;
+	}
+
+	let promptBookmarks = $state<PromptBookmark[]>([]);
+
+	function loadBookmarks(): PromptBookmark[] {
+		try {
+			if (typeof localStorage === 'undefined') return [];
+			const raw = localStorage.getItem(BOOKMARKS_KEY);
+			if (!raw) return [];
+			const parsed: unknown = JSON.parse(raw);
+			if (!Array.isArray(parsed)) return [];
+			return (parsed as Array<Record<string, unknown>>)
+				.filter((b) => !!b && typeof b === 'object' && typeof b.id === 'string' && typeof b.prompt === 'string')
+				.map((b) => ({
+					id: b.id as string,
+					label: typeof b.label === 'string' && (b.label as string).trim() ? (b.label as string) : (b.prompt as string).slice(0, 28),
+					prompt: b.prompt as string
+				}));
+		} catch {
+			return [];
+		}
+	}
+
+	function saveBookmarks(items: PromptBookmark[]) {
+		promptBookmarks = items;
+		try {
+			localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(items));
+		} catch {
+			// Storage may be unavailable (private mode); in-memory state still applies.
+		}
+	}
+
+	function addBookmark() {
+		const text = promptInput.trim();
+		if (!text) return;
+		const item: PromptBookmark = {
+			id: `bm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+			label: text.slice(0, 28),
+			prompt: text
+		};
+		saveBookmarks([...promptBookmarks, item]);
+		onNotify('info', 'Prompt bookmarked');
+	}
+
+	function removeBookmark(id: string) {
+		saveBookmarks(promptBookmarks.filter((b) => b.id !== id));
+	}
+
+	onMount(() => {
+		promptBookmarks = loadBookmarks();
+	});
 
 	// Structured Diff Preview Interface
 	interface DiffPatch {
@@ -321,6 +386,7 @@
 		if (!customPrompt) promptInput = '';
 		const capturedDocId = documents.activeId;
 		const controller = beginRequest();
+		const reqStart = performance.now();
 
 		try {
 			const truncatedRows = rowsForPrompt();
@@ -348,13 +414,19 @@
 				return;
 			}
 
-			const result = data as { data?: { reply?: unknown; patches?: unknown[] } };
+			const result = data as {
+				data?: { reply?: unknown; patches?: unknown[] };
+				usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+				latencyMs?: number;
+			};
 			const reply =
 				typeof result.data?.reply === 'string' && result.data.reply.trim()
 					? result.data.reply
 					: 'No answer was returned.';
+			const usage = result.usage;
+			const latencyMs = result.latencyMs ?? Math.round(performance.now() - reqStart);
 			messages = messages.map((m) =>
-				m.id === assistantMsgId ? { ...m, content: reply, isStreaming: false } : m
+				m.id === assistantMsgId ? { ...m, content: reply, isStreaming: false, usage, latencyMs } : m
 			);
 
 			// An edit asked for in chat lands in the same review card the quick actions use,
@@ -535,6 +607,34 @@
 					<div class="empty-bot-wrap w-10 h-10 rounded-full bg-[var(--surface-2)] border border-[var(--border)] flex items-center justify-center text-[var(--accent-primary)] mb-1"><Icon name="bot" size={22} aria-hidden="true" /></div>
 					<p class="empty-title font-semibold text-[13px] text-[var(--text-1)] m-0">Ask anything about this table</p>
 					<p class="empty-desc text-[12px] text-[var(--text-3)] max-w-[240px] m-0">Summarize trends, fill blanks, or clean formats. Try a prompt:</p>
+					{#if promptBookmarks.length > 0}
+						<div class="bookmark-chips flex flex-col gap-1.5 mt-2 w-full max-w-[260px]">
+							<div class="bookmark-heading text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] text-left">Saved prompts</div>
+							{#each promptBookmarks as bm (bm.id)}
+								<div class="bookmark-chip-row flex items-center gap-1 w-full">
+									<button
+										class="chip bookmark-chip flex-1 text-left text-[11.5px] px-2.5 py-1.5 rounded-md bg-[var(--accent-primary-bg)] border border-[var(--accent-primary-border)] text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors cursor-pointer truncate"
+										title={bm.prompt}
+										onclick={() => {
+											promptInput = bm.prompt;
+											promptEl?.focus();
+										}}>{bm.label}</button
+									>
+									<button
+										class="bookmark-delete flex items-center justify-center w-5 h-5 rounded-md text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer shrink-0 transition-colors"
+										aria-label="Remove bookmark {bm.label}"
+										title="Remove bookmark"
+										onclick={(e) => {
+											e.stopPropagation();
+											removeBookmark(bm.id);
+										}}
+									>
+										<Icon name="x" size={10} aria-hidden="true" />
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
 					<div class="example-chips flex flex-col gap-1.5 mt-2 w-full max-w-[260px]">
 						{#each examplePrompts as chip (chip.label)}
 							<button
@@ -562,26 +662,37 @@
 							{#if !msg.isStreaming && msg.content.trim()}
 							<div class="msg-actions flex gap-1 pt-1 text-[10px]">
 								<button
-									class="msg-action-btn inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
+									class="msg-action-btn inline-flex items-center justify-center w-6 h-6 rounded-md bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
 									aria-label="Copy message text"
-									title="Copy message text"
+									title="Copy"
 									onclick={() => copyToClipboard(msg.content, () => onNotify('success', 'Copied to clipboard'), (err) => onNotify("error", err))}
 								>
 									<Icon name="copy" size={11} aria-hidden="true" />
-									<span>Copy</span>
 								</button>
 								{#if msg.role === 'assistant' && isSvgContent(msg.content)}
 									<button
-										class="msg-action-btn inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
+										class="msg-action-btn inline-flex items-center justify-center w-6 h-6 rounded-md bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
 										aria-label="Copy SVG source"
-										title="Copy SVG source"
+										title="Copy SVG"
 										onclick={() => copySvgSource(msg.content, () => onNotify('success', 'Copied SVG source'), (err) => onNotify("error", err))}
 									>
 										<Icon name="copy" size={11} aria-hidden="true" />
-										<span>Copy SVG</span>
 									</button>
 								{/if}
 							</div>
+							{/if}
+							{#if !msg.isStreaming && (msg.latencyMs || msg.usage?.totalTokens)}
+								<div class="msg-stats flex items-center gap-1.5 pt-1 text-[10.5px] text-[var(--text-3)] font-mono select-none">
+									{#if msg.usage?.totalTokens}
+										<span>{msg.usage.totalTokens.toLocaleString()} tokens</span>
+									{/if}
+									{#if msg.usage?.totalTokens && msg.latencyMs}
+										<span>•</span>
+									{/if}
+									{#if msg.latencyMs}
+										<span>{(msg.latencyMs / 1000).toFixed(1)}s</span>
+									{/if}
+								</div>
 							{/if}
 						</div>
 					</div>
@@ -604,6 +715,34 @@
 					{/each}
 				</select>
 			</div>
+			{#if promptBookmarks.length > 0}
+				<div class="footer-bookmarks flex flex-wrap gap-1.5 px-0.5">
+					{#each promptBookmarks as bm (bm.id)}
+						<span class="bookmark-chip-inline inline-flex items-center gap-1 max-w-full pl-2.5 pr-1 py-1 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[11px] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors">
+							<button
+								class="bg-transparent border-none p-0 text-inherit text-[11px] cursor-pointer truncate max-w-[140px]"
+								title={bm.prompt}
+								aria-label="Use bookmark {bm.label}"
+								onclick={() => {
+									promptInput = bm.prompt;
+									promptEl?.focus();
+								}}>{bm.label}</button
+							>
+							<button
+								class="flex items-center justify-center w-4 h-4 rounded text-[var(--text-3)] hover:text-[var(--accent-rose)] cursor-pointer bg-transparent border-none p-0"
+								aria-label="Remove bookmark {bm.label}"
+								title="Remove bookmark"
+								onclick={(e) => {
+									e.stopPropagation();
+									removeBookmark(bm.id);
+								}}
+							>
+								<Icon name="x" size={10} aria-hidden="true" />
+							</button>
+						</span>
+					{/each}
+				</div>
+			{/if}
 			<div class="chat-input-wrapper relative flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-2 focus-within:border-[var(--accent-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-primary-border)] transition-all">
 				<textarea
 					rows="1"
@@ -620,7 +759,16 @@
 					}}
 				></textarea>
 				<button
-					class="btn-tactile send-btn w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors shadow-sm ml-2"
+					class="btn-tactile bookmark-btn w-7 h-7 rounded-lg bg-transparent border border-transparent text-[var(--text-3)] hover:text-[var(--accent-primary)] hover:bg-[var(--accent-primary-bg)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors ml-1"
+					disabled={!promptInput.trim()}
+					onclick={addBookmark}
+					title="Bookmark prompt"
+					aria-label="Bookmark prompt"
+				>
+					<Icon name="star" size={13} aria-hidden="true" />
+				</button>
+				<button
+					class="btn-tactile send-btn w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors shadow-sm ml-1"
 					disabled={isGenerating || !promptInput.trim()}
 					onclick={() => sendChatMessage()}
 					title="Send Message"

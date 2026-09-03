@@ -443,15 +443,13 @@
 	function autoFitColumn(colId: string) {
 		const col = store.columns.find((c) => c.id === colId);
 		if (!col) return;
+		const sourceRows = store.resolvedRows ?? store.rows;
 		let maxLen = col.name.length;
-		for (const row of store.rows) {
-			const str = String(row[colId] ?? "");
+		for (const row of sourceRows) {
+			const str = formatCellValue(col.type, row[col.id]);
 			if (str.length > maxLen) maxLen = str.length;
 		}
-		const fitWidth = Math.max(
-			80,
-			Math.min(380, Math.round(maxLen * 8.8 + 48)),
-		);
+		const fitWidth = Math.max(70, Math.min(450, Math.round(maxLen * 8.5 + 42)));
 		store.updateColumnWidth(colId, fitWidth);
 	}
 
@@ -1425,7 +1423,7 @@
 							{@const isActiveCol =
 								activeCell?.colIndex === colIndex}
 							<th
-								class="th-letter sticky top-0 z-20 border-b border-[var(--border)] border-r border-[var(--table-grid-line)] p-0 text-center select-none font-mono text-[10.5px] font-semibold tracking-wider {isActiveCol
+								class="th-letter relative sticky top-0 z-20 border-b border-[var(--border)] border-r border-[var(--table-grid-line)] p-0 text-center select-none font-mono text-[10.5px] font-semibold tracking-wider {isActiveCol
 									? 'bg-[var(--accent-primary-bg)] text-[var(--accent-primary)]'
 									: 'bg-[var(--surface-2)] text-[var(--text-3)]'}"
 								style="width: {col.width
@@ -1434,6 +1432,14 @@
 								scope="col"
 							>
 								{columnLetter(colIndex)}
+								<button
+									type="button"
+									class="th-resize-handle absolute -right-1 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[var(--accent-primary-hover)] active:bg-[var(--accent-primary)] transition-colors z-10 bg-transparent border-none"
+									tabindex="-1"
+									onmousedown={(e) => startResize(e, col.id, col.width || 180)}
+									ondblclick={(e) => { e.stopPropagation(); autoFitColumn(col.id); }}
+									aria-label="Resize column {col.name}"
+								></button>
 							</th>
 						{/each}
 						<th
@@ -1808,7 +1814,7 @@
 								<!-- Interactive Column Resize Handle -->
 								<button
 									type="button"
-									class="th-resize-handle absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[var(--accent-primary-hover)] active:bg-[var(--accent-primary)] transition-colors z-10 bg-transparent border-none"
+									class="th-resize-handle absolute -right-1 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[var(--accent-primary-hover)] active:bg-[var(--accent-primary)] transition-colors z-10 bg-transparent border-none"
 									tabindex="-1"
 									onmousedown={(e) =>
 										startResize(

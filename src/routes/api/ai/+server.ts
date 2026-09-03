@@ -140,6 +140,7 @@ export function _capacityErrorMessage(provider: string, modelId: string, attempt
 }
 
 export const POST: RequestHandler = async ({ request }) => {
+	const startTime = performance.now();
 	const providerHeader = request.headers.get('x-ai-provider');
 	const provider = providerHeader === null ? 'gemini' : parseAiProvider(providerHeader);
 	if (!provider) return json({ error: 'Unsupported AI provider.' }, { status: 400 });
@@ -283,10 +284,29 @@ INSTRUCTIONS:
 				abortSignal: deadline(request.signal, TABLE_OP_TIMEOUT_MS)
 			});
 
+			// The SDK reports inputTokens/outputTokens; the client contract keeps the
+			// legacy promptTokens/completionTokens names alongside totalTokens.
+			const usage = result.usage
+				? {
+						promptTokens:
+							// @ts-expect-error AI SDK v7 uses inputTokens; legacy name kept for client contract
+							result.usage.promptTokens ??
+							(result.usage as unknown as { inputTokens?: number }).inputTokens,
+						completionTokens:
+							// @ts-expect-error AI SDK v7 uses outputTokens; legacy name kept for client contract
+							result.usage.completionTokens ??
+							(result.usage as unknown as { outputTokens?: number }).outputTokens,
+						totalTokens: result.usage.totalTokens
+					}
+				: undefined;
+			const latencyMs = Math.round(performance.now() - startTime);
+
 			return json({
 				success: true,
 				kind: operation.kind,
-				data: result.object
+				data: result.object,
+				usage,
+				latencyMs
 			});
 		}
 
@@ -324,7 +344,30 @@ EDIT REQUESTS:
 			abortSignal: deadline(request.signal, TABLE_OP_TIMEOUT_MS)
 		});
 
-		return json({ success: true, kind: 'chat', data: chat.object });
+		// The SDK reports inputTokens/outputTokens; the client contract keeps the
+		// legacy promptTokens/completionTokens names alongside totalTokens.
+		const usage = chat.usage
+			? {
+					promptTokens:
+						// @ts-expect-error AI SDK v7 uses inputTokens; legacy name kept for client contract
+						chat.usage.promptTokens ??
+						(chat.usage as unknown as { inputTokens?: number }).inputTokens,
+					completionTokens:
+						// @ts-expect-error AI SDK v7 uses outputTokens; legacy name kept for client contract
+						chat.usage.completionTokens ??
+						(chat.usage as unknown as { outputTokens?: number }).outputTokens,
+					totalTokens: chat.usage.totalTokens
+				}
+			: undefined;
+		const latencyMs = Math.round(performance.now() - startTime);
+
+		return json({
+			success: true,
+			kind: 'chat',
+			data: chat.object,
+			usage,
+			latencyMs
+		});
 	} catch (err: unknown) {
 		const providerError = _inspectProviderError(err);
 		const { statusCode: providerStatus, isRetryable } = providerError;
