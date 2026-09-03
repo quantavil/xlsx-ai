@@ -49,7 +49,7 @@ export async function extractSpreadsheetText(file: File): Promise<ExtractedDocum
 	let workbook: WorkBook;
 	try {
 		workbook = XLSX.read(buffer, { type: 'array', cellDates: true, raw: false });
-	} catch (err) {
+	} catch {
 		throw new Error(`Failed to parse spreadsheet "${file.name}". Ensure it is a valid .xlsx or .xls file.`);
 	}
 
@@ -98,7 +98,7 @@ export async function extractPdfText(file: File): Promise<ExtractedDocumentResul
 			useSystemFonts: true
 		});
 		pdfDoc = await loadingTask.promise;
-	} catch (err) {
+	} catch {
 		throw new Error(`Failed to open PDF "${file.name}". Ensure the file is not password-protected or corrupted.`);
 	}
 

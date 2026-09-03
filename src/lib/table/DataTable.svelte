@@ -37,6 +37,9 @@
 		type FormulaFunction,
 	} from "./formula-hints";
 	import FormulaHintPopup from "./FormulaHintPopup.svelte";
+	import TableCellContextMenu from "./TableCellContextMenu.svelte";
+	import TableFilterMenu from "./TableFilterMenu.svelte";
+	import TableColumnMenu from "./TableColumnMenu.svelte";
 	import {
 		distinctValuesForColumn,
 		conditionOpsForType,
@@ -151,12 +154,6 @@
 	let activeFilterColId = $state<string | null>(null);
 	let filterMenuTriggerEls = new Map<string, HTMLElement>();
 	let filterMenuStyle = $state<string>("");
-	let filterTab = $state<'values' | 'condition'>('values');
-	let valueSearchQuery = $state<string>("");
-	let draftValues = $state<Set<string>>(new Set<string>());
-	let draftConditionOp = $state<ConditionFilter['op']>('contains');
-	let draftConditionValue = $state<string>("");
-	let draftConditionValue2 = $state<string>("");
 	function syncFilterPos() {
 		if (!activeFilterColId) {
 			filterMenuStyle = "";
@@ -179,75 +176,45 @@
 		if (activeFilterColId) requestAnimationFrame(syncFilterPos);
 	});
 
-	function openFilter(colId: string, colType: ColumnType) {
-		const existing = store.columnFilters[colId] as ColumnFilter | undefined;
-		const ops = conditionOpsForType(colType);
-		valueSearchQuery = '';
-
-		if (existing?.kind === 'condition') {
-			filterTab = 'condition';
-			// A column retyped since the filter was set can leave an operator its new
-			// type does not offer, so fall back to the first one it does.
-			const valid = ops.some((o) => o.op === existing.op);
-			draftConditionOp = valid ? existing.op : ops[0].op;
-			draftConditionValue = valid ? (existing.value ?? '') : '';
-			draftConditionValue2 = valid ? (existing.value2 ?? '') : '';
-		} else {
-			filterTab = 'values';
-			// No filter yet means every value is checked, so the list opens showing
-			// what is currently visible rather than an empty set.
-			draftValues = new Set(
-				existing?.kind === 'values'
-					? existing.values
-					: distinctValuesForColumn(store.resolvedRows, colId)
-			);
-			draftConditionOp = ops[0].op;
-			draftConditionValue = '';
-			draftConditionValue2 = '';
-		}
-
+	function openFilter(colId: string) {
 		activeFilterColId = colId;
 		activeColMenu = null;
 		requestAnimationFrame(syncFilterPos);
 	}
 
-	function applyValueFilter(colId: string) {
-		if (draftValues.size === 0) {
-			// no values selected -> filter to none
+	function handleApplyValueFilter(colId: string, vals: string[]) {
+		if (vals.length === 0) {
 			store.setColumnFilter(colId, { kind: 'values', values: [] });
 		} else {
-			const vals = distinctValuesForColumn(store.resolvedRows, colId);
-			// if all values selected, treat as no filter (clear)
-			if (draftValues.size === vals.length && vals.every((v) => draftValues.has(v))) {
+			const allVals = distinctValuesForColumn(store.resolvedRows, colId);
+			if (vals.length === allVals.length && allVals.every((v) => vals.includes(v))) {
 				store.clearColumnFilter(colId);
 			} else {
-				store.setColumnFilter(colId, { kind: 'values', values: Array.from(draftValues) });
+				store.setColumnFilter(colId, { kind: 'values', values: vals });
 			}
 		}
 		activeFilterColId = null;
 	}
 
-	function applyConditionFilter(colId: string) {
-		const op = draftConditionOp;
+	function handleApplyConditionFilter(colId: string, op: ConditionFilter['op'], val: string, val2?: string) {
 		if (op === 'isEmpty' || op === 'isNotEmpty') {
 			store.setColumnFilter(colId, { kind: 'condition', op });
 		} else if (op === 'between') {
-			if (!draftConditionValue.trim() || !draftConditionValue2.trim()) return;
+			if (!val.trim() || !val2?.trim()) return;
 			store.setColumnFilter(colId, {
 				kind: 'condition',
 				op,
-				value: draftConditionValue.trim(),
-				value2: draftConditionValue2.trim()
+				value: val.trim(),
+				value2: val2.trim()
 			});
 		} else {
-			// `contains ''` matches every row, which is what having no filter means.
-			if (!draftConditionValue.trim()) {
+			if (!val.trim()) {
 				if (op !== 'contains' && op !== 'notContains') return;
 				store.clearColumnFilter(colId);
 				activeFilterColId = null;
 				return;
 			}
-			store.setColumnFilter(colId, { kind: 'condition', op, value: draftConditionValue.trim() });
+			store.setColumnFilter(colId, { kind: 'condition', op, value: val.trim() });
 		}
 		activeFilterColId = null;
 	}
@@ -441,22 +408,7 @@
 	}
 
 	function autoFitColumn(colId: string) {
-		const col = store.columns.find((c) => c.id === colId);
-		if (!col) return;
-		const sourceRows = store.resolvedRows ?? store.rows;
-		// Header controls: type icon (14px + 6px gap), title (~8.5px/char),
-		// sort chevron (14px + 4px margin), filter button (20px), menu button
-		// (20px), header padding (~28px). Keeps title/controls visible on empty
-		// or short columns.
-		const headerMin = Math.round(col.name.length * 8.5 + 86);
-		let maxContentLen = 0;
-		for (const row of sourceRows) {
-			const str = formatCellValue(col.type, row[col.id]);
-			if (str.length > maxContentLen) maxContentLen = str.length;
-		}
-		const contentMin = Math.round(maxContentLen * 8.5 + 32);
-		const fitWidth = Math.max(100, Math.min(450, Math.max(headerMin, contentMin)));
-		store.updateColumnWidth(colId, fitWidth);
+		store.autoFitColumn(colId);
 	}
 
 	function selectCell(
@@ -1627,7 +1579,7 @@
 												const el = e.currentTarget as HTMLElement;
 												filterMenuTriggerEls.set(col.id, el);
 												if (activeFilterColId === col.id) activeFilterColId = null;
-												else openFilter(col.id, col.type);
+												else openFilter(col.id);
 											}}
 											aria-label="Filter column {col.name}"
 											aria-haspopup="dialog"
@@ -1636,83 +1588,22 @@
 											<Icon name="filter" size={12} aria-hidden="true" />
 										</button>
 										{#if activeFilterColId === col.id}
-											{@const colDistinct = distinctValuesForColumn(store.resolvedRows, col.id)}
-											{@const filteredDistinct = valueSearchQuery
-												? colDistinct.filter((v) => v.toLowerCase().includes(valueSearchQuery.toLowerCase()))
-												: colDistinct}
-											{@const ops = conditionOpsForType(col.type)}
-											<div
-												class="filter-popover bezel-card fixed z-50 w-80 p-0 bg-[var(--surface-1)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl shadow-2xl origin-top-left animate-[menuPop_120ms_cubic-bezier(0.16,1,0.3,1)] flex flex-col max-h-[min(70vh,420px)] overflow-hidden"
+											<TableFilterMenu
+												column={col}
+												resolvedRows={store.resolvedRows}
 												style={filterMenuStyle}
-												role="dialog"
-												tabindex="-1"
-												aria-label="Filter {col.name}"
-											>
-												<div class="filter-popover-header flex items-center justify-between px-3 pt-3 pb-2 border-b border-[var(--border)]">
-													<span class="text-[12.5px] font-bold text-[var(--text-1)] truncate">Filter {col.name}</span>
-													<button class="p-1 rounded hover:bg-[var(--surface-2)] text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer" onclick={() => (activeFilterColId = null)} aria-label="Close filter"><Icon name="x" size={12} aria-hidden="true" /></button>
-												</div>
-												<div class="filter-tabs flex gap-1 px-2 pt-2">
-													<button class="flex-1 py-1.5 text-[11.5px] font-semibold rounded-lg border cursor-pointer transition-colors {filterTab === 'values' ? 'bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] border-[var(--accent-primary-border)]' : 'bg-transparent text-[var(--text-3)] border-transparent hover:bg-[var(--surface-2)]'}" onclick={() => (filterTab = 'values')}>Values</button>
-													<button class="flex-1 py-1.5 text-[11.5px] font-semibold rounded-lg border cursor-pointer transition-colors {filterTab === 'condition' ? 'bg-[var(--accent-primary-bg)] text-[var(--accent-primary)] border-[var(--accent-primary-border)]' : 'bg-transparent text-[var(--text-3)] border-transparent hover:bg-[var(--surface-2)]'}" onclick={() => (filterTab = 'condition')}>Condition</button>
-												</div>
-												{#if filterTab === 'values'}
-													<div class="filter-values-pane flex flex-col flex-1 min-h-0 p-3 gap-2">
-														{#if colDistinct.length > 8}
-															<input type="text" placeholder="Search values…" class="filter-value-search w-full px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[12px] text-[var(--text-1)] placeholder:text-[var(--text-3)] outline-none focus:border-[var(--border-focus)]" bind:value={valueSearchQuery} aria-label="Search filter values" />
-														{/if}
-														<div class="flex items-center gap-1.5">
-															<button class="text-[11px] font-medium px-2 py-1 rounded bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] cursor-pointer" onclick={() => { draftValues = new Set(colDistinct); }}>Select all</button>
-															<button class="text-[11px] font-medium px-2 py-1 rounded bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] cursor-pointer" onclick={() => { draftValues = new Set(); }}>Clear</button>
-															<span class="ml-auto text-[11px] text-[var(--text-3)]">{draftValues.size}/{colDistinct.length} selected</span>
-														</div>
-														<div class="filter-values-list flex-1 overflow-y-auto border border-[var(--border)] rounded-lg bg-[var(--surface-2)] max-h-[180px] p-1 flex flex-col gap-0.5">
-															{#each filteredDistinct as v (v)}
-																{@const label = v === '' ? '(Empty)' : v}
-																{@const id = `filter-${col.id}-${v === '' ? '__empty__' : v}`}
-																<label for={id} class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[var(--surface-1)] cursor-pointer text-[12px] text-[var(--text-1)]">
-																	<input id={id} type="checkbox" class="w-3.5 h-3.5 rounded border-[var(--border)] accent-[var(--accent-primary)]" checked={draftValues.has(v)} onchange={(e) => { const c = e.currentTarget as HTMLInputElement; const next = new Set(draftValues); if (c.checked) next.add(v); else next.delete(v); draftValues = next; }} />
-																	<span class="truncate">{label}</span>
-																</label>
-															{/each}
-															{#if filteredDistinct.length === 0}
-																<span class="text-[11px] text-[var(--text-3)] px-2 py-2">No values match.</span>
-															{/if}
-														</div>
-														<div class="flex items-center gap-2 pt-1">
-															<button class="flex-1 py-1.5 rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-[var(--text-inverse)] text-[12px] font-semibold cursor-pointer" onclick={() => applyValueFilter(col.id)}>Apply</button>
-															<button class="px-3 py-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] text-[12px] font-medium hover:text-[var(--text-1)] cursor-pointer" onclick={clearFilterForActive}>Clear filter</button>
-														</div>
-													</div>
-												{:else}
-													<div class="filter-condition-pane flex flex-col gap-2 p-3">
-														<label class="text-[11px] font-semibold text-[var(--text-2)]" for="filter-op-{col.id}">Condition</label>
-														<select id="filter-op-{col.id}" class="w-full px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[12px] text-[var(--text-1)] outline-none focus:border-[var(--border-focus)]" bind:value={draftConditionOp}>
-															{#each ops as o (o.op)}
-																<option value={o.op}>{o.label}</option>
-															{/each}
-														</select>
-														{#if draftConditionOp !== 'isEmpty' && draftConditionOp !== 'isNotEmpty'}
-															<label class="text-[11px] font-semibold text-[var(--text-2)]" for="filter-val-{col.id}">{draftConditionOp === 'between' ? 'From' : 'Value'}</label>
-															<input id="filter-val-{col.id}" type="text" placeholder={col.type === 'date' ? 'YYYY-MM-DD' : col.type === 'number' || col.type === 'currency' || col.type === 'percent' ? 'Number' : 'Text'} class="w-full px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[12px] text-[var(--text-1)] placeholder:text-[var(--text-3)] outline-none focus:border-[var(--border-focus)]" bind:value={draftConditionValue} />
-															{#if draftConditionOp === 'between'}
-																<label class="text-[11px] font-semibold text-[var(--text-2)]" for="filter-val2-{col.id}">To</label>
-																<input id="filter-val2-{col.id}" type="text" placeholder={col.type === 'date' ? 'YYYY-MM-DD' : 'Number'} class="w-full px-2.5 py-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[12px] text-[var(--text-1)] placeholder:text-[var(--text-3)] outline-none focus:border-[var(--border-focus)]" bind:value={draftConditionValue2} />
-															{/if}
-														{/if}
-														<div class="flex items-center gap-2 pt-2">
-															<button class="flex-1 py-1.5 rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-[var(--text-inverse)] text-[12px] font-semibold cursor-pointer" onclick={() => applyConditionFilter(col.id)}>Apply</button>
-															<button class="px-3 py-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[var(--text-2)] text-[12px] font-medium hover:text-[var(--text-1)] cursor-pointer" onclick={clearFilterForActive}>Clear filter</button>
-														</div>
-													</div>
-												{/if}
-												{#if store.hasActiveFilters}
-													<div class="filter-global-actions px-3 pb-3 pt-1 border-t border-[var(--border)] flex justify-between items-center">
-														<span class="text-[11px] text-[var(--text-3)]">{Object.keys(store.columnFilters).length} filtered</span>
-														<button class="text-[11px] font-semibold text-[var(--accent-rose)] hover:underline cursor-pointer bg-transparent border-none p-0" onclick={() => { store.clearAllFilters(); activeFilterColId = null; }}>Clear all filters</button>
-													</div>
-												{/if}
-											</div>
+												existingFilter={store.columnFilters[col.id]}
+												hasActiveFilters={store.hasActiveFilters}
+												activeFilterCount={Object.keys(store.columnFilters).length}
+												onApplyValueFilter={(vals) => handleApplyValueFilter(col.id, vals)}
+												onApplyConditionFilter={(op, val, val2) => handleApplyConditionFilter(col.id, op, val, val2)}
+												onClearFilter={clearFilterForActive}
+												onClearAllFilters={() => {
+													store.clearAllFilters();
+													activeFilterColId = null;
+												}}
+												onClose={() => (activeFilterColId = null)}
+											/>
 										{/if}
 									</div>
 									<!-- Column Options Menu Trigger -->
@@ -1754,114 +1645,15 @@
 										</button>
 
 										{#if activeColMenu === col.id}
-											<div
-												class="column-popover bezel-card fixed z-50 w-48 p-1.5 bg-[var(--surface-1)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl shadow-2xl origin-top-right animate-[menuPop_120ms_cubic-bezier(0.16,1,0.3,1)]"
+											<TableColumnMenu
+												column={col}
 												style={colMenuStyle}
-												role="menu"
-											>
-												<button
-													class="popover-item flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-													role="menuitem"
-													onclick={() => {
-														activeColMenu = null;
-														autoFitColumn(col.id);
-													}}
-												>
-													<Icon
-														name="chevrons-up-down"
-														size={13}
-														class="rotate-90"
-														aria-hidden="true"
-													/>
-													<span>Fit to content</span>
-												</button>
-
-												<button
-													class="popover-item flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-													role="menuitem"
-													onclick={() => {
-														activeColMenu = null;
-														store.selectColumn(
-															col.id,
-														);
-													}}
-												>
-													<Icon
-														name="check"
-														size={13}
-														aria-hidden="true"
-													/>
-													<span>Select column</span>
-												</button>
-
-												<div
-													class="popover-divider h-px bg-[var(--border)] my-1"
-												></div>
-												<div
-													class="popover-section-label px-2 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-3)]"
-												>
-													Column type
-												</div>
-
-												{#each Object.entries(COLUMN_TYPE_CONFIG) as [typeKey, typeCfg]}
-													{@const isActiveType =
-														col.type === typeKey}
-													<button
-														class="popover-item flex items-center justify-between w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors {isActiveType
-															? 'active !text-[var(--accent-primary)] !bg-[var(--accent-primary-bg)] font-semibold'
-															: ''}"
-														role="menuitem"
-														onclick={() =>
-															handleUpdateColumnType(
-																col.id,
-																typeKey as ColumnType,
-															)}
-													>
-														<div
-															class="flex items-center gap-2"
-														>
-															<Icon
-																name={typeCfg.icon}
-																size={13}
-																aria-hidden="true"
-															/>
-															<span
-																>{typeCfg.label}</span
-															>
-														</div>
-														{#if isActiveType}
-															<span
-																class="check-icon text-[var(--accent-primary)] font-bold text-[12px]"
-																><Icon
-																	name="check"
-																	size={12}
-																	aria-hidden="true"
-																/></span
-															>
-														{/if}
-													</button>
-												{/each}
-
-												<div
-													class="popover-divider h-px bg-[var(--border)] my-1"
-												></div>
-												<button
-													class="popover-item popover-delete flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--accent-rose)] hover:!text-[var(--accent-rose)] hover:!bg-[var(--accent-rose-bg)] cursor-pointer text-left transition-colors"
-													role="menuitem"
-													onclick={() =>
-														requestDeleteColumn(
-															col.id,
-															col.name,
-														)}
-												>
-													<Icon
-														name="trash"
-														size={13}
-														aria-hidden="true"
-													/>
-													<span>Delete Column</span>
-												</button>
-											</div>
+												onAutoFit={() => autoFitColumn(col.id)}
+												onSelectColumn={() => store.selectColumn(col.id)}
+												onUpdateType={(type) => handleUpdateColumnType(col.id, type)}
+												onDelete={() => requestDeleteColumn(col.id, col.name)}
+												onClose={() => (activeColMenu = null)}
+											/>
 										{/if}
 									</div>
 								</div>
@@ -2639,86 +2431,28 @@
 </div>
 
 {#if contextMenu !== null}
-	<div
-		class="context-menu fixed z-50 w-52 p-1.5 bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl shadow-2xl"
-		style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
-		role="menu"
-		aria-label="Cell actions"
-	>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={handleMenuCopy}
-		>
-			<Icon name="copy" size={13} aria-hidden="true" />
-			<span class="flex-1">Copy</span>
-			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">⌘C</kbd>
-		</button>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={handleMenuCut}
-		>
-			<Icon name="edit" size={13} aria-hidden="true" />
-			<span class="flex-1">Cut</span>
-			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">⌘X</kbd>
-		</button>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={handleMenuPaste}
-		>
-			<Icon name="file-text" size={13} aria-hidden="true" />
-			<span class="flex-1">Paste</span>
-			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">⌘V</kbd>
-		</button>
-		<div class="h-px bg-[var(--border)] my-1"></div>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={() => {
-				if (!contextMenu) return;
-				store.insertRow(contextMenu.rowIndex);
-				contextMenu = null;
-			}}
-		>
-			<Icon name="plus" size={13} aria-hidden="true" />
-			<span>Insert Row Above</span>
-		</button>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={() => {
-				if (!contextMenu) return;
-				store.insertRow(contextMenu.rowIndex + 1);
-				contextMenu = null;
-			}}
-		>
-			<Icon name="plus" size={13} aria-hidden="true" />
-			<span>Insert Row Below</span>
-		</button>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--accent-rose)] hover:!bg-[var(--accent-rose-bg)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={() => {
-				if (!contextMenu) return;
-				store.deleteRows(selectedRowIdsForMenu(contextMenu.rowId));
-				contextMenu = null;
-			}}
-		>
-			<Icon name="trash" size={13} aria-hidden="true" />
-			<span>{selectedRowIdsForMenu(contextMenu.rowId).length > 1 ? `Delete ${selectedRowIdsForMenu(contextMenu.rowId).length} Rows` : 'Delete Row'}</span>
-		</button>
-		<button
-			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
-			role="menuitem"
-			onclick={handleMenuClear}
-		>
-			<Icon name="x" size={13} aria-hidden="true" />
-			<span class="flex-1">Clear Contents</span>
-			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">Del</kbd>
-		</button>
-	</div>
+	<TableCellContextMenu
+		x={contextMenu.x}
+		y={contextMenu.y}
+		selectedRowCount={selectedRowIdsForMenu(contextMenu.rowId).length}
+		onCopy={handleMenuCopy}
+		onCut={handleMenuCut}
+		onPaste={handleMenuPaste}
+		onInsertAbove={() => {
+			if (!contextMenu) return;
+			store.insertRow(contextMenu.rowIndex);
+		}}
+		onInsertBelow={() => {
+			if (!contextMenu) return;
+			store.insertRow(contextMenu.rowIndex + 1);
+		}}
+		onDeleteRows={() => {
+			if (!contextMenu) return;
+			store.deleteRows(selectedRowIdsForMenu(contextMenu.rowId));
+		}}
+		onClear={handleMenuClear}
+		onClose={() => (contextMenu = null)}
+	/>
 {/if}
 
 <FormulaHintPopup

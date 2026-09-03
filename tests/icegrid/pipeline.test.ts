@@ -308,7 +308,7 @@ describe('icegridModule.run — schedule and derived fill', () => {
 
 		expect(row.PerUnit).toBe('PCS');
 		expect(row.dbk_unit).toBe('PCS');
-		expect(row.dbk_qty).toBe(48);
+		expect(row.dbk_qty).toBe('=M2');
 		// SQCQTY came from the packing list, so RoDTEPQty tracks it via formula =O2.
 		expect(row.SQCQTY).toBe(67.5);
 		expect(row.RoDTEPQty).toBe('=O2');

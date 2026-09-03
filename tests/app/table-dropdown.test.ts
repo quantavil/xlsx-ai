@@ -498,10 +498,6 @@ describe('dependent dropdowns do not borrow other rows values', () => {
 			dependsOnColumnId: 'RITCCode'
 		}
 	};
-	const columns: Column[] = [
-		{ id: 'RITCCode', name: 'RITCCode', type: 'text' },
-		serialCol
-	];
 	const rows: Row[] = [
 		{ id: 'r1', RITCCode: '68022110', drawback_schno: '680299B' },
 		{ id: 'r2', RITCCode: '76169990', drawback_schno: '761699B' }

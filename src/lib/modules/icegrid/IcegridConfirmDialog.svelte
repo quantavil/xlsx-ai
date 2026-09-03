@@ -259,9 +259,6 @@
 							value={answers.invoice.ApplicableExpSchemes ?? ''}
 							onchange={(e) => {
 								setInvoice('ApplicableExpSchemes', e.currentTarget.value);
-								if (e.currentTarget.value.startsWith('00')) {
-									setInvoice('RewardItem', 'No');
-								}
 							}}
 							class="icegrid-field"
 						>

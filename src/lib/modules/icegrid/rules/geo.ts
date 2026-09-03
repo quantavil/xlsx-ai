@@ -1,7 +1,6 @@
 import type { IcegridCatalogSnapshot } from '../catalogs/types';
 import type { IcegridRow } from '../schema';
-
-const isBlank = (v: unknown) => v === null || v === undefined || v === '';
+import { isBlank } from '$lib/table/cells';
 
 /** GSTIN's first two digits are the GST/ICEGATE state code: `09AALFG9236H1ZZ` -> `09`. */
 export function stateCodeFromGstin(text: string): string | null {

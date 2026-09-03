@@ -1,5 +1,5 @@
 import type { Column, Row, ColumnType, CellValue, FillValue } from '$lib/types';
-import { normalizeCellValue, resolveDropdownOptions } from './cells';
+import { isBlank, normalizeCellValue, resolveDropdownOptions } from './cells';
 
 
 export interface CellPatch {
@@ -60,14 +60,12 @@ export function dedupeAndNormalizePatches(
 		// a parent column in the same batch provides the intended values for dependent fills.
 		const resolve = (value: FillValue): CellValue =>
 			value && typeof value === 'object' ? (effectiveRow[value.from] ?? null) : value;
-		const blank = (value: CellValue | undefined) => value === null || value === undefined || value === '';
-
 		return [
 			...Object.entries(chosen.fills ?? {}),
 			// Read against the row before the batch, for the same reason a reference is:
 			// two options filling one blank cell in one paste would otherwise depend on
 			// the order they happened to arrive in.
-			...Object.entries(chosen.fillsIfBlank ?? {}).filter(([columnId]) => blank(row[columnId]))
+			...Object.entries(chosen.fillsIfBlank ?? {}).filter(([columnId]) => isBlank(row[columnId]))
 		].map(([columnId, value]) => ({ rowId: row.id, columnId, newValue: resolve(value) }));
 	}
 

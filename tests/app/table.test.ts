@@ -238,6 +238,21 @@ describe('Table Store (Svelte 5 Runes)', () => {
 		expect(store.columns[0].width).toBe(60);
 	});
 
+	it('auto-fits single column and all columns based on header and content', () => {
+		store.updateColumnWidth('c1', 60);
+		store.updateColumnWidth('c2', 60);
+		expect(store.columns[0].width).toBe(60);
+		expect(store.columns[1].width).toBe(60);
+
+		store.autoFitColumn('c1');
+		// 'Enterprise Addon' is 16 chars; header 'Product' is 7 chars. Width should expand beyond 60.
+		expect(store.columns[0].width).toBeGreaterThanOrEqual(140);
+		expect(store.columns[1].width).toBe(60);
+
+		store.autoFitAllColumns();
+		expect(store.columns[1].width).toBeGreaterThanOrEqual(100);
+	});
+
 	it('persists and restores a zero-row table without discarding it', () => {
 		const emptyStore = createTableStore(
 			{

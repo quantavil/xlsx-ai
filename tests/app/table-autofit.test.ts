@@ -74,19 +74,28 @@ describe('DataTable.svelte auto-fit wiring', () => {
 	async function source(): Promise<string> {
 		return await Bun.file('src/lib/table/DataTable.svelte').text();
 	}
+	async function cellsSource(): Promise<string> {
+		return await Bun.file('src/lib/table/cells.ts').text();
+	}
+	async function storeSource(): Promise<string> {
+		return await Bun.file('src/lib/table/store.svelte.ts').text();
+	}
 
 	it('inspects resolvedRows with rows fallback and formats values', async () => {
-		const src = await source();
-		expect(src).toContain('store.resolvedRows');
-		expect(src).toContain('store.rows');
-		expect(src).toContain('formatCellValue(col.type');
-		expect(src).toContain('store.updateColumnWidth(colId, fitWidth)');
+		const dtSrc = await source();
+		const storeSrc = await storeSource();
+		const cellsSrc = await cellsSource();
+		expect(dtSrc).toContain('autoFitColumn(col.id)');
+		expect(storeSrc).toContain('resolvedRows ?? rows');
+		expect(cellsSrc).toContain('formatCellValue(col.type');
+		expect(storeSrc).toContain('autoFitColumn');
+		expect(storeSrc).toContain('autoFitAllColumns');
 	});
 
 	it('uses the header-aware pixel formula with a 100px floor', async () => {
-		const src = await source();
-		expect(src).toContain('Math.max(100, Math.min(450,');
-		expect(src).toContain('col.name.length * 8.5 + 86');
+		const cellsSrc = await cellsSource();
+		expect(cellsSrc).toContain('Math.max(100, Math.min(450,');
+		expect(cellsSrc).toContain('col.name.length * 8.5 + 86');
 	});
 
 	it('supports double-click auto-fit on both header rows', async () => {

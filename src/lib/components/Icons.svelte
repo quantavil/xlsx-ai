@@ -25,6 +25,7 @@
 		'chevron-up': `<path d="m18 15-6-6-6 6"/>`,
 		'chevron-down': `<path d="m6 9 6 6 6-6"/>`,
 		'chevrons-up-down': `<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>`,
+		'chevrons-left-right': `<path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/>`,
 		'file-spreadsheet': `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>`,
 		'file-text': `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>`,
 		edit: `<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>`,

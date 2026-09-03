@@ -1,7 +1,6 @@
 import type { TableData, Row, CellValue } from '$lib/types';
 import {
 	ICEGRID_COLUMNS,
-	CLEARED_HEADERS,
 	buildIcegridTableColumns,
 	type IcegridRuntimeOptions
 } from './columns';

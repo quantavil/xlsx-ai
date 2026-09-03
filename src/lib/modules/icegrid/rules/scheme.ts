@@ -50,34 +50,24 @@ export function isFreeShippingBill(scheme: unknown): boolean {
 	return code === '00';
 }
 
-const isBlank = (v: unknown) => v === null || v === undefined || v === '';
+import { isBlank } from '$lib/table/cells';
 
 /**
  * Applies customs scheme eligibility and incentive gating.
  *
- * 1. Scheme 00 (Free Shipping Bill):
- *    - Col I (RewardItem) = 'No'
- *    - Col AJ (RODTEP) = 'No' if found in schedule, else 'N/A'
+ * 1. Non-drawback schemes (including Scheme 00 - Free Shipping Bill):
  *    - Col U (drawback_schno), Col V (dbk_qty), Col W (dbk_rate), Col X (dbk_unit) are left empty.
- * 2. Non-drawback schemes:
- *    - Leave Col U, V, W, X empty.
- *    - Col AJ (RODTEP) = 'Yes' if found in schedule, else 'N/A'.
- * 3. Drawback schemes:
- *    - Retain drawback details.
- *    - Col AJ (RODTEP) = 'Yes' if found in schedule, else 'N/A'.
+ *    - Col I (RewardItem) and Col AJ (RODTEP) can be selected by user or detected from documents.
+ *    - If Col AJ (RODTEP) is unassigned/blank, fills 'Yes' if found in schedule, else 'N/A'.
+ * 2. Drawback schemes:
+ *    - Retains drawback details.
+ *    - If Col AJ (RODTEP) is unassigned/blank, fills 'Yes' if found in schedule, else 'N/A'.
  */
 export function applySchemeRules(
 	row: IcegridRow,
 	hasRodtepSchedule: boolean,
 	isDrawbackEligible: boolean
 ): void {
-	if (isFreeShippingBill(row.ApplicableExpSchemes)) {
-		row.RewardItem = 'No';
-		row.RODTEP = hasRodtepSchedule ? 'No' : 'N/A';
-		clearDrawbackFields(row);
-		return;
-	}
-
 	if (!isDrawbackEligible) {
 		clearDrawbackFields(row);
 	}

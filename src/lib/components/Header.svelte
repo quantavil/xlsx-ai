@@ -346,6 +346,16 @@
 			<Icon name="cursor-mode" size={13} aria-hidden="true" />
 		</button>
 
+		<!-- Auto-fit all columns: adjusts widths of all columns to fit header and cell contents -->
+		<button
+			class="autofit-all-btn flex items-center justify-center w-7 h-7 rounded-md border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] active:scale-95 transition-all cursor-pointer max-sm:hidden"
+			aria-label="Auto-fit all column widths"
+			title="Auto-fit all column widths to content"
+			onclick={() => store.autoFitAllColumns()}
+		>
+			<Icon name="chevrons-left-right" size={13} aria-hidden="true" />
+		</button>
+
 		<div class="history-group flex items-center gap-0.5">
 			<button
 				class="icon-btn flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors"

@@ -1,6 +1,5 @@
 import type { IcegridRow } from '../schema';
-
-const isBlank = (v: unknown) => v === null || v === undefined || v === '';
+import { isBlank } from '$lib/table/cells';
 
 /**
  * Derives SQCQTY (Col O).
@@ -34,28 +33,35 @@ export function deriveSqcQty(
 	return quantity ?? null;
 }
 
+function matchesUnit(a: string | null | undefined, b: string | null | undefined): boolean {
+	if (isBlank(a) || isBlank(b)) return false;
+	return a!.trim().toUpperCase() === b!.trim().toUpperCase();
+}
+
 /**
  * Derives dbk_qty (Col V).
  *
- * Rule 4: IF Col X (dbk_unit) matches Col P (SQCUnit), use formula `=O${excelRowIndex}`.
+ * IF Col X (dbk_unit) matches Col P (SQCUnit), use formula `=O${excelRowIndex}`.
+ * ELSE IF Col X (dbk_unit) matches Col N (QuantityUnit), use formula `=M${excelRowIndex}`.
  * Otherwise, keep default (Quantity).
  * Gated: If drawback is not eligible for this row, dbk_qty is null.
  */
 export function deriveDbkQty(
 	dbkUnit: string | null | undefined,
 	sqcUnit: string | null | undefined,
+	quantityUnit: string | null | undefined,
 	quantity: number | null | undefined,
 	excelRowIndex: number,
 	isDrawbackEligible: boolean
 ): number | string | null {
 	if (!isDrawbackEligible) return null;
 
-	if (
-		!isBlank(dbkUnit) &&
-		!isBlank(sqcUnit) &&
-		dbkUnit!.trim().toUpperCase() === sqcUnit!.trim().toUpperCase()
-	) {
+	if (matchesUnit(dbkUnit, sqcUnit)) {
 		return `=O${excelRowIndex}`;
+	}
+
+	if (matchesUnit(dbkUnit, quantityUnit)) {
+		return `=M${excelRowIndex}`;
 	}
 
 	return quantity ?? null;
@@ -92,10 +98,22 @@ export function applyQuantityRules(
 		}
 	}
 
-	// Rule 4: dbk_qty formula or default
+	// Rule 4: dbk_unit and dbk_qty formulas or defaults
 	if (isDrawbackEligible) {
+		// If DBK Details Unit is empty, Col X (dbk_unit) should be same as Col N (QuantityUnit)
+		if (isBlank(row.dbk_unit) && !isBlank(row.QuantityUnit)) {
+			row.dbk_unit = row.QuantityUnit;
+		}
+
 		if (isBlank(row.dbk_qty)) {
-			const dbk = deriveDbkQty(row.dbk_unit, row.SQCUnit, row.Quantity, excelRowIndex, true);
+			const dbk = deriveDbkQty(
+				row.dbk_unit,
+				row.SQCUnit,
+				row.QuantityUnit,
+				row.Quantity,
+				excelRowIndex,
+				true
+			);
 			if (!isBlank(dbk)) {
 				row.dbk_qty = dbk;
 			}

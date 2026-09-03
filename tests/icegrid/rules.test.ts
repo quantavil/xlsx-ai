@@ -2,9 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import {
 	isDrawbackScheme,
 	isFreeShippingBill,
-	parseSchemeCode,
 	applySchemeRules,
-	clearDrawbackFields,
 	DRAWBACK_SCHEME_CODES
 } from '../../src/lib/modules/icegrid/rules/scheme';
 import {
@@ -14,15 +12,10 @@ import {
 	applyQuantityRules
 } from '../../src/lib/modules/icegrid/rules/quantity';
 import {
-	stateCodeFromGstin,
 	scanSellerOrigin,
-	scanCountryDestination,
-	resolveCountryCode
+	scanCountryDestination
 } from '../../src/lib/modules/icegrid/rules/geo';
-import {
-	applyTaxRules,
-	findExchangeRate
-} from '../../src/lib/modules/icegrid/rules/tax';
+import { applyTaxRules } from '../../src/lib/modules/icegrid/rules/tax';
 import { applyMechanicalRules } from '../../src/lib/modules/icegrid/rules/mechanical';
 import { getCatalogSnapshot } from '../../src/lib/modules/icegrid/catalogs';
 import type { IcegridRow } from '../../src/lib/modules/icegrid/schema';
@@ -95,12 +88,12 @@ describe('ICEGrid Rules - Scheme and Incentive Eligibility', () => {
 		expect(isFreeShippingBill('19')).toBe(false);
 	});
 
-	it('applies Scheme 00 rules: RewardItem=No, RoDTEP=No if in schedule, and blanks Drawback', () => {
-		const row = makeRow({ ApplicableExpSchemes: '00-Free Shipping bill ' });
+	it('applies Scheme 00 rules as non-drawback: blanks Drawback and preserves selected RewardItem/RoDTEP', () => {
+		const row = makeRow({ ApplicableExpSchemes: '00-Free Shipping bill ', RewardItem: 'Yes' });
 		applySchemeRules(row, true, false);
 
-		expect(row.RewardItem).toBe('No');
-		expect(row.RODTEP).toBe('No');
+		expect(row.RewardItem).toBe('Yes');
+		expect(row.RODTEP).toBe('Yes');
 		expect(row.drawback_schno).toBeNull();
 		expect(row.dbk_qty).toBeNull();
 		expect(row.dbk_rate).toBeNull();
@@ -108,10 +101,10 @@ describe('ICEGrid Rules - Scheme and Incentive Eligibility', () => {
 	});
 
 	it('applies Scheme 00 rules: RoDTEP=N/A if not found in schedule', () => {
-		const row = makeRow({ ApplicableExpSchemes: '00' });
+		const row = makeRow({ ApplicableExpSchemes: '00', RewardItem: 'Yes' });
 		applySchemeRules(row, false, false);
 
-		expect(row.RewardItem).toBe('No');
+		expect(row.RewardItem).toBe('Yes');
 		expect(row.RODTEP).toBe('N/A');
 		expect(row.drawback_schno).toBeNull();
 	});
@@ -142,14 +135,16 @@ describe('ICEGrid Rules - Quantity and Formulas', () => {
 		expect(deriveSqcQty(null, 'PCS', 50, null, 6)).toBeNull();
 	});
 
-	it('Rule 4: dbk_qty uses =O{row} when dbk_unit matches SQCUnit (for drawback schemes)', () => {
-		// Matching units on drawback scheme -> =O2
-		expect(deriveDbkQty('NOS', 'NOS', 50, 2, true)).toBe('=O2');
-		expect(deriveDbkQty('KGS', 'KGS', 50, 3, true)).toBe('=O3');
-		// Mismatched units on drawback scheme -> Quantity
-		expect(deriveDbkQty('PCS', 'NOS', 50, 4, true)).toBe(50);
+	it('Rule 4: dbk_qty uses =O{row} when dbk_unit matches SQCUnit, or =M{row} when dbk_unit matches QuantityUnit', () => {
+		// Matching SQCUnit on drawback scheme -> =O2
+		expect(deriveDbkQty('NOS', 'NOS', 'PCS', 50, 2, true)).toBe('=O2');
+		expect(deriveDbkQty('KGS', 'KGS', 'PCS', 50, 3, true)).toBe('=O3');
+		// Matching QuantityUnit (when SQCUnit does not match) -> =M4
+		expect(deriveDbkQty('PCS', 'NOS', 'PCS', 50, 4, true)).toBe('=M4');
+		// Mismatched both units on drawback scheme -> Quantity
+		expect(deriveDbkQty('MTR', 'NOS', 'PCS', 50, 4, true)).toBe(50);
 		// Non-drawback scheme -> null
-		expect(deriveDbkQty('NOS', 'NOS', 50, 5, false)).toBeNull();
+		expect(deriveDbkQty('NOS', 'NOS', 'NOS', 50, 5, false)).toBeNull();
 	});
 
 	it('RoDTEPQty uses =O{row} when RoDTEP is Yes', () => {
@@ -158,7 +153,26 @@ describe('ICEGrid Rules - Quantity and Formulas', () => {
 		expect(deriveRodtepQty('N/A', 2)).toBeNull();
 	});
 
-	it('applyQuantityRules applies all formulas and fallbacks to row', () => {
+	it('applyQuantityRules copies QuantityUnit into empty dbk_unit and applies formulas', () => {
+		const row = makeRow({
+			SQCUnit: 'KGS',
+			QuantityUnit: 'PCS',
+			Quantity: 100,
+			dbk_unit: null,
+			RODTEP: 'Yes'
+		});
+
+		applyQuantityRules(row, 2, true);
+
+		// dbk_unit fell back to QuantityUnit
+		expect(row.dbk_unit).toBe('PCS');
+		// dbk_unit (PCS) matches QuantityUnit (PCS) -> =M2
+		expect(row.dbk_qty).toBe('=M2');
+		// RoDTEPQty tracks SQCQTY (=O2)
+		expect(row.RoDTEPQty).toBe('=O2');
+	});
+
+	it('applyQuantityRules applies =O{row} when dbk_unit matches SQCUnit', () => {
 		const row = makeRow({
 			SQCUnit: 'NOS',
 			QuantityUnit: 'PCS',

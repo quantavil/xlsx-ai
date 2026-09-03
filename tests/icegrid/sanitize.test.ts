@@ -14,7 +14,7 @@ import type {
 	IcegridEvidenceSpan,
 	IcegridReport
 } from '../../src/lib/modules/icegrid/schema';
-import { ICEGRID_HEADERS, ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
 
 const INVOICE_TEXT = `=== PAGE: 1 ===
 Invoice No: INV-A

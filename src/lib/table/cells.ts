@@ -1,7 +1,13 @@
 import type { CellAlign, CellValue, Column, ColumnType, DropdownOption, Row } from '$lib/types';
+import { formatCellValue } from '$lib/constants';
 
 
 const NUMERIC_TYPES = new Set<ColumnType>(['number', 'currency', 'percent']);
+
+/** True when a cell or field value is null, undefined, or empty string. */
+export function isBlank(value: unknown): boolean {
+	return value === null || value === undefined || value === '';
+}
 
 /** The three types the grid right-aligns, sums, and exports as Excel numbers. */
 export function isNumericType(type: ColumnType | string | undefined): boolean {
@@ -181,4 +187,22 @@ function normalizeParentKey(value: string | undefined): string {
 /** Display text for one option: `08 — RAJASTHAN`, or just the value when unlabeled. */
 export function dropdownOptionLabel(opt: DropdownOption): string {
 	return opt.label ? `${opt.value} — ${opt.label}` : opt.value;
+}
+
+/**
+ * Calculates optimal pixel column width based on header length and cell contents.
+ * Bound between 100px and 450px.
+ */
+export function computeAutoFitWidth(
+	col: Pick<Column, 'id' | 'name' | 'type'>,
+	rows: readonly Row[]
+): number {
+	const headerMin = Math.round(col.name.length * 8.5 + 86);
+	let maxContentLen = 0;
+	for (const row of rows) {
+		const str = formatCellValue(col.type, row[col.id]);
+		if (str.length > maxContentLen) maxContentLen = str.length;
+	}
+	const contentMin = Math.round(maxContentLen * 8.5 + 32);
+	return Math.max(100, Math.min(450, Math.max(headerMin, contentMin)));
 }

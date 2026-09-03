@@ -141,7 +141,7 @@ export function buildDrawbackOptions(lookups: DutyLookupMap): DropdownOption[] {
 					// the drawback is claimed in the unit the goods were invoiced in - the same
 					// rule `deriveRows` applies at import, so a serial picked in the grid and
 					// one picked by the importer leave the row in the same state.
-					dbk_unit: candidate.unit ?? { from: 'QuantityUnit' }
+					dbk_unit: candidate.unit && candidate.unit.trim() ? candidate.unit.trim() : { from: 'QuantityUnit' }
 				}
 			});
 		}

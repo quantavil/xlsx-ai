@@ -1,4 +1,5 @@
 import { ICEGRID_COLUMNS } from './columns';
+import { isBlank } from '$lib/table/cells';
 import { resolveCatalogValue } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
 import { lookupDrawback, lookupRodtep, uqcToUnit } from './catalogs/generated/schedules';
@@ -18,7 +19,6 @@ import {
 	applyGeographyRules,
 	scanDocumentGeography,
 	isDrawbackScheme,
-	isFreeShippingBill,
 	stateCodeFromGstin,
 	findExchangeRate
 } from './rules';
@@ -47,7 +47,7 @@ const NUMERIC = new Set(
 	ICEGRID_COLUMNS.filter((c) => c.type === 'number' || c.type === 'currency').map((c) => c.header)
 );
 
-const blank = (v: unknown) => v === null || v === undefined || v === '';
+const blank = isBlank;
 
 export interface DeriveOptions {
 	profile?: IcegridProfile;
@@ -158,7 +158,9 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 						set('dbk_desc', chosen.description, 'lookup');
 						set('ROSLRate', chosen.roslRate, 'lookup');
 						set('ROSLCapValue', chosen.roslCap, 'lookup');
-						if (chosen.unit) set('dbk_unit', chosen.unit, 'lookup');
+						if (chosen.unit && chosen.unit.trim()) {
+							set('dbk_unit', chosen.unit.trim(), 'lookup');
+						}
 					} else if (!blank(row.drawback_schno)) {
 						warnings.push(
 							`${label}: drawback serial "${row.drawback_schno}" is not one the duty lookup lists for RITC ${ritc}, so its rate, description and unit were left blank.`

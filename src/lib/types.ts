@@ -107,6 +107,7 @@ export type IconName =
 	| 'chevron-up'
 	| 'chevron-down'
 	| 'chevrons-up-down'
+	| 'chevrons-left-right'
 	| 'arrow-left'
 	| 'file-spreadsheet'
 	| 'file-text'

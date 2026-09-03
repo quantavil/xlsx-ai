@@ -25,13 +25,13 @@ export type ConditionFilter = {
 	value2?: string;
 };
 
+export type ConditionOp = ConditionFilter['op'];
 export type ColumnFilter = ValueFilter | ConditionFilter;
 export type ColumnFilters = Record<string, ColumnFilter>;
 
-/** Whether a cell is considered empty for isEmpty / isNotEmpty / null handling */
-export function isCellEmpty(val: CellValue): boolean {
-	return val === null || val === undefined || val === '';
-}
+import { isBlank } from './cells';
+
+const isCellEmpty = isBlank;
 
 /** Stringified value used for value-list filtering and display */
 export function stringifyCellValue(val: CellValue): string {

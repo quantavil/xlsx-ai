@@ -36,8 +36,8 @@ function rodtep(): Map<string, { uqc: string; rate: number }> {
 	return rodtepMap;
 }
 
-export const normalizeRitc = (raw: string | number | null | undefined): string =>
-	String(raw ?? '').replace(/\D/g, '');
+import { normalizeRitcCode } from '../../duty-lookup';
+export const normalizeRitc = normalizeRitcCode;
 
 export interface DrawbackEntry {
 	/** Schedule serial with the `B` suffix, e.g. `940399B`. */

@@ -30,7 +30,7 @@
 	"dependencies": {
 		"@ai-sdk/google": "^4.0.63",
 		"@openrouter/ai-sdk-provider": "^3.0.0",
-		"ai": "^7.0.91",
+		"ai": "^7.0.92",
 		"pdfjs-dist": "^6.3.289",
 		"write-excel-file": "^4.1.1",
 		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",

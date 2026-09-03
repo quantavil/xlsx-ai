@@ -4,6 +4,7 @@ import { buildDrawbackOptions, normalizeRitcCode, type DutyLookupMap } from './d
 import type { ExchangeRate } from './exchange-rate';
 import type { TariffCandidate, TariffClassification } from './tariff';
 import type { IcegridRow } from './schema';
+import { isBlank } from '$lib/table/cells';
 
 /**
  * The values a human confirms before an import is written.
@@ -105,7 +106,7 @@ const RITC_FIELDS = [
 
 const INVOICE_FIELDS = ['RewardItem', 'StateOrigin', 'DistrictOrigin', 'EndUse', 'ApplicableExpSchemes'] as const;
 
-const blank = (v: unknown) => v === null || v === undefined || v === '';
+const blank = isBlank;
 
 /**
  * Only an eight-digit code can be filed, so only an eight-digit code counts as

@@ -8,7 +8,7 @@ import {
 import { SCHEDULES_PROVENANCE } from '../../src/lib/modules/icegrid/catalogs/generated/provenance';
 import { getCatalogSnapshot } from '../../src/lib/modules/icegrid/catalogs';
 import { parseProfile, EMPTY_PROFILE } from '../../src/lib/modules/icegrid/profile';
-import { ICEGRID_HEADERS, ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
 import type { IcegridRow } from '../../src/lib/modules/icegrid/schema';
 
 const catalogs = getCatalogSnapshot();
@@ -116,7 +116,7 @@ describe('deriveRows', () => {
 		const { rows, provenance } = deriveRows([row(base)], { catalogs });
 		expect(rows[0].PerUnit).toBe('PCS');
 		expect(rows[0].dbk_unit).toBe('PCS');
-		expect(rows[0].dbk_qty).toBe(48);
+		expect(rows[0].dbk_qty).toBe('=M2');
 		expect(provenance.r1.PerUnit).toBe('derived');
 	});
 

@@ -191,7 +191,7 @@ describe('applyIcegridAnswers', () => {
 		}
 	});
 
-	it('forces Free Shipping Bill rules when scheme 00 is confirmed', () => {
+	it('treats Free Shipping Bill as non-drawback when scheme 00 is confirmed', () => {
 		const freeAnswers = {
 			...answers,
 			invoice: { ...answers.invoice, ApplicableExpSchemes: '00-Free Shipping bill ' }
@@ -202,7 +202,8 @@ describe('applyIcegridAnswers', () => {
 			exchangeRate: answers.exchangeRate
 		});
 		expect(rows[0].ApplicableExpSchemes).toBe('00-Free Shipping bill ');
-		expect(rows[0].RewardItem).toBe('No');
+		expect(rows[0].RewardItem).toBe('Yes');
+		expect(rows[0].RODTEP).toBe('Yes');
 		expect(rows[0].drawback_schno).toBeNull();
 		expect(rows[0].dbk_qty).toBeNull();
 	});

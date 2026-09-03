@@ -7,7 +7,8 @@ import type { IcegridRow } from '../schema';
  * model plenty of numbers that look like one and none that belong on a row. Blank is
  * the only honest answer, and cheaper than an extraction that has to be checked.
  */
-export const CLEARED_HEADERS = ['Accessories', 'Total_Package'] as const;
+import { CLEARED_HEADERS } from '../columns';
+export { CLEARED_HEADERS };
 
 /**
  * The only values this module writes without source evidence.
