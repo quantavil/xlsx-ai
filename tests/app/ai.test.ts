@@ -79,6 +79,26 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect(result.success).toBe(true);
 	});
 
+	it('validates request schema with sourceText in tableContext', () => {
+		const payloadWithSourceText = {
+			tableContext: {
+				title: 'Invoice Data',
+				columns: [{ id: 'c1', name: 'Item', type: 'text' }],
+				rows: [{ id: 'r1', c1: 'Widget' }],
+				sourceText: '=== FILE: invoice.pdf ===\nBuyer: Acme Corp\nContainer: CONT-999'
+			},
+			messages: [{ role: 'user', content: 'What is the container number?' }]
+		};
+
+		const result = _RequestSchema.safeParse(payloadWithSourceText);
+		expect(result.success).toBe(true);
+		if (result.success && 'tableContext' in result.data) {
+			expect(result.data.tableContext.sourceText).toBe(
+				'=== FILE: invoice.pdf ===\nBuyer: Acme Corp\nContainer: CONT-999'
+			);
+		}
+	});
+
 	it('validates a registered module AI request envelope', () => {
 		const validIcegridPayload = {
 			operation: {

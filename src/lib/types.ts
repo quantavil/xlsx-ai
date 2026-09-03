@@ -65,6 +65,8 @@ export interface TableData {
 	columns: Column[];
 	rows: Row[];
 	cellAlign?: CellAlignMap;
+	/** Raw text extracted from source documents (PDFs, packing lists), if imported via a module. */
+	sourceText?: string;
 }
 
 export type SortDirection = 'asc' | 'desc';

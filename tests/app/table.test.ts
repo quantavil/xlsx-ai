@@ -506,4 +506,33 @@ describe('AI provider profiles', () => {
 
 		expect(reloaded.aiModel).toBe('gemini-3.1-pro-preview');
 	});
+
+	it('initializes, persists, and hydrates sourceText on the table store', () => {
+		const storeWithSource = createTableStore(
+			{
+				title: 'Invoice Grid',
+				columns: [{ id: 'c1', name: 'Item', type: 'text' }],
+				rows: [{ id: 'r1', c1: 'Book' }],
+				sourceText: '=== FILE: invoice.pdf ===\nShipper: Example Corp\nContainer: CONT-123'
+			},
+			{ storageKey: 'test:source-text' }
+		);
+
+		expect(storeWithSource.sourceText).toBe(
+			'=== FILE: invoice.pdf ===\nShipper: Example Corp\nContainer: CONT-123'
+		);
+
+		storeWithSource.setCell('r1', 'c1', 'Updated Book');
+		storeWithSource.flushSave();
+
+		const restoredStore = createTableStore(
+			{ title: 'T', columns: [], rows: [] },
+			{ storageKey: 'test:source-text' }
+		);
+		restoredStore.hydrate();
+
+		expect(restoredStore.sourceText).toBe(
+			'=== FILE: invoice.pdf ===\nShipper: Example Corp\nContainer: CONT-123'
+		);
+	});
 });

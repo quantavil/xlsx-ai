@@ -99,13 +99,16 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		? sanitizeAndNormalizeTableData(
 			initialData.title || DEFAULT_TABLE_TITLE,
 			initialData.columns || [],
-			initialData.rows || []
+			initialData.rows || [],
+			initialData.cellAlign,
+			initialData.sourceText
 		)
 		: { title: DEFAULT_TABLE_TITLE, columns: [], rows: [] };
 
 	let title = $state<string>(sanitizedInitial.title);
 	let columns = $state<Column[]>(cloneColumns(sanitizedInitial.columns));
 	let rows = $state<Row[]>(cloneRows(sanitizedInitial.rows));
+	let sourceText = $state<string | undefined>(sanitizedInitial.sourceText);
 	let searchQuery = $state<string>('');
 	let sortConfig = $state<SortConfig | null>(null);
 	let columnFilters = $state<ColumnFilters>({});
@@ -144,7 +147,8 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			title,
 			columns: cloneColumns(columns),
 			rows: cloneRows(rows),
-			cellAlign: cloneCellAlign(cellAlign)
+			cellAlign: cloneCellAlign(cellAlign),
+			...(sourceText ? { sourceText } : {})
 		});
 	}
 
@@ -692,12 +696,14 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			data.title || DEFAULT_TABLE_TITLE,
 			data.columns || [],
 			data.rows || [],
-			data.cellAlign
+			data.cellAlign,
+			data.sourceText
 		);
 		title = sanitized.title;
 		columns = cloneColumns(sanitized.columns);
 		rows = cloneRows(sanitized.rows);
 		cellAlign = cloneCellAlign(sanitized.cellAlign ?? {});
+		sourceText = sanitized.sourceText;
 		searchQuery = '';
 		sortConfig = null;
 		columnFilters = {};
@@ -799,6 +805,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 					columns = cloneColumns(result.document.columns);
 					rows = cloneRows(result.document.rows);
 					cellAlign = cloneCellAlign(result.document.cellAlign ?? {});
+					sourceText = result.document.sourceText;
 				}
 			}
 
@@ -976,6 +983,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		},
 		get cellAlign() {
 			return cellAlign;
+		},
+		get sourceText() {
+			return sourceText;
 		},
 		get cursorMode() {
 			return cursorMode;

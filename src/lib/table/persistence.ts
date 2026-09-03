@@ -49,7 +49,8 @@ export function createLocalStorageAdapter(
 			})),
 			rows: data.rows,
 			cellAlign: data.cellAlign,
-			updatedAt: new Date().toISOString()
+			updatedAt: new Date().toISOString(),
+			...(data.sourceText ? { sourceText: data.sourceText } : {})
 		};
 
 		pendingDoc = doc;

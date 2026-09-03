@@ -222,7 +222,8 @@
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
-						rows: truncatedRows
+						rows: truncatedRows,
+						...(store.sourceText ? { sourceText: store.sourceText } : {})
 					},
 					operation: {
 						kind
@@ -337,7 +338,8 @@
 					tableContext: {
 						title: store.title,
 						columns: store.columns,
-						rows: truncatedRows
+						rows: truncatedRows,
+						...(store.sourceText ? { sourceText: store.sourceText } : {})
 					},
 					messages: recentMessages
 			});

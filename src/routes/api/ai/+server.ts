@@ -61,7 +61,8 @@ export const _TableOperationRequestSchema = z.object({
 				width: z.number().optional()
 			})
 		).max(200),
-		rows: z.array(z.record(z.string(), _CellSchema)).max(2_000)
+		rows: z.array(z.record(z.string(), _CellSchema)).max(2_000),
+		sourceText: z.string().max(1_000_000).optional()
 	}),
 	operation: z
 		.object({
@@ -244,8 +245,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { tableContext, operation, messages = [] } = parsed.data;
 		const columnSchemas = tableContext.columns.map((c) => `${c.name} (id: "${c.id}", type: ${c.type})`).join(', ');
 
+		const sourceDocBlock = tableContext.sourceText
+			? `\n\nSOURCE DOCUMENT TEXT (raw text extracted from the imported source files, including headers, buyer/seller details, container/shipping notes, delivery terms, and order identifiers):\n${tableContext.sourceText}`
+			: '';
+
 		const systemPrompt = `You are xlsx-ai, an elite agency data engineering and analysis assistant.
-You are operating directly on a live tabular dataset.
+You are operating directly on a live tabular dataset.${sourceDocBlock}
 
 TABLE METADATA:
 Title: "${tableContext.title || 'Data Table'}"
@@ -259,6 +264,7 @@ INSTRUCTIONS:
 - Give concise, highly specific, data-grounded answers.
 - When performing calculations, verify math strictly.
 - When suggesting edits or explanations, reference specific row IDs and column IDs.
+- If the user asks about the source document, container numbers, buyer/seller details, shipping terms, PO numbers, or unfiled notes, consult the SOURCE DOCUMENT TEXT above.
 - Every row above is in scope. An instruction that names no subset applies to all ${tableContext.rows.length} rows.
 - For open questions, provide structured markdown with bullet points and bold highlights.`;
 

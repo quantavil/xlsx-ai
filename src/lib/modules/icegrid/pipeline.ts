@@ -150,9 +150,14 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 	}
 
 	context.onProgress('Preparing table...');
-	const table = mapReportToTableData(filledReport, catalogs, {
-		drawback: buildDrawbackOptions(lookups)
-	});
+	const table = mapReportToTableData(
+		filledReport,
+		catalogs,
+		{
+			drawback: buildDrawbackOptions(lookups)
+		},
+		extraction.content
+	);
 
 	const summary =
 		`Filled ${derived.filled.extracted} cell(s) from the documents and your confirmation, ` +

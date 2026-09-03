@@ -144,7 +144,8 @@ export const PersistedTableDocumentV2Schema = z.object({
 	columns: z.array(PersistedColumnSchema),
 	rows: z.array(z.record(z.string(), CellValueSchema)),
 	cellAlign: z.record(z.string(), CellAlignSchema).optional(),
-	updatedAt: z.string().optional()
+	updatedAt: z.string().optional(),
+	sourceText: z.string().max(1_000_000).optional()
 });
 
 export type PersistedTableDocumentV2 = z.infer<typeof PersistedTableDocumentV2Schema>;
@@ -158,7 +159,8 @@ export function sanitizeAndNormalizeTableData(
 	title: string,
 	columns: Column[],
 	rows: Row[],
-	cellAlign?: CellAlignMap
+	cellAlign?: CellAlignMap,
+	sourceText?: string
 ): TableData {
 	// Deduplicate column IDs
 	const seenColIds = new Set<string>();
@@ -214,11 +216,14 @@ export function sanitizeAndNormalizeTableData(
 		}
 	}
 
+	const cleanSourceText = typeof sourceText === 'string' && sourceText.trim() ? sourceText : undefined;
+
 	return {
 		title: title.trim() || 'Untitled Table',
 		columns: cleanColumns,
 		rows: cleanRows,
-		cellAlign: cleanAlign
+		cellAlign: cleanAlign,
+		...(cleanSourceText ? { sourceText: cleanSourceText } : {})
 	};
 }
 
@@ -248,7 +253,8 @@ export function parseAndMigrateTableDocument(raw: unknown): HydrationResult {
 				parsed.data.title,
 				parsed.data.columns as Column[],
 				parsed.data.rows as Row[],
-				parsed.data.cellAlign
+				parsed.data.cellAlign,
+				parsed.data.sourceText
 			);
 			return { status: 'restored', document: sanitized };
 		}
@@ -259,13 +265,15 @@ export function parseAndMigrateTableDocument(raw: unknown): HydrationResult {
 		const rawCols = doc.columns as Column[];
 		const rawRows = Array.isArray(doc.rows) ? (doc.rows as Row[]) : [];
 		const title = typeof doc.title === 'string' ? doc.title : 'Untitled Table';
+		const sourceText = typeof doc.sourceText === 'string' ? doc.sourceText : undefined;
 
 		if (rawCols.length > 0) {
 			const sanitized = sanitizeAndNormalizeTableData(
 				title,
 				rawCols,
 				rawRows,
-				doc.cellAlign as CellAlignMap | undefined
+				doc.cellAlign as CellAlignMap | undefined,
+				sourceText
 			);
 			return { status: 'restored', document: sanitized };
 		}

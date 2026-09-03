@@ -54,7 +54,8 @@ export function applyMechanicalRules(rows: readonly IcegridRow[]): IcegridRow[] 
 export function mapReportToTableData(
 	report: IcegridReport,
 	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot(),
-	runtimeOptions: IcegridRuntimeOptions = {}
+	runtimeOptions: IcegridRuntimeOptions = {},
+	sourceText?: string
 ): TableData {
 	const columns = buildIcegridTableColumns(catalogs, runtimeOptions);
 	const rows = applyMechanicalRules(report.rows);
@@ -84,5 +85,5 @@ export function mapReportToTableData(
 		return rowObj;
 	});
 
-	return { title, columns, rows: tableRows };
+	return { title, columns, rows: tableRows, ...(sourceText ? { sourceText } : {}) };
 }
