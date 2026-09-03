@@ -122,3 +122,44 @@ describe('deleteRows', () => {
 		expect(store.selectionKeys.size).toBe(0);
 	});
 });
+
+describe('multi-cell selection preservation', () => {
+	let store: ReturnType<typeof createTableStore>;
+
+	beforeEach(() => {
+		store = createTableStore(structuredClone(baseData), { persist: false });
+	});
+
+	it('maintains range selection keys across multi-cell rectangle', () => {
+		store.setSelection({ rowId: 'r1', columnId: 'c1', rowIndex: 0, colIndex: 0 });
+		store.setSelection({ rowId: 'r2', columnId: 'c2', rowIndex: 1, colIndex: 1 }, true);
+
+		expect(store.selectionRect).toEqual({ r0: 0, r1: 1, c0: 0, c1: 1 });
+		expect(store.selectionKeys.size).toBe(4);
+		expect(store.selectionKeys.has('r1::c1')).toBe(true);
+		expect(store.selectionKeys.has('r1::c2')).toBe(true);
+		expect(store.selectionKeys.has('r2::c1')).toBe(true);
+		expect(store.selectionKeys.has('r2::c2')).toBe(true);
+		// An unselected cell is not in the set
+		expect(store.selectionKeys.has('r3::c3')).toBe(false);
+	});
+
+	it('clears all cells across multi-cell range atomically', () => {
+		store.setSelection({ rowId: 'r1', columnId: 'c1', rowIndex: 0, colIndex: 0 });
+		store.setSelection({ rowId: 'r2', columnId: 'c2', rowIndex: 1, colIndex: 1 }, true);
+
+		const patches = Array.from(store.selectionKeys).map((key) => {
+			const [rowId, columnId] = key.split('::');
+			return { rowId, columnId, newValue: null };
+		});
+		store.applyCellPatches(patches);
+
+		expect(store.rows[0].c1).toBeNull();
+		expect(store.rows[0].c2).toBeNull();
+		expect(store.rows[1].c1).toBeNull();
+		expect(store.rows[1].c2).toBeNull();
+		// Untouched cells retain values
+		expect(store.rows[0].c3).toBe('n1');
+		expect(store.rows[2].c1).toBe('a3');
+	});
+});

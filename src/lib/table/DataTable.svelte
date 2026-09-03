@@ -879,6 +879,9 @@
 	// focus fires between mousedown and click, so without this the focus handler would
 	// reset the anchor and a shift-click would collapse the range to a single cell.
 	let pointerExtend = false;
+	let lastMousedownButton = -1;
+	let isDraggingSelection = false;
+	let hasDraggedSelection = false;
 
 	function isInSelection(rowId: string, columnId: string): boolean {
 		return store.selectionKeys.has(`${rowId}::${columnId}`);
@@ -1134,6 +1137,37 @@
 			e.preventDefault();
 			navigator.clipboard?.writeText(selectionAsTsv());
 		} else if (
+			(e.ctrlKey || e.metaKey) &&
+			!e.shiftKey &&
+			!e.altKey &&
+			(e.key === "x" || e.key === "X")
+		) {
+			e.preventDefault();
+			navigator.clipboard?.writeText(selectionAsTsv());
+			store.applyCellPatches(
+				selectedCells().map(({ row, col }) => ({
+					rowId: row.id,
+					columnId: col.id,
+					newValue: null,
+				})),
+			);
+			onNotify("info", "Cut selection");
+		} else if (
+			(e.ctrlKey || e.metaKey) &&
+			e.shiftKey &&
+			!e.altKey
+		) {
+			if (e.key === "l" || e.key === "L") {
+				e.preventDefault();
+				store.alignSelection("left");
+			} else if (e.key === "e" || e.key === "E") {
+				e.preventDefault();
+				store.alignSelection("center");
+			} else if (e.key === "r" || e.key === "R") {
+				e.preventDefault();
+				store.alignSelection("right");
+			}
+		} else if (
 			e.key.length === 1 &&
 			!e.ctrlKey &&
 			!e.metaKey &&
@@ -1320,12 +1354,27 @@
 
 <svelte:window
 	onclick={handleDocumentClick}
-	onmouseup={() => fillFrom && commitFill()}
+	onmouseup={() => {
+		if (fillFrom) commitFill();
+		isDraggingSelection = false;
+	}}
 	onscroll={() => {
 		if (contextMenu) contextMenu = null;
 	}}
 	onblur={() => {
 		if (contextMenu) contextMenu = null;
+		isDraggingSelection = false;
+	}}
+	oncontextmenu={(e) => {
+		const target = e.target as HTMLElement | null;
+		if (
+			contextMenu &&
+			!target?.closest(".context-menu") &&
+			!target?.closest(".td-cell") &&
+			!target?.closest(".td-index")
+		) {
+			contextMenu = null;
+		}
 	}}
 	onkeydown={(e) => {
 		if (e.key === 'Escape' && activeFilterColId) {
@@ -2076,6 +2125,11 @@
 										);
 									}}
 									onmousedown={(e) => {
+											lastMousedownButton = e.button;
+											if (e.button === 0 && !e.shiftKey && !store.cursorMode && !editingCell) {
+												isDraggingSelection = true;
+												hasDraggedSelection = false;
+											}
 											// Measured here, not on click: by then the editor may already have
 											// replaced the text node the pointer was over.
 											initialCaretOffset =
@@ -2108,16 +2162,28 @@
 											}
 											// Held button plus an open editor means the drag is drawing a
 											// range; `buttons` is the only way to know mid-move.
-											if (e.buttons === 1 && pointAnchor)
+											if (e.buttons === 1 && pointAnchor) {
 												pointAtCell(
 													colIndex,
 													row.id,
 													pointAnchor,
 												);
+												return;
+											}
+											if (isDraggingSelection && e.buttons === 1) {
+												hasDraggedSelection = true;
+												store.setSelection(
+													{ rowId: row.id, columnId: col.id, rowIndex, colIndex },
+													true,
+												);
+											}
 										}}
 										onfocus={() => {
 											if (editingCell) return;
-											if (!isActive) {
+											if (lastMousedownButton === 2 && isInSelection(row.id, col.id)) {
+												return;
+											}
+											if (!isActive && (!isInSelection(row.id, col.id) || pointerExtend)) {
 												selectCell(
 													row.id,
 													col.id,
@@ -2129,6 +2195,10 @@
 										}}
 										onclick={(e) => {
 											if (pointAnchor) return;
+											if (hasDraggedSelection) {
+												hasDraggedSelection = false;
+												return;
+											}
 											// Cursor mode: one click puts the caret in the text, like a document.
 											if (
 												store.cursorMode &&
@@ -2637,7 +2707,7 @@
 			}}
 		>
 			<Icon name="trash" size={13} aria-hidden="true" />
-			<span>Delete Row(s)</span>
+			<span>{selectedRowIdsForMenu(contextMenu.rowId).length > 1 ? `Delete ${selectedRowIdsForMenu(contextMenu.rowId).length} Rows` : 'Delete Row'}</span>
 		</button>
 		<button
 			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
@@ -2648,39 +2718,6 @@
 			<span class="flex-1">Clear Contents</span>
 			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">Del</kbd>
 		</button>
-		<div class="h-px bg-[var(--border)] my-1"></div>
-		<div class="flex items-center gap-1 px-2.5 py-1" role="group" aria-label="Cell alignment">
-			<button
-				class="flex-1 flex items-center justify-center p-1.5 rounded-md bg-transparent border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
-				aria-label="Align left"
-				onclick={() => {
-					store.alignSelection("left");
-					contextMenu = null;
-				}}
-			>
-				<Icon name="align-left" size={13} aria-hidden="true" />
-			</button>
-			<button
-				class="flex-1 flex items-center justify-center p-1.5 rounded-md bg-transparent border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
-				aria-label="Align center"
-				onclick={() => {
-					store.alignSelection("center");
-					contextMenu = null;
-				}}
-			>
-				<Icon name="align-center" size={13} aria-hidden="true" />
-			</button>
-			<button
-				class="flex-1 flex items-center justify-center p-1.5 rounded-md bg-transparent border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
-				aria-label="Align right"
-				onclick={() => {
-					store.alignSelection("right");
-					contextMenu = null;
-				}}
-			>
-				<Icon name="align-right" size={13} aria-hidden="true" />
-			</button>
-		</div>
 	</div>
 {/if}
 
