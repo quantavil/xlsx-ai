@@ -55,7 +55,6 @@ const candidateRow = (over: Partial<IcegridCandidateRow>): IcegridCandidateRow =
 const aiReport = (rows: IcegridCandidateRow[]): IcegridAiReport => ({
 	reportVersion: 1,
 	sourceFiles: ['invoice.pdf', 'packing.pdf'],
-	descriptionStyle: null,
 	rows,
 	warnings: []
 });

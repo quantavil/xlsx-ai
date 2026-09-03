@@ -4,14 +4,13 @@ import type { IcegridCatalogSnapshot } from './catalogs/types';
 import { lookupDrawback, lookupRodtep, uqcToUnit } from './catalogs/generated/schedules';
 import { SCHEDULES_PROVENANCE } from './catalogs/generated/provenance';
 import { EMPTY_PROFILE, PROFILE_FIELD_HEADERS, type IcegridProfile } from './profile';
-import type { IcegridDescriptionStyle, IcegridRow } from './schema';
+import type { IcegridRow } from './schema';
 import {
 	normalizeRitcCode,
 	sameSerial,
 	selectDrawbackSerial,
 	type DutyLookupMap
 } from './duty-lookup';
-import { quoteSupportsValue } from './evidence';
 
 /**
  * How a populated cell came to be filled. Extracted values were already gated on a
@@ -43,158 +42,6 @@ export function stateCodeFromGstin(text: string): string | null {
 	return match ? match[1] : null;
 }
 
-export interface MaterialWeight {
-	name: string;
-	/** Kilograms per piece, or null where the line names a material but prints no weight. */
-	kg: number | null;
-}
-
-/**
- * `"Iron 0.800; Marble 1.700 Kgs"` -> those two, in printed order.
- *
- * Deliberately lenient about what separates two materials. The model is asked for
- * semicolons, but what it most often does with a line whose packing list prints
- * `(Alu-9.600/Glass-0.150/Agate-0.050)` is hand that back verbatim - so a parser that
- * only knew semicolons silently dropped every multi-material row, which is most of the
- * rows worth composing. Accepting the separators the documents themselves use costs a
- * character class; the strictness that matters is on the way out, where a name that
- * still carries a number is refused rather than filed.
- */
-export function parseMaterials(raw: string | null | undefined): MaterialWeight[] {
-	if (typeof raw !== 'string') return [];
-	const numbers = /\d+(?:\.\d+)?/g;
-	return raw
-		.replace(/^\s*net\s*w(?:eigh)?t\.?\s*[:-]?\s*/i, '')
-		.split(/[;,\n]/)
-		// A slash separates two materials only where the segment holds more than one
-		// weight; `M/Wood 0.210` is one material whose own name contains a slash.
-		.flatMap((part) => ((part.match(numbers) ?? []).length > 1 ? part.split('/') : [part]))
-		.map((part) => part.trim())
-		.filter(Boolean)
-		.map((part) => {
-			const match = part.match(/^(.*?)[\s:=-]*(\d+(?:\.\d+)?)\s*(?:kgs?\.?)?$/i);
-			const name = (match ? match[1] : part).replace(/[\s:=-]+$/, '').trim();
-			// A name still carrying a number is not a material, it is an entry that failed to
-			// separate - `Alumi 0.570 Stone` out of `Alumi 0.570; Stone 0.300`. Dropping it
-			// loses one material; keeping it files a substance that does not exist.
-			if (name.length < 2 || /\d/.test(name)) return null;
-			return { name, kg: match ? Number(match[2]) : null };
-		})
-		.filter((m): m is MaterialWeight => m !== null);
-}
-
-/**
- * The exporter's goods-class phrase, with this line's materials ranked by weight.
- *
- * Two ordering rules, both load-bearing and both confirmed against every handicraft
- * shipment in the reference corpus: heaviest material first, and a material the line
- * names without printing a weight for goes last. Printed order breaks a tie, which is
- * what `Array.sort`'s stability gives for free. The corpus proves the sort is not
- * cosmetic - one shipment files `(Alu-1.000 / Marble-0.850)` as MARBLE / ALUMINUM the
- * moment the marble outweighs the aluminium on the next line.
- *
- * Returns null when nothing survives to fill a template that needs materials; the
- * caller keeps the extracted item name rather than filing a phrase with a hole in it.
- */
-export function composeDescription(
-	name: string,
-	materials: readonly MaterialWeight[],
-	style: IcegridDescriptionStyle
-): string | null {
-	const drop = new Set((style.nonMaterials ?? []).map((n) => n.trim().toLowerCase()));
-	const spell = new Map(
-		(style.spellings ?? []).map((s) => [s.printed.trim().toLowerCase(), s.filed.trim()])
-	);
-
-	const seen = new Set<string>();
-	const ranked = materials
-		.filter((m) => m.kg !== 0 && !drop.has(m.name.trim().toLowerCase()))
-		.slice()
-		.sort((a, b) => (b.kg ?? -1) - (a.kg ?? -1))
-		.map((m) => spell.get(m.name.trim().toLowerCase()) ?? m.name.trim())
-		.filter((filed) => {
-			const key = filed.toLowerCase();
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
-		});
-
-	// Repeated from deriveRows on purpose: this is an exported function, and its contract
-	// cannot depend on a caller having screened the style first.
-	if (describeStyleProblem(style)) return null;
-	if (ranked.length === 0 && style.template.includes('{MATERIALS}')) return null;
-
-	// Already composed. Nothing re-derives a composed row today, but a second pass would
-	// take the whole phrase as the article name and nest it inside a new one, and that
-	// corruption reads as plausible customs wording.
-	const prefix = style.template.split('{')[0].trim().toUpperCase();
-	const filedName = name.trim().toUpperCase();
-	if (prefix && filedName.startsWith(prefix)) return null;
-
-	// Function replacements, not string ones: `$&` and `$'` in an article name are
-	// substitution patterns to String.replace, and an invoice is free to print a `$`.
-	const composed = style.template
-		.replace('{MATERIALS}', () => ranked.join(style.separator ?? ' / '))
-		.replace('{NAME}', () => name)
-		.toUpperCase();
-
-	// Post-conditions on the value itself, not just on the template that made it. Every
-	// way this has gone wrong so far ended with the article's own name missing from what
-	// would be filed, so that is checked on the finished string - a template that passes
-	// inspection and still eats the name does not get past here.
-	if (!composed.includes(filedName)) return null;
-	if (/\{[^}]*\}/.test(composed)) return null;
-	return composed;
-}
-
-/**
- * Why a model-supplied goods-class style cannot be used, or null if it can.
- *
- * `descriptionStyle` is the one piece of model output that rewrites an already
- * evidence-backed cell, so it gets the gate every other route through this module
- * already has: extracted values need a verbatim quote, catalog values must resolve or
- * be cleared, a tariff code needs a human. Checked once per shipment rather than per
- * row, because a bad template is a shipment-wide fact and reporting it 25 times as a
- * row problem is how the real cause stayed hidden.
- */
-export function describeStyleProblem(
-	style: IcegridDescriptionStyle | null | undefined,
-	sourceText?: string
-): string | null {
-	const template = style?.template?.trim() ?? '';
-	if (!template) return 'it carries no template';
-	if (!template.includes('{NAME}')) {
-		return 'its template has no {NAME} placeholder, so every row of the shipment would be filed under one phrase with the article names discarded';
-	}
-	const unknown = template.replace('{NAME}', '').replace('{MATERIALS}', '').match(/\{[^}]*\}/);
-	if (unknown) return `its template carries an unknown placeholder ${unknown[0]}`;
-	if (template.length > 200) return 'its template is far too long to be a goods-class phrase';
-
-	if (sourceText) {
-		const pieces = template
-			.split(/\{[^}]+\}/)
-			.map((p) => p.trim())
-			.filter((p) => p.length > 1);
-
-		for (const piece of pieces) {
-			if (!quoteSupportsValue(sourceText, piece)) {
-				return `its template literal text "${piece}" is not found in the source documents`;
-			}
-		}
-
-		if (style?.spellings) {
-			for (const s of style.spellings) {
-				const filed = s.filed?.trim();
-				if (filed && !quoteSupportsValue(sourceText, filed)) {
-					return `its material spelling "${filed}" is not found in the source documents`;
-				}
-			}
-		}
-	}
-
-	return null;
-}
-
 export interface DeriveOptions {
 	profile?: IcegridProfile;
 	catalogs: IcegridCatalogSnapshot;
@@ -213,14 +60,6 @@ export interface DeriveOptions {
 	 * the bundled schedule decides, which is what happened before this existed.
 	 */
 	lookups?: DutyLookupMap;
-	/**
-	 * The shipment's goods-class phrase, read off the documents' own banner.
-	 *
-	 * Null - the usual case outside handicrafts - leaves Description exactly as the
-	 * invoice printed it. Composing one from general knowledge would be inventing
-	 * customs wording, which is the one thing this column must never do.
-	 */
-	descriptionStyle?: IcegridDescriptionStyle | null;
 }
 
 /**
@@ -238,8 +77,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		profile = EMPTY_PROFILE,
 		sourceText = '',
 		exchangeRate = null,
-		lookups,
-		descriptionStyle = null
+		lookups
 	} = options;
 
 	const warnings: string[] = [];
@@ -252,18 +90,9 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		lookup: 0
 	};
 
-	const styleProblem = descriptionStyle ? describeStyleProblem(descriptionStyle, sourceText) : null;
-	const usableStyle = styleProblem ? null : descriptionStyle;
-	if (styleProblem) {
-		warnings.push(
-			`Description kept the printed item name on every row: the goods-class phrase read from the documents was rejected because ${styleProblem}.`
-		);
-	}
-
 	const gstinState = sourceText ? stateCodeFromGstin(sourceText) : null;
 	let residualDrawbackRows = 0;
 	let missingNetWeightRows = 0;
-	let unphrasedRows = 0;
 	let sampleAlternatives: string[] = [];
 
 	const out = rows.map((source, index) => {
@@ -376,32 +205,6 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		// no quantity to declare against it.
 		if (row.RODTEP === 'Yes') set('RoDTEPQty', row.SQCQTY, 'derived');
 
-		// The invoice prints the article's own name; a shipping bill files it under the
-		// exporter's goods-class phrase with this line's materials ranked by weight. The
-		// model supplies both halves it is qualified to supply - the weights as printed
-		// and the banner's wording - and the ranking happens here, because the corpus
-		// settles it exactly and a model asked to order five materials is right most of
-		// the time with no way to tell which rows it was not.
-		// ponytail: one template per shipment. Two corpus shipments switch the class word
-		// per line by tariff chapter - GodGift files its 9105 clocks as ARTWARE and its
-		// 9403 tables as FURNITURE - which affects 4 of 277 rows and is a cell edit in the
-		// grid. Key the suffix on RITCCode's first two digits if that stops being true.
-		if (usableStyle && !blank(row.Description)) {
-			const composed = composeDescription(
-				String(row.Description),
-				parseMaterials(row.Materials),
-				usableStyle
-			);
-			if (composed) {
-				row.Description = composed;
-				if (marks.Description === 'extracted') filled.extracted--;
-				marks.Description = 'derived';
-				filled.derived++;
-			} else {
-				unphrasedRows++;
-			}
-		}
-
 		if (gstinState) set('StateOrigin', gstinState, 'derived');
 
 		// ---- 3. Exporter profile --------------------------------------------------
@@ -490,11 +293,6 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 	if (missingNetWeightRows > 0) {
 		warnings.push(
 			`SQCQTY was left blank on ${missingNetWeightRows} row(s): the tariff counts them in KGS and no per-line net weight was found on the documents.`
-		);
-	}
-	if (unphrasedRows > 0) {
-		warnings.push(
-			`Description kept the printed item name on ${unphrasedRows} row(s): the goods-class phrase needs this line's material weights and the packing list prints none against it.`
 		);
 	}
 	if (filled.schedule > 0) {

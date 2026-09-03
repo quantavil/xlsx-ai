@@ -58,7 +58,6 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'sqcQty', header: 'SQCQTY', type: 'number', description: 'Standard Quantity Code quantity' },
 	{ id: 'sqcUnit', header: 'SQCUnit', type: 'dropdown', description: 'Standard Quantity Code unit', catalog: 'unit' },
 	{ id: 'netWeight', header: 'NetWeight', type: 'number', description: 'Net weight of this line item in kilograms; source data for SQCQTY, never filed', internal: true },
-	{ id: 'materials', header: 'Materials', type: 'text', description: 'Per-line material weight breakdown as printed, e.g. "Iron 0.800; Marble 1.700"; source data for Description, never filed', internal: true },
 	{ id: 'unitPrice', header: 'UnitPrice', type: 'number', description: 'Price per unit', required: true },
 	{ id: 'productAmount', header: 'ProductAmount', type: 'number', description: 'Total item amount as stated on the source document' },
 	{ id: 'per', header: 'Per', type: 'number', description: 'Unit price denominator; defaults to 1' },

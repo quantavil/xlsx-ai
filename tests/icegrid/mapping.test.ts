@@ -10,7 +10,6 @@ describe('ICEGrid Validation and Mapping', () => {
 		ItemSNo: 1,
 		InvoiceNo: 'INV-2026-900',
 		Description: 'Woven Cotton Fabric 100% Dyed',
-		Materials: null,
 		EndUse: 'GNX100',
 		HAWBL_No: 'HAWB-554433',
 		Total_Package: 10,
