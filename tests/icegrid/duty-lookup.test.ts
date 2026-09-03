@@ -31,8 +31,8 @@ const FURNITURE: DutyDrawbackCandidate[] = [
 	candidate({ serial: '940301B', description: 'Predominantly of marble', rate: 2.2, cap: 236, unit: 'PCS' })
 ];
 
-const blankRow = (over: Partial<IcegridRow> = {}): IcegridRow =>
-	({ ...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])), ...over }) as unknown as IcegridRow;
+const blankRow = (over: Partial<IcegridRow>): IcegridRow =>
+	({ ...Object.fromEntries(ICEGRID_ALL_HEADERS.map((h) => [h, null])), ApplicableExpSchemes: '19-Drawback (DBK)', ...over }) as unknown as IcegridRow;
 
 const entry = (over: Partial<DutyLookupEntry>): DutyLookupEntry => ({
 	ritc: '94032090',

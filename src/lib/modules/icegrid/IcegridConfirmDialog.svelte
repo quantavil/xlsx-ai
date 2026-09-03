@@ -254,6 +254,25 @@
 				</h3>
 				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
 					<label class="flex flex-col gap-1">
+						<span class="text-[11px] font-semibold text-[var(--text-2)]">Export scheme</span>
+						<select
+							value={answers.invoice.ApplicableExpSchemes ?? ''}
+							onchange={(e) => {
+								setInvoice('ApplicableExpSchemes', e.currentTarget.value);
+								if (e.currentTarget.value.startsWith('00')) {
+									setInvoice('RewardItem', 'No');
+								}
+							}}
+							class="icegrid-field"
+						>
+							<option value="">— not set —</option>
+							{#each catalog('scheme') as opt (opt.value)}
+								<option value={opt.value}>{optionLabel(opt)}</option>
+							{/each}
+						</select>
+					</label>
+
+					<label class="flex flex-col gap-1">
 						<span class="text-[11px] font-semibold text-[var(--text-2)]">End use</span>
 						<!-- svelte-ignore a11y_autofocus -->
 						<select

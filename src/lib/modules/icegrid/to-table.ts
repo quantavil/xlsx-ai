@@ -9,47 +9,9 @@ import { getCatalogSnapshot } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
 import type { IcegridRow, IcegridReport } from './schema';
 
-/**
- * The only values this module writes without source evidence.
- *
- * Everything else that is absent stays blank. In particular this deliberately does
- * NOT derive ProductAmount from Quantity * UnitPrice, PerUnit from QuantityUnit,
- * the SQC or drawback fields from the invoiced quantity, RoDTEPQty from anything,
- * or any country/state/district/scheme/tax value. Those are flagged as warnings by
- * `validateIcegridReport` instead, so a mismatch is visible without a guess being
- * written into a customs declaration.
- */
-export function applyMechanicalRules(rows: readonly IcegridRow[]): IcegridRow[] {
-	const invoiceSerials = new Map<string, number>();
-	const itemCounters = new Map<string, number>();
+import { applyMechanicalRules } from './rules';
+export { applyMechanicalRules };
 
-	return rows.map((row) => {
-		const invoiceNo = typeof row.InvoiceNo === 'string' ? row.InvoiceNo.trim() : '';
-
-		let invoiceSNo: number | null = null;
-		let itemSNo: number | null = null;
-
-		// Without a known invoice number there is no group to number within, so the
-		// serials stay blank rather than inventing a grouping.
-		if (invoiceNo) {
-			if (!invoiceSerials.has(invoiceNo)) invoiceSerials.set(invoiceNo, invoiceSerials.size + 1);
-			invoiceSNo = invoiceSerials.get(invoiceNo)!;
-			itemSNo = (itemCounters.get(invoiceNo) ?? 0) + 1;
-			itemCounters.set(invoiceNo, itemSNo);
-		}
-
-		return {
-			...row,
-			InvoiceNo: invoiceNo || null,
-			InvoiceSNo: invoiceSNo,
-			ItemSNo: itemSNo,
-			// Fixed ProductFormat rule, confirmed on every row of the trusted corpus.
-			Per: row.Per === null || row.Per === undefined ? 1 : row.Per,
-			// Never populated on import; see CLEARED_HEADERS for why.
-			...(Object.fromEntries(CLEARED_HEADERS.map((h) => [h, null])) as Record<string, null>)
-		};
-	});
-}
 
 /**
  * Generates a clean, business-meaningful title for an imported customs document.
@@ -119,6 +81,9 @@ export function mapReportToTableData(
 
 			if (val === undefined || val === null || val === '') {
 				rowObj[col.header] = null;
+			} else if (typeof val === 'string' && val.startsWith('=')) {
+				// Formulas like =M2 or =O2 must be preserved verbatim in table rows
+				rowObj[col.header] = val;
 			} else if (col.type === 'number' || col.type === 'currency') {
 				// Plain numeric parsing only. No percent scaling: IGST_Rate 18 stays 18.
 				const num =

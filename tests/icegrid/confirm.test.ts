@@ -164,7 +164,7 @@ describe('applyIcegridAnswers', () => {
 	];
 
 	const answers = {
-		invoice: { RewardItem: 'Yes', StateOrigin: '08', DistrictOrigin: null, EndUse: 'GNX100' },
+		invoice: { RewardItem: 'Yes', StateOrigin: '08', DistrictOrigin: null, EndUse: 'GNX100', ApplicableExpSchemes: '19-Drawback (DBK)' },
 		perRitc: {
 			'94038900': { drawback_schno: '940302B', RODTEP: 'Yes', IGST_PaymentStatus: 'P', IGST_Rate: 18 },
 			'91059990': { drawback_schno: null, RODTEP: 'No', IGST_PaymentStatus: 'LUT', IGST_Rate: null }
@@ -187,7 +187,24 @@ describe('applyIcegridAnswers', () => {
 		for (const out of applyIcegridAnswers(raw, answers)) {
 			expect(out.EndUse).toBe('GNX100');
 			expect(out.StateOrigin).toBe('08');
+			expect(out.ApplicableExpSchemes).toBe('19-Drawback (DBK)');
 		}
+	});
+
+	it('forces Free Shipping Bill rules when scheme 00 is confirmed', () => {
+		const freeAnswers = {
+			...answers,
+			invoice: { ...answers.invoice, ApplicableExpSchemes: '00-Free Shipping bill ' }
+		};
+		const { rows } = deriveRows(applyIcegridAnswers(raw, freeAnswers), {
+			catalogs,
+			lookups: new Map([['94038900', LOOKUP]]),
+			exchangeRate: answers.exchangeRate
+		});
+		expect(rows[0].ApplicableExpSchemes).toBe('00-Free Shipping bill ');
+		expect(rows[0].RewardItem).toBe('No');
+		expect(rows[0].drawback_schno).toBeNull();
+		expect(rows[0].dbk_qty).toBeNull();
 	});
 
 	it('leaves a blank answer alone rather than clearing what follows from it', () => {
@@ -246,7 +263,7 @@ describe('changing an assigned tariff code', () => {
 			dbk_unit: 'PCS'
 		});
 		const customAnswers: ReturnType<typeof defaultAnswers> = {
-			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null },
+			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null, ApplicableExpSchemes: null },
 			perRitc: {
 				'94038900': {
 					drawback_schno: '940302B',
@@ -285,7 +302,7 @@ describe('defaultAnswers', () => {
 			exchangeRate: 88.35
 		});
 		expect(defaultAnswers(input)).toEqual({
-			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null },
+			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null, ApplicableExpSchemes: null },
 			perRitc: {
 				'94038900': {
 					drawback_schno: null,

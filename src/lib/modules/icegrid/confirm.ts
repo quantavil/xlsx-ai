@@ -28,6 +28,7 @@ export interface IcegridInvoiceAnswer {
 	StateOrigin: string | null;
 	DistrictOrigin: string | null;
 	EndUse: string | null;
+	ApplicableExpSchemes: string | null;
 }
 
 export interface IcegridAnswers {
@@ -102,7 +103,7 @@ const RITC_FIELDS = [
 	'IGST_Rate'
 ] as const;
 
-const INVOICE_FIELDS = ['RewardItem', 'StateOrigin', 'DistrictOrigin', 'EndUse'] as const;
+const INVOICE_FIELDS = ['RewardItem', 'StateOrigin', 'DistrictOrigin', 'EndUse', 'ApplicableExpSchemes'] as const;
 
 const blank = (v: unknown) => v === null || v === undefined || v === '';
 
@@ -230,7 +231,8 @@ export function buildConfirmInput(
 			RewardItem: asText(firstAnswer(rows, 'RewardItem')),
 			StateOrigin: asText(firstAnswer(rows, 'StateOrigin')),
 			DistrictOrigin: asText(firstAnswer(rows, 'DistrictOrigin')),
-			EndUse: asText(firstAnswer(rows, 'EndUse'))
+			EndUse: asText(firstAnswer(rows, 'EndUse')),
+			ApplicableExpSchemes: asText(firstAnswer(rows, 'ApplicableExpSchemes'))
 		},
 		catalogs: options.catalogs,
 		rates: options.rates ?? [],

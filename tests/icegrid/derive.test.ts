@@ -101,7 +101,7 @@ describe('findExchangeRate', () => {
 });
 
 describe('deriveRows', () => {
-	const base = { RITCCode: '94038900', Quantity: 48, QuantityUnit: 'PCS', InvoiceNo: 'INV-A' };
+	const base = { RITCCode: '94038900', Quantity: 48, QuantityUnit: 'PCS', InvoiceNo: 'INV-A', ApplicableExpSchemes: '19-Drawback (DBK)' };
 
 	it('fills the schedule-backed fields from the RITC', () => {
 		const { rows, provenance } = deriveRows([row(base)], { catalogs });
@@ -141,10 +141,10 @@ describe('deriveRows', () => {
 		});
 
 		it('takes the invoiced quantity for any other stated unit', () => {
-			// 94038900 is NOS while the invoice is PCS: the units need not agree, because
-			// SQCQTY is a count either way and the tariff's unit is the one declared.
-			expect(derive({}).SQCQTY).toBe(48);
-			expect(derive({}).RoDTEPQty).toBe(48);
+			// 94038900 is NOS while the invoice is PCS: under Rule 1, SQCUnit NOS yields formula =M2,
+			// and RoDTEPQty yields =O2
+			expect(derive({}).SQCQTY).toBe('=M2');
+			expect(derive({}).RoDTEPQty).toBe('=O2');
 		});
 
 		it('writes nothing when the tariff item is absent from the schedule', () => {
@@ -161,7 +161,7 @@ describe('deriveRows', () => {
 
 	it('tracks RoDTEPQty to SQCQTY, never to Quantity', () => {
 		const { rows } = deriveRows([row({ ...base, SQCQTY: 67.5 })], { catalogs });
-		expect(rows[0].RoDTEPQty).toBe(67.5);
+		expect(rows[0].RoDTEPQty).toBe('=O2');
 		expect(rows[0].Quantity).toBe(48);
 	});
 
@@ -236,7 +236,7 @@ describe('deriveRows', () => {
 			catalogs,
 			profile: parseProfile({ endUse: 'GNX100' })
 		});
-		expect(filled.extracted).toBe(4);
+		expect(filled.extracted).toBe(5);
 		expect(filled.schedule).toBeGreaterThan(0);
 		expect(filled.derived).toBeGreaterThan(0);
 		expect(filled.profile).toBe(1);

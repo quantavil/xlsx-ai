@@ -11,6 +11,19 @@ import {
 	selectDrawbackSerial,
 	type DutyLookupMap
 } from './duty-lookup';
+import {
+	applySchemeRules,
+	applyQuantityRules,
+	applyTaxRules,
+	applyGeographyRules,
+	scanDocumentGeography,
+	isDrawbackScheme,
+	isFreeShippingBill,
+	stateCodeFromGstin,
+	findExchangeRate
+} from './rules';
+
+export { stateCodeFromGstin, findExchangeRate };
 
 /**
  * How a populated cell came to be filled. Extracted values were already gated on a
@@ -36,28 +49,17 @@ const NUMERIC = new Set(
 
 const blank = (v: unknown) => v === null || v === undefined || v === '';
 
-/** GSTIN's first two digits are the GST/ICEGATE state code: `09AALFG9236H1ZZ` -> `09`. */
-export function stateCodeFromGstin(text: string): string | null {
-	const match = text.match(/\b(\d{2})[A-Z]{5}\d{4}[A-Z][0-9A-Z]{3}\b/);
-	return match ? match[1] : null;
-}
-
 export interface DeriveOptions {
 	profile?: IcegridProfile;
 	catalogs: IcegridCatalogSnapshot;
-	/** Combined extracted text of the selected files, used only for the GSTIN scan. */
+	/** Combined extracted text of the selected files, used for GSTIN and address scans. */
 	sourceText?: string;
 	/**
 	 * INR per unit of the invoice currency, confirmed by the filer.
-	 *
-	 * There is no fallback behind it any more: the rate comes from the customs board
-	 * or the invoice, and either way the confirmation dialog is what settles it.
-	 * Absent, `Taxable_Value` stays blank rather than being computed at a guess.
 	 */
 	exchangeRate?: number | null;
 	/**
-	 * Live duty-structure answers keyed by RITC. Absent or missing a code simply means
-	 * the bundled schedule decides, which is what happened before this existed.
+	 * Live duty-structure answers keyed by RITC.
 	 */
 	lookups?: DutyLookupMap;
 }
@@ -65,11 +67,14 @@ export interface DeriveOptions {
 /**
  * Fill everything the sources did not state but that follows from them.
  *
- * Three routes, applied in order and never overwriting a value the document already
- * supported: schedule lookups keyed by RITC, arithmetic and copy rules confirmed
- * against every row of the reference corpus, and the exporter's saved profile. Each
- * write is recorded in `provenance` so the UI can show why a cell is filled, and
- * anything uncertain adds a warning rather than being asserted silently.
+ * Orchestrates customs filing rules:
+ * 1. Document-level geography extraction (GSTIN, seller address state/district, country hierarchy)
+ * 2. RITC schedule lookups (RoDTEP, Drawback)
+ * 3. Scheme & Incentive rules (Rule 0 Drawback scheme gating, Rule 3 Free Shipping Bill, Rule 2 RoDTEP)
+ * 4. Quantity and Formula rules (Rule 1 SQCQTY =M2, Rule 4 dbk_qty =O2, RoDTEPQty =O2)
+ * 5. Exporter profile defaults
+ * 6. Tax arithmetic (LUT zeroing, IGST calculations)
+ * 7. Catalog normalization
  */
 export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions): DerivationResult {
 	const {
@@ -90,7 +95,9 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		lookup: 0
 	};
 
-	const gstinState = sourceText ? stateCodeFromGstin(sourceText) : null;
+	// 1. Scan document-level geography once from sourceText (Rules 5 & 6)
+	const geo = scanDocumentGeography(sourceText, catalogs);
+
 	let residualDrawbackRows = 0;
 	let missingNetWeightRows = 0;
 	let sampleAlternatives: string[] = [];
@@ -100,6 +107,7 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 		const rowId = `r${index + 1}`;
 		const marks: Record<string, Provenance> = {};
 		const rowNo = index + 1;
+		const excelRowIndex = index + 2; // Data rows start at Excel row 2
 		const label = `Row ${rowNo}${row.InvoiceNo ? ` (${row.InvoiceNo})` : ''}`;
 
 		const set = (header: keyof IcegridRow, value: unknown, how: Provenance) => {
@@ -116,65 +124,55 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 			}
 		}
 
+		// Scheme eligibility: if scheme code is provided, strictly gate; if unspecified, allow tentatively
+		const isDbk = !row.ApplicableExpSchemes || isDrawbackScheme(row.ApplicableExpSchemes);
+
 		// ---- 1. Schedule lookups, keyed by the tariff code ------------------------
 		const ritc = normalizeRitcCode(row.RITCCode);
 		const live = lookups?.get(ritc);
+		let hasRodtepSchedule = false;
 
 		if (ritc.length === 8) {
-			// RoDTEP is per tariff item, so the live answer and the bundled schedule are
-			// asking the same question. Three states, not two: the schedule can say a code
-			// is eligible or that it never mentions the code, and an exporter can decline
-			// a claim on a code that is eligible. Only the invoice knows the third, which
-			// is why an extracted "No" is never overwritten - `set` is fill-only.
 			const rodtep = live ? live.rodtep : lookupRodtep(ritc);
+			hasRodtepSchedule = !!rodtep;
 			if (rodtep) {
-				set('RODTEP', 'Yes', live ? 'lookup' : 'schedule');
 				const unit = uqcToUnit(rodtep.uqc);
 				if (unit) set('SQCUnit', unit, live ? 'lookup' : 'schedule');
-			} else {
-				// Absent from Appendix 4R means the question does not apply to this tariff
-				// item. Writing "No" here would claim it was considered and refused.
-				set('RODTEP', 'N/A', live ? 'lookup' : 'schedule');
 			}
 
-			// Drawback is keyed on the four-digit heading, so a tariff item is routinely
-			// offered several serials. That is a classification the exporter makes: pick a
-			// starting point, record that it was a guess, and let the dropdown carry the rest.
-			if (live && live.drawback.length > 0) {
-				const choice = selectDrawbackSerial(live.drawback, row.drawback_schno);
-				if (choice.serial) set('drawback_schno', choice.serial, 'lookup');
-				if (choice.basis === 'suggested') {
-					residualDrawbackRows++;
-					if (sampleAlternatives.length === 0) {
-						sampleAlternatives = live.drawback.map((c) => c.serial);
-					}
-				}
-
-				// Rate, description, cap and unit are consequences of whichever serial ends
-				// up in the cell - including one the documents printed that the service does
-				// not list, in which case there is nothing to copy and the fields stay blank.
-				const chosen = live.drawback.find((c) => sameSerial(c.serial, row.drawback_schno));
-				if (chosen) {
-					set('dbk_rate', chosen.rate, 'lookup');
-					set('dbk_desc', chosen.description, 'lookup');
-					set('ROSLRate', chosen.roslRate, 'lookup');
-					set('ROSLCapValue', chosen.roslCap, 'lookup');
-					// The schedule's own unit governs the cap when it prescribes one; otherwise
-					// the drawback is claimed in the unit the goods were invoiced in.
-					if (chosen.unit) set('dbk_unit', chosen.unit, 'lookup');
-				} else if (!blank(row.drawback_schno)) {
-					warnings.push(
-						`${label}: drawback serial "${row.drawback_schno}" is not one the duty lookup lists for RITC ${ritc}, so its rate, description and unit were left blank.`
-					);
-				}
-			} else {
-				const drawback = lookupDrawback(ritc);
-				if (drawback) {
-					set('drawback_schno', drawback.schno, 'schedule');
-					set('dbk_rate', drawback.rate, 'schedule');
-					if (drawback.residual && drawback.alternatives.length > 0) {
+			// Drawback is only populated if the export scheme is a Drawback scheme (Rule 0)
+			if (isDbk) {
+				if (live && live.drawback.length > 0) {
+					const choice = selectDrawbackSerial(live.drawback, row.drawback_schno);
+					if (choice.serial) set('drawback_schno', choice.serial, 'lookup');
+					if (choice.basis === 'suggested') {
 						residualDrawbackRows++;
-						if (sampleAlternatives.length === 0) sampleAlternatives = drawback.alternatives;
+						if (sampleAlternatives.length === 0) {
+							sampleAlternatives = live.drawback.map((c) => c.serial);
+						}
+					}
+
+					const chosen = live.drawback.find((c) => sameSerial(c.serial, row.drawback_schno));
+					if (chosen) {
+						set('dbk_rate', chosen.rate, 'lookup');
+						set('dbk_desc', chosen.description, 'lookup');
+						set('ROSLRate', chosen.roslRate, 'lookup');
+						set('ROSLCapValue', chosen.roslCap, 'lookup');
+						if (chosen.unit) set('dbk_unit', chosen.unit, 'lookup');
+					} else if (!blank(row.drawback_schno)) {
+						warnings.push(
+							`${label}: drawback serial "${row.drawback_schno}" is not one the duty lookup lists for RITC ${ritc}, so its rate, description and unit were left blank.`
+						);
+					}
+				} else {
+					const drawback = lookupDrawback(ritc);
+					if (drawback) {
+						set('drawback_schno', drawback.schno, 'schedule');
+						set('dbk_rate', drawback.rate, 'schedule');
+						if (drawback.residual && drawback.alternatives.length > 0) {
+							residualDrawbackRows++;
+							if (sampleAlternatives.length === 0) sampleAlternatives = drawback.alternatives;
+						}
 					}
 				}
 			}
@@ -182,76 +180,79 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 			warnings.push(`${label}: RITC "${row.RITCCode}" is not 8 digits, so no schedule lookup was possible.`);
 		}
 
-		// ---- 2. Deterministic derivations ----------------------------------------
-		// Each of these held on every row of the 17-shipment reference corpus.
-		set('PerUnit', row.QuantityUnit, 'derived');
-		set('dbk_unit', row.QuantityUnit, 'derived');
-		set('dbk_qty', row.Quantity, 'derived');
-
-		// The SQC quantity is counted in the tariff's own unit, so which figure it takes
-		// depends on that unit and never on the invoiced one. A KGS tariff wants the
-		// line's net weight, which only the packing list states - absent, the cell stays
-		// blank rather than borrowing a count. Any other stated unit takes the invoiced
-		// quantity. A blank SQCUnit means the tariff item was not found in the schedule,
-		// so there is no unit to declare a quantity in and nothing is written.
-		if (row.SQCUnit === 'KGS') {
-			set('SQCQTY', row.NetWeight, 'derived');
-			if (blank(row.NetWeight) && blank(row.SQCQTY)) missingNetWeightRows++;
-		} else if (!blank(row.SQCUnit)) {
-			set('SQCQTY', row.Quantity, 'derived');
+		// ---- 2. Apply scheme & incentive rules (Rules 0, 2, 3) ---------------------
+		applySchemeRules(row, hasRodtepSchedule, isDbk);
+		if (row.RewardItem && !marks.RewardItem) {
+			marks.RewardItem = 'derived';
+			filled.derived++;
 		}
-		// RoDTEP quantity tracks the SQC quantity, not the invoiced quantity - and only
-		// where a RoDTEP claim exists at all. A tariff item absent from the schedule has
-		// no quantity to declare against it.
-		if (row.RODTEP === 'Yes') set('RoDTEPQty', row.SQCQTY, 'derived');
+		if (row.RODTEP && !marks.RODTEP) {
+			marks.RODTEP = 'derived';
+			filled.derived++;
+		}
 
-		if (gstinState) set('StateOrigin', gstinState, 'derived');
+		// ---- 3. Deterministic derivations & formulas (Rules 1 & 4) ----------------
+		set('PerUnit', row.QuantityUnit, 'derived');
+		if (isDbk) {
+			set('dbk_unit', row.QuantityUnit, 'derived');
+		}
 
-		// ---- 3. Exporter profile --------------------------------------------------
+		applyQuantityRules(row, excelRowIndex, isDbk);
+		if (!blank(row.SQCQTY) && !marks.SQCQTY) {
+			marks.SQCQTY = 'derived';
+			filled.derived++;
+		}
+		if (!blank(row.dbk_qty) && !marks.dbk_qty) {
+			marks.dbk_qty = 'derived';
+			filled.derived++;
+		}
+		if (!blank(row.RoDTEPQty) && !marks.RoDTEPQty) {
+			marks.RoDTEPQty = 'derived';
+			filled.derived++;
+		}
+
+		if (row.SQCUnit === 'KGS' && blank(row.NetWeight) && blank(row.SQCQTY)) {
+			missingNetWeightRows++;
+		}
+
+		// ---- 4. Geography rules (Rules 5 & 6) --------------------------------------
+		applyGeographyRules(row, geo);
+		if (row.StateOrigin && !marks.StateOrigin) {
+			marks.StateOrigin = 'derived';
+			filled.derived++;
+		}
+		if (row.DistrictOrigin && !marks.DistrictOrigin) {
+			marks.DistrictOrigin = 'derived';
+			filled.derived++;
+		}
+		if (row.CountryDestination && !marks.CountryDestination) {
+			marks.CountryDestination = 'derived';
+			filled.derived++;
+		}
+
+		// ---- 5. Exporter profile --------------------------------------------------
 		for (const [field, header] of Object.entries(PROFILE_FIELD_HEADERS)) {
 			const value = profile[field as keyof IcegridProfile];
 			if (typeof value === 'string' && value.trim()) set(header as keyof IcegridRow, value.trim(), 'profile');
 		}
 
-		// ---- 4. Tax arithmetic ----------------------------------------------------
-		// Under LUT no IGST is paid, so the assessable value and tax are zero. When
-		// IGST is paid the taxable value is the invoice amount at the customs rate.
-		if (row.IGST_PaymentStatus === 'LUT') {
-			const overridden: string[] = [];
-			if (!blank(row.IGST_Rate) && Number(row.IGST_Rate) !== 0) overridden.push(`IGST_Rate: ${row.IGST_Rate}`);
-			if (!blank(row.Taxable_Value) && Number(row.Taxable_Value) !== 0) overridden.push(`Taxable_Value: ${row.Taxable_Value}`);
-			if (!blank(row.IGST_Amount) && Number(row.IGST_Amount) !== 0) overridden.push(`IGST_Amount: ${row.IGST_Amount}`);
-
-			if (row.IGST_Rate !== 0) {
-				if (blank(row.IGST_Rate)) filled.derived++;
-				row.IGST_Rate = 0;
-				marks.IGST_Rate = 'derived';
-			}
-			if (row.Taxable_Value !== 0) {
-				if (blank(row.Taxable_Value)) filled.derived++;
-				row.Taxable_Value = 0;
-				marks.Taxable_Value = 'derived';
-			}
-			if (row.IGST_Amount !== 0) {
-				if (blank(row.IGST_Amount)) filled.derived++;
-				row.IGST_Amount = 0;
-				marks.IGST_Amount = 'derived';
-			}
-
-			if (overridden.length > 0) {
-				warnings.push(
-					`${label}: IGST payment status is LUT. Overrode non-zero tax values (${overridden.join(', ')}) with 0.`
-				);
-			}
-		} else if (!blank(row.ProductAmount) && exchangeRate) {
-			set('Taxable_Value', round2(Number(row.ProductAmount) * exchangeRate), 'derived');
+		// ---- 6. Tax arithmetic rules ----------------------------------------------
+		const taxResult = applyTaxRules(row, exchangeRate, label);
+		warnings.push(...taxResult.warnings);
+		if (!blank(row.Taxable_Value) && !marks.Taxable_Value) {
+			marks.Taxable_Value = 'derived';
+			filled.derived++;
+		}
+		if (!blank(row.IGST_Amount) && !marks.IGST_Amount) {
+			marks.IGST_Amount = 'derived';
+			filled.derived++;
+		}
+		if (row.IGST_Rate !== null && row.IGST_Rate !== undefined && !marks.IGST_Rate) {
+			marks.IGST_Rate = 'derived';
+			filled.derived++;
 		}
 
-		if (blank(row.IGST_Amount) && !blank(row.Taxable_Value) && !blank(row.IGST_Rate)) {
-			set('IGST_Amount', round2((Number(row.Taxable_Value) * Number(row.IGST_Rate)) / 100), 'derived');
-		}
-
-		// ---- 5. Catalog normalization of anything just written --------------------
+		// ---- 7. Catalog normalization of anything just written --------------------
 		for (const col of ICEGRID_COLUMNS) {
 			if (!col.catalog) continue;
 			const value = row[col.header as keyof IcegridRow];
@@ -272,8 +273,12 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 			}
 		}
 
+		// Numeric sanitization, preserving formula strings starting with '='
 		for (const header of NUMERIC) {
 			const value = row[header as keyof IcegridRow];
+			if (typeof value === 'string' && value.startsWith('=')) {
+				continue;
+			}
 			if (typeof value === 'string' && value.trim() !== '') {
 				const n = Number(value.replace(/[^0-9.-]/g, ''));
 				(row as Record<string, unknown>)[header] = Number.isFinite(n) ? n : null;
@@ -307,17 +312,4 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 	}
 
 	return { rows: out, warnings, provenance, filled };
-}
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-/** `EXCHANGE RATE : 93.60` and similar, taken only from the extracted document text. */
-export function findExchangeRate(sourceText: string): number | null {
-	const match = sourceText.match(
-		/(?:exchange|conversion)\s*rate\s*(?:@|:|-)?\s*(?:INR|Rs\.?|USD)?\s*[:\s]\s*(\d{1,4}(?:\.\d{1,4})?)/i
-	);
-	if (!match) return null;
-	const value = Number(match[1]);
-	// Plausible INR-per-unit band; anything outside it is a mis-read of the layout.
-	return Number.isFinite(value) && value > 20 && value < 500 ? value : null;
 }

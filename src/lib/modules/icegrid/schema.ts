@@ -45,7 +45,7 @@ export const IcegridRowSchema = z.object({
 	ApplicableExpSchemes: z.string().nullable().describe('Export scheme exactly as printed, e.g. "19" or "19-Drawback (DBK)"'),
 	Quantity: z.number().nullable(),
 	QuantityUnit: z.string().nullable().describe('Unit of measurement (e.g. PCS, NOS, KGS, MTR)'),
-	SQCQTY: z.number().nullable(),
+	SQCQTY: z.union([z.number(), z.string()]).nullable(),
 	SQCUnit: z.string().nullable(),
 	NetWeight: z
 		.number()
@@ -56,7 +56,7 @@ export const IcegridRowSchema = z.object({
 	Per: z.number().nullable().describe('Unit price calculation denominator (usually 1)'),
 	PerUnit: z.string().nullable(),
 	drawback_schno: z.string().nullable(),
-	dbk_qty: z.number().nullable(),
+	dbk_qty: z.union([z.number(), z.string()]).nullable(),
 	dbk_rate: z.number().nullable(),
 	dbk_unit: z.string().nullable(),
 	dbk_desc: z.string().nullable(),
@@ -71,7 +71,7 @@ export const IcegridRowSchema = z.object({
 	IGST_Amount: z.number().nullable(),
 	GSTCCessAmount: z.number().nullable(),
 	RODTEP: z.string().nullable().describe('RoDTEP eligibility: exactly "Yes", "No" or "N/A"'),
-	RoDTEPQty: z.number().nullable()
+	RoDTEPQty: z.union([z.number(), z.string()]).nullable()
 });
 
 // What the model is actually asked to generate.
