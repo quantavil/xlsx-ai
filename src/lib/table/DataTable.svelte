@@ -2,6 +2,7 @@
 	import Icon from "$lib/components/Icons.svelte";
 	import DropdownCellEditor from "./DropdownCellEditor.svelte";
 	import type { createTableStore } from "./store.svelte";
+	import { parseClipboardTable } from "./store.svelte";
 	import type { FindStore } from "./find.svelte";
 	import type {
 		CellAlign,
@@ -94,6 +95,14 @@
 	let editTargets = $state<EditTarget[]>([]);
 	let dropdownSearchSeed = $state<string>("");
 	let cellNodes = new Map<string, HTMLElement>();
+	let contextMenu = $state<{
+		x: number;
+		y: number;
+		rowId: string;
+		colId: string;
+		rowIndex: number;
+		colIndex: number;
+	} | null>(null);
 
 	let editValue = $state<string>("");
 	let activeColMenu = $state<string | null>(null);
@@ -273,6 +282,7 @@
 	let viewportH = $state(600);
 	function onTableScroll(e: Event) {
 		scrollTop = (e.target as HTMLElement).scrollTop;
+		if (contextMenu) contextMenu = null;
 	}
 	let visibleStart = $derived(
 		Math.max(
@@ -464,6 +474,102 @@
 		if (el && document.activeElement !== el && !editingCell) {
 			el.focus();
 		}
+	}
+
+	function handleCellContextMenu(
+		e: MouseEvent,
+		rowId: string,
+		colId: string,
+		rowIndex: number,
+		colIndex: number,
+	) {
+		e.preventDefault();
+		if (!store.selectionKeys.has(`${rowId}::${colId}`)) {
+			selectCell(rowId, colId, rowIndex, colIndex);
+		}
+		const x =
+			typeof window !== "undefined"
+				? Math.max(8, Math.min(e.clientX, window.innerWidth - 220))
+				: e.clientX;
+		const y =
+			typeof window !== "undefined"
+				? Math.max(8, Math.min(e.clientY, window.innerHeight - 300))
+				: e.clientY;
+		contextMenu = { x, y, rowId, colId, rowIndex, colIndex };
+	}
+
+	function selectedRowIdsForMenu(fallbackRowId: string): string[] {
+		const rect = store.selectionRect;
+		if (!rect) return [fallbackRowId];
+		const ids: string[] = [];
+		for (let r = rect.r0; r <= rect.r1; r++) {
+			const row = store.filteredRows[r];
+			if (row) ids.push(row.id);
+		}
+		if (ids.length === 0) return [fallbackRowId];
+		if (ids.includes(fallbackRowId)) return ids;
+		return [fallbackRowId];
+	}
+
+	async function handleMenuCopy() {
+		const tsv = selectionAsTsv();
+		try {
+			await navigator.clipboard?.writeText(tsv);
+		} catch {
+			// Clipboard may be unavailable (permissions); still close + toast.
+		}
+		contextMenu = null;
+		onNotify("info", "Copied to clipboard");
+	}
+
+	async function handleMenuCut() {
+		const tsv = selectionAsTsv();
+		try {
+			await navigator.clipboard?.writeText(tsv);
+		} catch {
+			// ignore clipboard errors
+		}
+		store.applyCellPatches(
+			selectedCells().map(({ row, col }) => ({
+				rowId: row.id,
+				columnId: col.id,
+				newValue: null,
+			})),
+		);
+		contextMenu = null;
+		onNotify("info", "Cut selection");
+	}
+
+	let lastPasteTimestamp = 0;
+	function applyPastedText(text: string) {
+		const now = Date.now();
+		if (now - lastPasteTimestamp < 150) return;
+		lastPasteTimestamp = now;
+		const matrix = parseClipboardTable(text);
+		if (matrix.length === 0) return;
+		const count = store.pasteMatrix(matrix);
+		onNotify("info", `Pasted ${count} cell(s).`);
+	}
+
+	async function handleMenuPaste() {
+		contextMenu = null;
+		try {
+			const text = await navigator.clipboard?.readText();
+			if (text) applyPastedText(text);
+		} catch {
+			// clipboard read denied; menu already closed
+		}
+	}
+
+	function handleMenuClear() {
+		store.applyCellPatches(
+			selectedCells().map(({ row, col }) => ({
+				rowId: row.id,
+				columnId: col.id,
+				newValue: null,
+			})),
+		);
+		contextMenu = null;
 	}
 
 	let editTargetRows = $derived.by<Row[]>(() => {
@@ -858,8 +964,28 @@
 		return lines.join("\n");
 	}
 
-	function handleTableKeyDown(e: KeyboardEvent) {
+	async function handleTableKeyDown(e: KeyboardEvent) {
 		if (editingCell) return;
+		if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+			e.preventDefault();
+			store.selectAll();
+			return;
+		}
+		if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V")) {
+			e.preventDefault();
+			try {
+				const text = await navigator.clipboard?.readText();
+				if (text) applyPastedText(text);
+			} catch {
+				// clipboard read denied — no-op
+			}
+			return;
+		}
+		if (contextMenu && e.key === "Escape") {
+			e.preventDefault();
+			contextMenu = null;
+			return;
+		}
 		if (
 			!activeCell &&
 			store.filteredRows.length > 0 &&
@@ -1014,6 +1140,23 @@
 		}
 	}
 
+	function handleGridPaste(e: ClipboardEvent) {
+		if (editingCell) return;
+		const active = document.activeElement as HTMLElement | null;
+		if (
+			active &&
+			(active.tagName === "INPUT" ||
+				active.tagName === "TEXTAREA" ||
+				active.tagName === "SELECT")
+		) {
+			return;
+		}
+		const text = e.clipboardData?.getData("text");
+		if (!text) return;
+		e.preventDefault();
+		applyPastedText(text);
+	}
+
 	function handleEditorKeyDown(
 		e: KeyboardEvent,
 		rowIndex: number,
@@ -1164,6 +1307,9 @@
 		) {
 			activeFilterColId = null;
 		}
+		if (contextMenu && !target?.closest(".context-menu")) {
+			contextMenu = null;
+		}
 	}
 
 </script>
@@ -1171,10 +1317,20 @@
 <svelte:window
 	onclick={handleDocumentClick}
 	onmouseup={() => fillFrom && commitFill()}
+	onscroll={() => {
+		if (contextMenu) contextMenu = null;
+	}}
+	onblur={() => {
+		if (contextMenu) contextMenu = null;
+	}}
 	onkeydown={(e) => {
 		if (e.key === 'Escape' && activeFilterColId) {
 			e.stopPropagation();
 			activeFilterColId = null;
+		}
+		if (e.key === 'Escape' && contextMenu) {
+			e.stopPropagation();
+			contextMenu = null;
 		}
 	}}
 />
@@ -1243,6 +1399,7 @@
 			aria-colcount={store.columns.length}
 			onscroll={onTableScroll}
 			onkeydown={handleTableKeyDown}
+			onpaste={handleGridPaste}
 		>
 			<!-- Explicit px width, not `min-w-max`: Firefox blows up `max-content` on a
 			     fixed-layout table (17.9M px), while `min-width:100%` still fills a wide viewport. -->
@@ -1258,9 +1415,11 @@
 					     the same Firefox reason as the row below. -->
 					<tr class="h-5">
 						<th
-							class="th-corner sticky top-0 z-20 w-10 min-w-10 bg-[var(--surface-2)] border-b border-[var(--border)] border-r border-[var(--border)] p-0 select-none"
+							class="th-corner gutter-corner sticky top-0 z-20 w-10 min-w-10 bg-[var(--surface-2)] border-b border-[var(--border)] border-r border-[var(--border)] p-0 select-none cursor-pointer"
 							scope="col"
-							aria-label="Column letters"
+							title="Select all (⌘A)"
+							aria-label="Select all cells"
+							onclick={() => store.selectAll()}
 						></th>
 						{#each store.columns as col, colIndex (col.id)}
 							{@const isActiveCol =
@@ -1725,6 +1884,18 @@
 								<td
 									class="td-index w-10 min-w-10 text-center bg-[var(--surface-2)] border-r border-[var(--border)] relative font-mono text-[10.5px] text-[var(--text-3)] select-none p-0"
 									role="gridcell"
+									oncontextmenu={(e) => {
+										e.preventDefault();
+										if (store.columns.length > 0) {
+											handleCellContextMenu(
+												e,
+												row.id,
+												store.columns[0].id,
+												rowIndex,
+												0,
+											);
+										}
+									}}
 								>
 									<!-- Row 1 is the header, so data starts at 2 - the number a formula references. -->
 									<button
@@ -1841,8 +2012,8 @@
 										rowIndex,
 										colIndex,
 									)}
-									<td
-										class="td-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none {store.cursorMode
+								<td
+									class="td-cell grid-cell px-2.5 border-r border-[var(--table-grid-line)] relative outline-none {store.cursorMode
 											? 'cursor-text'
 											: 'cursor-default'} text-[13px] text-[var(--text-1)] select-none overflow-hidden {ALIGN_CLASS[
 											align
@@ -1881,8 +2052,18 @@
 										role="gridcell"
 										aria-selected={isActive || inRange}
 										tabindex={isRovingActive ? 0 : -1}
-										use:registerCellNode={`${row.id}-${col.id}`}
-										onmousedown={(e) => {
+									use:registerCellNode={`${row.id}-${col.id}`}
+									oncontextmenu={(e) => {
+										e.preventDefault();
+										handleCellContextMenu(
+											e,
+											row.id,
+											col.id,
+											rowIndex,
+											colIndex,
+										);
+									}}
+									onmousedown={(e) => {
 											// Measured here, not on click: by then the editor may already have
 											// replaced the text node the pointer was over.
 											initialCaretOffset =
@@ -2374,6 +2555,122 @@
 		</div>
 	{/if}
 </div>
+
+{#if contextMenu !== null}
+	<div
+		class="context-menu fixed z-50 w-52 p-1.5 bg-[var(--surface-1)] border border-[var(--border-strong)] rounded-xl shadow-2xl"
+		style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+		role="menu"
+		aria-label="Cell actions"
+	>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={handleMenuCopy}
+		>
+			<Icon name="copy" size={13} aria-hidden="true" />
+			<span class="flex-1">Copy</span>
+			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">⌘C</kbd>
+		</button>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={handleMenuCut}
+		>
+			<Icon name="edit" size={13} aria-hidden="true" />
+			<span class="flex-1">Cut</span>
+			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">⌘X</kbd>
+		</button>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={handleMenuPaste}
+		>
+			<Icon name="file-text" size={13} aria-hidden="true" />
+			<span class="flex-1">Paste</span>
+			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">⌘V</kbd>
+		</button>
+		<div class="h-px bg-[var(--border)] my-1"></div>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={() => {
+				if (!contextMenu) return;
+				store.insertRow(contextMenu.rowIndex);
+				contextMenu = null;
+			}}
+		>
+			<Icon name="plus" size={13} aria-hidden="true" />
+			<span>Insert Row Above</span>
+		</button>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={() => {
+				if (!contextMenu) return;
+				store.insertRow(contextMenu.rowIndex + 1);
+				contextMenu = null;
+			}}
+		>
+			<Icon name="plus" size={13} aria-hidden="true" />
+			<span>Insert Row Below</span>
+		</button>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--accent-rose)] hover:!bg-[var(--accent-rose-bg)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={() => {
+				if (!contextMenu) return;
+				store.deleteRows(selectedRowIdsForMenu(contextMenu.rowId));
+				contextMenu = null;
+			}}
+		>
+			<Icon name="trash" size={13} aria-hidden="true" />
+			<span>Delete Row(s)</span>
+		</button>
+		<button
+			class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-[12px] font-medium text-[var(--text-1)] hover:bg-[var(--surface-hover)] cursor-pointer text-left transition-colors"
+			role="menuitem"
+			onclick={handleMenuClear}
+		>
+			<Icon name="x" size={13} aria-hidden="true" />
+			<span class="flex-1">Clear Contents</span>
+			<kbd class="text-[10.5px] text-[var(--text-3)] font-mono">Del</kbd>
+		</button>
+		<div class="h-px bg-[var(--border)] my-1"></div>
+		<div class="flex items-center gap-1 px-2.5 py-1" role="group" aria-label="Cell alignment">
+			<button
+				class="flex-1 flex items-center justify-center p-1.5 rounded-md bg-transparent border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
+				aria-label="Align left"
+				onclick={() => {
+					store.alignSelection("left");
+					contextMenu = null;
+				}}
+			>
+				<Icon name="align-left" size={13} aria-hidden="true" />
+			</button>
+			<button
+				class="flex-1 flex items-center justify-center p-1.5 rounded-md bg-transparent border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
+				aria-label="Align center"
+				onclick={() => {
+					store.alignSelection("center");
+					contextMenu = null;
+				}}
+			>
+				<Icon name="align-center" size={13} aria-hidden="true" />
+			</button>
+			<button
+				class="flex-1 flex items-center justify-center p-1.5 rounded-md bg-transparent border border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
+				aria-label="Align right"
+				onclick={() => {
+					store.alignSelection("right");
+					contextMenu = null;
+				}}
+			>
+				<Icon name="align-right" size={13} aria-hidden="true" />
+			</button>
+		</div>
+	</div>
+{/if}
 
 <FormulaHintPopup
 	matches={hintMatches}

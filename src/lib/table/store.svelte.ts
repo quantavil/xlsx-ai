@@ -91,6 +91,62 @@ export interface CellSelection {
 	focus: CellRef;
 }
 
+function parseCsvLine(line: string): string[] {
+	const cells: string[] = [];
+	let cur = '';
+	let inQuotes = false;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
+		if (inQuotes) {
+			if (ch === '"') {
+				if (line[i + 1] === '"') {
+					cur += '"';
+					i++;
+				} else {
+					inQuotes = false;
+				}
+			} else {
+				cur += ch;
+			}
+		} else {
+			if (ch === '"') {
+				inQuotes = true;
+			} else if (ch === ',') {
+				cells.push(cur);
+				cur = '';
+			} else {
+				cur += ch;
+			}
+		}
+	}
+	cells.push(cur);
+	return cells;
+}
+
+/**
+ * Parse clipboard text (Excel / Google Sheets) into a 2D string matrix.
+ *
+ * Tab-separated values are primary (Excel/Sheets default); lines without tabs
+ * fall back to comma-separated values with basic `"..."` quote handling.
+ * Splits on `\r?\n` and strips trailing blank rows.
+ */
+export function parseClipboardTable(text: string): string[][] {
+	if (!text) return [];
+	const lines = text.split(/\r?\n/);
+	const matrix: string[][] = [];
+	for (const line of lines) {
+		if (line.includes('\t')) {
+			matrix.push(line.split('\t'));
+		} else {
+			matrix.push(parseCsvLine(line));
+		}
+	}
+	while (matrix.length > 0 && matrix[matrix.length - 1].every((c) => c.trim() === '')) {
+		matrix.pop();
+	}
+	return matrix;
+}
+
 export function createTableStore(initialData?: TableData, options: TableStoreOptions = {}) {
 	const persist = options.persist ?? true;
 	const storageKey = options.storageKey ?? LS_KEY;
@@ -589,6 +645,228 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			anchor: { rowId, columnId: firstCol.id, rowIndex, colIndex: 0 },
 			focus: { rowId, columnId: lastCol.id, rowIndex, colIndex: columns.length - 1 }
 		};
+	}
+
+	function selectAll() {
+		if (filteredRows.length === 0 || columns.length === 0) return;
+		selection = {
+			anchor: {
+				rowId: filteredRows[0].id,
+				columnId: columns[0].id,
+				rowIndex: 0,
+				colIndex: 0
+			},
+			focus: {
+				rowId: filteredRows[filteredRows.length - 1].id,
+				columnId: columns[columns.length - 1].id,
+				rowIndex: filteredRows.length - 1,
+				colIndex: columns.length - 1
+			}
+		};
+	}
+
+	function insertRow(index?: number, newRowData?: Partial<Row>): Row {
+		pushHistory();
+		const newId = `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+		const newRow: Row = { id: newId };
+		for (const col of columns) {
+			const provided = newRowData ? (newRowData[col.id] as CellValue) : null;
+			newRow[col.id] = normalizeCellValue(col.type, provided ?? null);
+		}
+		if (index !== undefined && index >= 0 && index <= rows.length) {
+			rows = [...rows.slice(0, index), newRow, ...rows.slice(index)];
+		} else {
+			rows = [...rows, newRow];
+		}
+		triggerSave();
+		return newRow;
+	}
+
+	function deleteRows(rowIds: string[]) {
+		if (rowIds.length === 0) return;
+		const toDelete = new Set(rowIds);
+		const hasMatch = rows.some((r) => toDelete.has(r.id));
+		if (!hasMatch) return;
+		let shouldClearSelection = false;
+		if (selection) {
+			if (toDelete.has(selection.anchor.rowId) || toDelete.has(selection.focus.rowId)) {
+				shouldClearSelection = true;
+			} else if (selectionRect) {
+				for (let r = selectionRect.r0; r <= selectionRect.r1; r++) {
+					const row = filteredRows[r];
+					if (row && toDelete.has(row.id)) {
+						shouldClearSelection = true;
+						break;
+					}
+				}
+			}
+		}
+		pushHistory();
+		rows = rows.filter((r) => !toDelete.has(r.id));
+		if (shouldClearSelection) selection = null;
+		triggerSave();
+	}
+
+	function pasteMatrix(matrix: string[][], target?: { rowId?: string; columnId?: string }): number {
+		if (!matrix || matrix.length === 0) return 0;
+		const maxColsInMatrix = Math.max(...matrix.map((r) => r.length));
+		if (maxColsInMatrix === 0) return 0;
+		if (columns.length === 0) return 0;
+
+		let startRowIndex: number | null = null;
+		let startColIndex: number | null = null;
+
+		if (target?.rowId) {
+			const idx = filteredRows.findIndex((r) => r.id === target.rowId);
+			if (idx !== -1) startRowIndex = idx;
+		}
+		if (target?.columnId) {
+			const idx = columns.findIndex((c) => c.id === target.columnId);
+			if (idx !== -1) startColIndex = idx;
+		}
+		const ac = activeCell;
+		if ((startRowIndex === null || startColIndex === null) && ac) {
+			if (startRowIndex === null) {
+				const idx = filteredRows.findIndex((r) => r.id === ac.rowId);
+				if (idx !== -1) {
+					startRowIndex = idx;
+				} else if (ac.rowIndex >= 0 && ac.rowIndex < filteredRows.length) {
+					startRowIndex = ac.rowIndex;
+				} else if (selectionRect) {
+					startRowIndex = selectionRect.r0;
+				} else {
+					startRowIndex = 0;
+				}
+			}
+			if (startColIndex === null) {
+				const cIdx = columns.findIndex((c) => c.id === ac.columnId);
+				if (cIdx !== -1) {
+					startColIndex = cIdx;
+				} else if (ac.colIndex >= 0 && ac.colIndex < columns.length) {
+					startColIndex = ac.colIndex;
+				} else {
+					startColIndex = 0;
+				}
+			}
+		}
+		if ((startRowIndex === null || startColIndex === null) && selectionRect) {
+			if (startRowIndex === null) startRowIndex = selectionRect.r0;
+			if (startColIndex === null) startColIndex = selectionRect.c0;
+		}
+		if (startRowIndex === null) startRowIndex = 0;
+		if (startColIndex === null) startColIndex = 0;
+
+		if (startRowIndex < 0) startRowIndex = 0;
+		if (startColIndex < 0) startColIndex = 0;
+		if (startColIndex >= columns.length) return 0;
+		if (startRowIndex > filteredRows.length) startRowIndex = filteredRows.length;
+
+		const rect = selectionRect;
+		const isSingle = matrix.length === 1 && (matrix[0]?.length ?? 0) === 1;
+		if (isSingle && rect && selectionKeys.size > 1) {
+			const singleValue = matrix[0][0];
+			const patches: CellPatch[] = [];
+			for (let r = rect.r0; r <= rect.r1; r++) {
+				const row = filteredRows[r];
+				if (!row) continue;
+				for (let c = rect.c0; c <= rect.c1; c++) {
+					const col = columns[c];
+					if (!col) continue;
+					patches.push({
+						rowId: row.id,
+						columnId: col.id,
+						newValue: normalizeCellValue(col.type, singleValue)
+					});
+				}
+			}
+			if (patches.length === 0) return 0;
+			return applyCellPatches(patches);
+		}
+
+		const needRows = Math.max(0, startRowIndex + matrix.length - rows.length);
+		let snapshotBefore: HistoryEntry | null = null;
+		if (needRows > 0) {
+			snapshotBefore = {
+				title,
+				columns: cloneColumns(columns),
+				rows: cloneRows(rows),
+				cellAlign: cloneCellAlign(cellAlign)
+			};
+			const newRows: Row[] = [];
+			for (let i = 0; i < needRows; i++) {
+				const nid = `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+				const nr: Row = { id: nid };
+				for (const col of columns) nr[col.id] = null;
+				newRows.push(nr);
+			}
+			rows = [...rows, ...newRows];
+		}
+
+		const currentFiltered = filteredRows;
+		const patches: CellPatch[] = [];
+		for (let r = 0; r < matrix.length; r++) {
+			const targetRow = currentFiltered[startRowIndex + r];
+			if (!targetRow) continue;
+			const rowData = matrix[r];
+			for (let c = 0; c < rowData.length; c++) {
+				if (startColIndex + c >= columns.length) continue;
+				const col = columns[startColIndex + c];
+				const raw = rowData[c];
+				patches.push({
+					rowId: targetRow.id,
+					columnId: col.id,
+					newValue: normalizeCellValue(col.type, raw)
+				});
+			}
+		}
+		if (patches.length === 0) {
+			if (snapshotBefore) {
+				rows = cloneRows(snapshotBefore.rows);
+			}
+			return 0;
+		}
+		const applied = applyCellPatches(patches);
+		if (snapshotBefore) {
+			if (applied === 0) {
+				rows = cloneRows(snapshotBefore.rows);
+				return 0;
+			}
+			const lastIdx = history.length - 1;
+			if (lastIdx >= 0) {
+				const fixed = [...history];
+				fixed[lastIdx] = snapshotBefore;
+				history = fixed;
+			}
+		}
+
+		let maxW = 0;
+		for (const rowData of matrix) maxW = Math.max(maxW, rowData.length);
+		const endColIdx = Math.min(columns.length - 1, startColIndex + maxW - 1);
+		const endRowIdx = startRowIndex + matrix.length - 1;
+		const clampedEndRow = Math.min(filteredRows.length - 1, endRowIdx);
+		if (filteredRows.length > 0 && clampedEndRow >= startRowIndex) {
+			const anchorRow = filteredRows[startRowIndex];
+			const focusRow = filteredRows[clampedEndRow];
+			const anchorCol = columns[startColIndex];
+			const focusCol = columns[endColIdx];
+			if (anchorRow && focusRow && anchorCol && focusCol) {
+				selection = {
+					anchor: {
+						rowId: anchorRow.id,
+						columnId: anchorCol.id,
+						rowIndex: startRowIndex,
+						colIndex: startColIndex
+					},
+					focus: {
+						rowId: focusRow.id,
+						columnId: focusCol.id,
+						rowIndex: clampedEndRow,
+						colIndex: endColIdx
+					}
+				};
+			}
+		}
+		return applied;
 	}
 
 	/**
@@ -1094,6 +1372,10 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 		collapseSelection,
 		selectColumn,
 		selectRow,
+		selectAll,
+		insertRow,
+		deleteRows,
+		pasteMatrix,
 		alignFor,
 		alignSelection,
 		setCursorMode,
