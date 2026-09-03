@@ -362,7 +362,7 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect(drawer).toHaveClass(/closed/);
 	});
 
-	test('settings is a route with only AI, Modules and Shortcuts', async ({ page }) => {
+	test('settings is a route with AI, Custom Prompts, Modules and Shortcuts', async ({ page }) => {
 		// Opening Settings must never trigger a file chooser: the ribbon used to register the
 		// import picker from an $effect whose return value Svelte ran as teardown on navigation.
 		let fileChooserOpened = false;
@@ -376,11 +376,15 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		expect(fileChooserOpened).toBe(false);
 
 		const navItems = settingsPage.locator('nav.settings-sidebar .settings-nav-item');
-		await expect(navItems).toHaveCount(3);
+		await expect(navItems).toHaveCount(4);
 		// The section names itself in the topbar; the card headings carry the detail.
 		await expect(settingsPage.locator('.settings-topbar h1')).toHaveText('AI & Models');
 		await expect(settingsPage).toContainText('API Key');
 		await expect(settingsPage).toContainText('Models');
+
+		await navItems.filter({ hasText: 'Custom Prompts' }).click();
+		await expect(settingsPage).toContainText('Save reusable prompt templates');
+		await expect(settingsPage).toContainText('Saved prompts');
 
 		await navItems.filter({ hasText: 'Shortcuts' }).click();
 		await expect(settingsPage).toContainText('Keyboard shortcuts');
@@ -858,14 +862,8 @@ test.describe('xlsx-ai E2E Workflow', () => {
 
 		const userMessage = drawer.locator('.message-user');
 		const assistantMessage = drawer.locator('.message-assistant');
-		await expect(userMessage.getByRole('button', { name: 'Copy message text' })).toBeVisible();
+		await expect(userMessage.getByRole('button', { name: 'Copy message text' })).toHaveCount(0);
 		await expect(assistantMessage.locator('.msg-actions')).toHaveCount(0);
-
-		await userMessage.getByRole('button', { name: 'Copy message text' }).click();
-		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
-			'Create an SVG icon'
-		);
-		await expect(page.locator('.toast-item.toast-success')).toContainText('Copied to clipboard');
 
 		releaseResponse();
 		await expect(assistantMessage).toContainText('Here is the icon');
@@ -873,6 +871,7 @@ test.describe('xlsx-ai E2E Workflow', () => {
 		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(
 			'Here is the icon'
 		);
+		await expect(page.locator('.toast-item.toast-success')).toContainText('Copied to clipboard');
 
 		await assistantMessage.getByRole('button', { name: 'Copy SVG source' }).click();
 		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
