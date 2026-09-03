@@ -157,7 +157,7 @@ startxref
 
 		// 7. Map to Host TableData
 		const tableData = mapReportToTableData(parsedReport);
-		expect(tableData.title).toBe('ICEGrid - INV-2026-EXPORT-101');
+		expect(tableData.title).toBe('INV-2026-EXPORT-101');
 		expect(tableData.columns.length).toBe(37);
 		expect(tableData.rows.length).toBe(2);
 

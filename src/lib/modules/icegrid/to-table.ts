@@ -51,6 +51,54 @@ export function applyMechanicalRules(rows: readonly IcegridRow[]): IcegridRow[] 
 	});
 }
 
+/**
+ * Generates a clean, business-meaningful title for an imported customs document.
+ * Avoids raw internal module branding (like "ICEGrid - ...") and cleans noisy date suffixes.
+ */
+export function deriveSmartDocumentTitle(
+	rows: readonly IcegridRow[],
+	sourceFiles: readonly string[] = []
+): string {
+	const rawInvoices = rows
+		.map((r) => (typeof r.InvoiceNo === 'string' ? r.InvoiceNo.trim() : ''))
+		.filter((inv) => inv.length > 0);
+
+	// Strip trailing date clauses like "Dt. 27/08/2026", "Dt: ...", "/ Dt ..."
+	const cleanInvoices = Array.from(
+		new Set(
+			rawInvoices.map((inv) =>
+				inv
+					.replace(/(?:[\s,]+(?:[/,-]\s*)?|[/,]\s*)\b(?:Dt|Date)\b[.:\s]\s*.*$/i, '')
+					.trim()
+			)
+		)
+	).filter((inv) => inv.length > 0);
+
+	if (cleanInvoices.length > 1) {
+		const preview = cleanInvoices.slice(0, 3).join(', ');
+		const more = cleanInvoices.length > 3 ? '...' : '';
+		return `Invoices (${cleanInvoices.length}): ${preview}${more}`;
+	}
+
+	if (cleanInvoices.length === 1) {
+		const inv = cleanInvoices[0];
+		if (/^(?:inv|invoice|bill)\b/i.test(inv)) {
+			return inv;
+		}
+		return `Invoice #${inv}`;
+	}
+
+	// Fallback to source files if no invoice was detected in rows
+	if (sourceFiles.length > 0) {
+		const primary = sourceFiles[0].replace(/^.*[\\/]/, '').replace(/\.[^/.]+$/, '');
+		if (primary.trim()) {
+			return `${primary.trim()} (Customs Grid)`;
+		}
+	}
+
+	return 'Customs Declaration';
+}
+
 export function mapReportToTableData(
 	report: IcegridReport,
 	catalogs: IcegridCatalogSnapshot = getCatalogSnapshot(),
@@ -60,8 +108,7 @@ export function mapReportToTableData(
 	const columns = buildIcegridTableColumns(catalogs, runtimeOptions);
 	const rows = applyMechanicalRules(report.rows);
 
-	const primaryInvoice = rows.find((r) => r.InvoiceNo)?.InvoiceNo ?? undefined;
-	const title = primaryInvoice ? `ICEGrid - ${primaryInvoice}` : 'ICEGrid Import';
+	const title = deriveSmartDocumentTitle(rows, report.sourceFiles);
 
 	const tableRows: Row[] = rows.map((rawRow, idx) => {
 		const rowObj: Row = { id: `r${idx + 1}` };

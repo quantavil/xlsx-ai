@@ -18,30 +18,48 @@ export const findStore = createFindStore(store);
 export const moduleStore = createModuleStore();
 export const toastStore = createToastStore();
 
-export type ActiveDrawer = 'ai' | 'find' | null;
+import { saveSourceFiles } from '$lib/table/source-files';
+
+export type ActiveDrawer = 'ai' | 'find' | 'source' | null;
+
+let isSourceViewerOpen = $state(false);
 
 export function getActiveDrawer(): ActiveDrawer {
 	if (store.isAiOpen) return 'ai';
 	if (findStore.isOpen) return 'find';
+	if (isSourceViewerOpen) return 'source';
 	return null;
+}
+
+export function isSourceOpen(): boolean {
+	return isSourceViewerOpen;
 }
 
 export function openAiDrawer() {
 	findStore.close();
+	isSourceViewerOpen = false;
 	store.toggleAi(true);
 }
 
 export function openFindDrawer(initialQuery?: string) {
 	store.toggleAi(false);
+	isSourceViewerOpen = false;
 	findStore.open(initialQuery);
+}
+
+export function openSourceDrawer() {
+	store.toggleAi(false);
+	findStore.close();
+	isSourceViewerOpen = true;
 }
 
 export function closeDrawers() {
 	store.toggleAi(false);
 	findStore.close();
+	isSourceViewerOpen = false;
 }
 
-export function toggleDrawer(drawer: 'ai' | 'find') {
+export function toggleDrawer(drawer: 'ai' | 'find' | 'source') {
 	if (drawer === 'ai') {
 		if (store.isAiOpen) {
 			store.toggleAi(false);
@@ -53,6 +71,12 @@ export function toggleDrawer(drawer: 'ai' | 'find') {
 			findStore.close();
 		} else {
 			openFindDrawer();
+		}
+	} else if (drawer === 'source') {
+		if (isSourceViewerOpen) {
+			isSourceViewerOpen = false;
+		} else {
+			openSourceDrawer();
 		}
 	}
 }
@@ -83,10 +107,17 @@ export function toggleTheme() {
 }
 
 /** Creates a file, makes it active, and writes `data` into it. */
-export function createFile(data: TableData) {
+export function createFile(data: TableData, files?: File[]) {
 	store.flushSave();
-	documents.create(data.title || DEFAULT_TABLE_TITLE);
+	const docId = documents.create(data.title || DEFAULT_TABLE_TITLE);
 	store.loadTable(data, { undoable: false });
+	if (files && files.length > 0) {
+		saveSourceFiles(docId, files).then((saved) => {
+			if (saved) {
+				documents.attachSourceFiles(docId, files.map((f) => f.name));
+			}
+		});
+	}
 }
 
 export function newBlankFile() {

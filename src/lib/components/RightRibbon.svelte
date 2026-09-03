@@ -9,6 +9,7 @@
 	import { handleMenuKeydown } from '$lib/ui/menu';
 	import type { NotifyFn } from '$lib/ui/toast.svelte';
 	import type { TableData } from '$lib/types';
+	import { documents, isSourceOpen } from '$lib/workspace.svelte';
 
 	let {
 		store,
@@ -20,7 +21,8 @@
 		onNotify,
 		onCreateFile,
 		onToggleAiDrawer,
-		onToggleFindDrawer
+		onToggleFindDrawer,
+		onToggleSourceDrawer
 	}: {
 		store: ReturnType<typeof createTableStore>;
 		findStore?: FindStore;
@@ -29,9 +31,10 @@
 		onToggleTheme: () => void;
 		onOpenSettings?: () => void;
 		onNotify: NotifyFn;
-		onCreateFile: (table: TableData) => void;
+		onCreateFile: (table: TableData, files?: File[]) => void;
 		onToggleAiDrawer?: () => void;
 		onToggleFindDrawer?: () => void;
+		onToggleSourceDrawer?: () => void;
 	} = $props();
 
 	let moduleFileInputRefs = $state<Record<string, HTMLInputElement | null>>({});
@@ -67,7 +70,7 @@
 			});
 
 			if (result && result.table && result.table.columns.length > 0) {
-				onCreateFile(result.table);
+				onCreateFile(result.table, files);
 				onNotify('success', `Imported ${result.table.rows.length} row(s) via ${mod.name}.`);
 				// One summary toast. A 40-row extraction can raise 40 warnings; firing one
 				// toast each buries the screen and pushes the success message off-stack.
@@ -269,6 +272,29 @@
 				{/if}
 				<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
 					Find & Replace <kbd class="tooltip-kbd font-mono text-[10px] bg-[var(--surface-1)] border border-[var(--border)] px-1 py-0.5 rounded text-[var(--text-2)]">⌘H</kbd>
+				</span>
+			</button>
+		{/if}
+
+		<!-- Source Documents Tool Button -->
+		{#if onToggleSourceDrawer}
+			{@const hasSourceFiles = Boolean(documents.activeMeta?.sourceFiles && documents.activeMeta.sourceFiles.length > 0)}
+			<button
+				class="ribbon-btn btn-source-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border flex items-center justify-center cursor-pointer transition-all {isSourceOpen()
+					? 'active !bg-[var(--accent-primary)] !text-[var(--text-inverse)] !border-[var(--accent-primary)] shadow-sm'
+					: hasSourceFiles
+						? 'text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)]'
+						: 'text-[var(--text-2)] bg-transparent border-transparent hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] hover:border-[var(--border)]'}"
+				onclick={onToggleSourceDrawer}
+				aria-label="Toggle Source Documents"
+				aria-expanded={isSourceOpen()}
+			>
+				<Icon name="file-text" size={17} strokeWidth={2} aria-hidden="true" />
+				{#if hasSourceFiles && !isSourceOpen()}
+					<span class="ribbon-active-indicator absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" aria-hidden="true"></span>
+				{/if}
+				<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
+					Source Documents {#if hasSourceFiles}({documents.activeMeta?.sourceFiles?.length}){/if}
 				</span>
 			</button>
 		{/if}

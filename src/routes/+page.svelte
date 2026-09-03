@@ -5,6 +5,7 @@
 	import DataTable from '$lib/table/DataTable.svelte';
 	import AiDrawer from '$lib/components/AiDrawer.svelte';
 	import FindReplaceDrawer from '$lib/components/FindReplaceDrawer.svelte';
+	import SourceViewerDrawer from '$lib/components/SourceViewerDrawer.svelte';
 	import RightRibbon from '$lib/components/RightRibbon.svelte';
 	import { importFileToTable } from '$lib/data/index';
 	import {
@@ -21,7 +22,8 @@
 		deleteFile,
 		openFindDrawer,
 		closeDrawers,
-		toggleDrawer
+		toggleDrawer,
+		isSourceOpen
 	} from '$lib/workspace.svelte';
 
 	let headerRef = $state<{ focusSearch: () => void } | null>(null);
@@ -40,7 +42,7 @@
 			const imported = await importFileToTable(file, undefined, (message) =>
 				notify('warning', message, { durationMs: 8000 })
 			);
-			createFile(imported);
+			createFile(imported, [file]);
 			notify(
 				'success',
 				`Imported "${file.name}" (${imported.rows.length} rows, ${imported.columns.length} columns).`
@@ -61,7 +63,7 @@
 			const isCmdOrCtrl = e.metaKey || e.ctrlKey;
 
 			// Global Escape closes active drawers even if focused inside drawer inputs
-			if (e.key === 'Escape' && (store.isAiOpen || findStore.isOpen)) {
+			if (e.key === 'Escape' && (store.isAiOpen || findStore.isOpen || isSourceOpen())) {
 				closeDrawers();
 				return;
 			}
@@ -145,6 +147,7 @@
 		onNewFile={newBlankFile}
 		onImportFile={() => importInputRef?.click()}
 		onDeleteFile={deleteFile}
+		onToggleSourceDrawer={() => toggleDrawer('source')}
 	/>
 
 	<div class="workspace-body flex-1 flex overflow-hidden relative w-full min-h-0 max-sm:pb-[54px]">
@@ -154,6 +157,7 @@
 
 		<AiDrawer {store} onOpenSettings={openSettings} onNotify={notify} />
 		<FindReplaceDrawer {findStore} {store} onNotify={notify} onClose={closeDrawers} />
+		<SourceViewerDrawer onNotify={notify} onClose={closeDrawers} />
 
 		<RightRibbon
 			{store}
@@ -166,6 +170,7 @@
 			onCreateFile={createFile}
 			onToggleAiDrawer={() => toggleDrawer('ai')}
 			onToggleFindDrawer={() => toggleDrawer('find')}
+			onToggleSourceDrawer={() => toggleDrawer('source')}
 		/>
 	</div>
 </div>

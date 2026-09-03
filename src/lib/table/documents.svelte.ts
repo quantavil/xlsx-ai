@@ -1,9 +1,11 @@
 import { LS_KEY } from '$lib/constants';
+import { deleteSourceFiles } from './source-files';
 
 export interface DocumentMeta {
 	id: string;
 	title: string;
 	updatedAt: string;
+	sourceFiles?: string[];
 }
 
 export const LS_DOCS_KEY = 'xlsx-ai:docs:v1';
@@ -79,9 +81,17 @@ export function createDocumentStore() {
 	}
 
 	/** Registers a new file and makes it active. The caller then writes its content. */
-	function create(title: string): string {
+	function create(title: string, sourceFiles?: string[]): string {
 		const id = newId();
-		docs = [{ id, title, updatedAt: new Date().toISOString() }, ...docs];
+		docs = [
+			{
+				id,
+				title,
+				updatedAt: new Date().toISOString(),
+				...(sourceFiles && sourceFiles.length > 0 ? { sourceFiles } : {})
+			},
+			...docs
+		];
 		activeId = id;
 		persist();
 		return id;
@@ -99,6 +109,7 @@ export function createDocumentStore() {
 		} catch {
 			// Nothing to do — the index entry is the thing that matters.
 		}
+		deleteSourceFiles(id).catch(() => {});
 		docs = docs.filter((d) => d.id !== id);
 		if (docs.length === 0) {
 			activeId = '';
@@ -118,6 +129,18 @@ export function createDocumentStore() {
 		persist();
 	}
 
+	/** Updates attached source files metadata only once confirmed in storage. */
+	function attachSourceFiles(id: string, sourceFiles?: string[]) {
+		const meta = docs.find((d) => d.id === id);
+		if (!meta) return;
+		if (sourceFiles && sourceFiles.length > 0) {
+			meta.sourceFiles = sourceFiles;
+		} else {
+			delete meta.sourceFiles;
+		}
+		persist();
+	}
+
 	return {
 		get documents() {
 			return docs;
@@ -131,6 +154,7 @@ export function createDocumentStore() {
 		contentKey: () => docContentKey(activeId),
 		hydrate,
 		create,
+		attachSourceFiles,
 		open,
 		remove,
 		touch

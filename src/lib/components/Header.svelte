@@ -11,7 +11,8 @@
 		onOpenFile,
 		onNewFile,
 		onImportFile,
-		onDeleteFile
+		onDeleteFile,
+		onToggleSourceDrawer
 	}: {
 		store: ReturnType<typeof createTableStore>;
 		documents: ReturnType<typeof createDocumentStore>;
@@ -19,6 +20,7 @@
 		onNewFile: () => void;
 		onImportFile: () => void;
 		onDeleteFile: (id: string) => void;
+		onToggleSourceDrawer?: () => void;
 	} = $props();
 
 	let isEditingTitle = $state(false);
@@ -222,7 +224,16 @@
 												? 'font-semibold text-[var(--accent-primary)]'
 												: 'font-medium text-[var(--text-1)]'}">{doc.title}</span
 										>
-										<span class="text-[10.5px] text-[var(--text-3)]">{relativeTime(doc.updatedAt)}</span>
+										<span class="text-[10.5px] text-[var(--text-3)] flex items-center gap-1.5">
+											<span>{relativeTime(doc.updatedAt)}</span>
+											{#if doc.sourceFiles && doc.sourceFiles.length > 0}
+												<span>•</span>
+												<span class="text-[var(--accent-primary)] flex items-center gap-0.5">
+													<Icon name="file-text" size={10} />
+													<span>{doc.sourceFiles.length} file{doc.sourceFiles.length > 1 ? 's' : ''}</span>
+												</span>
+											{/if}
+										</span>
 									</span>
 								</button>
 								<button
@@ -242,7 +253,7 @@
 			{/if}
 		</div>
 
-		<div class="title-container min-w-0 flex items-center">
+		<div class="title-container min-w-0 flex items-center gap-1.5">
 			{#if isEditingTitle}
 				<!-- svelte-ignore a11y_autofocus -->
 				<input
@@ -261,6 +272,18 @@
 					aria-label="Rename file"
 				>
 					<span class="title-text truncate max-w-[260px]">{store.title}</span>
+				</button>
+			{/if}
+
+			{#if documents.activeMeta?.sourceFiles && documents.activeMeta.sourceFiles.length > 0}
+				<button
+					class="source-pill-badge inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border border-[var(--border)] text-[11px] font-medium text-[var(--text-2)] hover:text-[var(--text-1)] cursor-pointer transition-colors shrink-0"
+					onclick={onToggleSourceDrawer}
+					title="View {documents.activeMeta.sourceFiles.length} attached source document{documents.activeMeta.sourceFiles.length > 1 ? 's' : ''}"
+					aria-label="View source files"
+				>
+					<Icon name="file-text" size={12} class="text-[var(--accent-primary)]" />
+					<span>{documents.activeMeta.sourceFiles.length} file{documents.activeMeta.sourceFiles.length > 1 ? 's' : ''}</span>
 				</button>
 			{/if}
 		</div>

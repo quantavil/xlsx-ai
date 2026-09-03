@@ -215,7 +215,7 @@ describe('mapReportToTableData', () => {
 			[1, 2],
 			[2, 1]
 		]);
-		expect(table.title).toBe('ICEGrid - INV-A');
+		expect(table.title).toBe('Invoices (2): INV-A, INV-B');
 	});
 
 	it('never percent-scales IGST_Rate', () => {

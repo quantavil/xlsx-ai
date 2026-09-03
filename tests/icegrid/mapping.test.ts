@@ -134,7 +134,7 @@ describe('ICEGrid Validation and Mapping', () => {
 
 	it('maps valid report to TableData with exactly 37 ordered columns', () => {
 		const table = mapReportToTableData(validReport);
-		expect(table.title).toBe('ICEGrid - INV-2026-900');
+		expect(table.title).toBe('INV-2026-900');
 		expect(table.columns.length).toBe(37);
 		expect(table.rows.length).toBe(1);
 

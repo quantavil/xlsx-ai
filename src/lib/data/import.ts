@@ -259,7 +259,7 @@ export async function importFileToTable(
 		throw new Error('The selected file is empty.');
 	}
 
-	const title = filename ? filename.replace(/\.[^/.]+$/, '') : 'Imported Table';
+	const title = filename ? filename.replace(/\.[^/.]+$/, '').trim() : 'Imported Table';
 	return parseSpreadsheetBuffer(arrayBuffer, title, onWarning);
 }
 
