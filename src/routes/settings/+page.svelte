@@ -7,12 +7,14 @@
 
 	import AiSection from '$lib/components/settings/AiSection.svelte';
 	import ModulesSection from '$lib/components/settings/ModulesSection.svelte';
+	import PromptsSection from '$lib/components/settings/PromptsSection.svelte';
 	import ShortcutsSection from '$lib/components/settings/ShortcutsSection.svelte';
 	import type { IconName } from '$lib/types';
 	import { providerLabel, type AiProvider } from '$lib/ai/providers';
 
 	const SECTIONS: Array<{ id: string; label: string; icon: IconName; blurb: string }> = [
 		{ id: 'ai', label: 'AI & Models', icon: 'sparkles', blurb: 'Connect an AI provider and pick the model behind every AI action.' },
+		{ id: 'prompts', label: 'Custom Prompts', icon: 'file-text', blurb: 'Save reusable prompt templates with slash shortcuts (/shortcut).' },
 		{ id: 'modules', label: 'Modules', icon: 'layers', blurb: 'Turn document pipelines on or off for this workspace.' },
 		{ id: 'shortcuts', label: 'Shortcuts', icon: 'keyboard', blurb: 'Every keyboard command available in the grid.' }
 	];
@@ -238,6 +240,8 @@
 						onRemoveKey={removeApiKey}
 						onSwitchKey={switchApiKey}
 					/>
+				{:else if activeSection === 'prompts'}
+					<PromptsSection />
 				{:else if activeSection === 'modules'}
 					<ModulesSection {moduleStore} />
 				{:else}

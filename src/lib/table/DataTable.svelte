@@ -444,12 +444,18 @@
 		const col = store.columns.find((c) => c.id === colId);
 		if (!col) return;
 		const sourceRows = store.resolvedRows ?? store.rows;
-		let maxLen = col.name.length;
+		// Header controls: type icon (14px + 6px gap), title (~8.5px/char),
+		// sort chevron (14px + 4px margin), filter button (20px), menu button
+		// (20px), header padding (~28px). Keeps title/controls visible on empty
+		// or short columns.
+		const headerMin = Math.round(col.name.length * 8.5 + 86);
+		let maxContentLen = 0;
 		for (const row of sourceRows) {
 			const str = formatCellValue(col.type, row[col.id]);
-			if (str.length > maxLen) maxLen = str.length;
+			if (str.length > maxContentLen) maxContentLen = str.length;
 		}
-		const fitWidth = Math.max(70, Math.min(450, Math.round(maxLen * 8.5 + 42)));
+		const contentMin = Math.round(maxContentLen * 8.5 + 32);
+		const fitWidth = Math.max(100, Math.min(450, Math.max(headerMin, contentMin)));
 		store.updateColumnWidth(colId, fitWidth);
 	}
 
@@ -1665,10 +1671,10 @@
 										class="column-menu-wrapper relative flex items-center"
 									>
 										<button
-											class="th-menu-trigger flex items-center justify-center w-5 h-5 rounded bg-transparent hover:bg-[var(--surface-2)] border-none text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer transition-opacity focus-visible:opacity-100 {activeColMenu ===
-											col.id
-												? 'opacity-100'
-												: 'opacity-0 group-hover/col:opacity-100'}"
+										class="th-menu-trigger flex items-center justify-center w-5 h-5 rounded bg-transparent hover:bg-[var(--surface-2)] border-none cursor-pointer transition-opacity focus-visible:opacity-100 {activeColMenu ===
+										col.id
+											? 'opacity-100 text-[var(--accent-primary)]'
+											: 'opacity-60 hover:opacity-100 text-[var(--text-3)] hover:text-[var(--text-1)]'}"
 											onclick={(e) => {
 												e.stopPropagation();
 												const el =

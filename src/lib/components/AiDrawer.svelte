@@ -5,7 +5,6 @@
 	import type { CellValue } from '$lib/types';
 	import { createAiApi } from '$lib/ai/client';
 	import { validatePatchProposals } from '$lib/ai/patches';
-	import { isNumericType } from '$lib/table/cells';
 	import { documents } from '$lib/workspace.svelte';
 	import { extractSvgElement, isSvgContent } from '$lib/ai/copy';
 
@@ -45,9 +44,6 @@
 
 	// Derived from the live table instead of hardcoded to one sample dataset.
 	let examplePrompts = $derived.by(() => {
-		const firstNumeric = store.columns.find(
-			(c) => isNumericType(c.type)
-		);
 		const firstCategorical = store.columns.find((c) => c.type === 'dropdown' || c.type === 'text');
 		const chips = [
 			{
@@ -55,12 +51,6 @@
 				prompt: 'Summarize this dataset, highlighting key metrics and anomalies.'
 			}
 		];
-		if (firstNumeric) {
-			chips.push({
-				label: `Top 5 by ${firstNumeric.name}`,
-				prompt: `List the top 5 rows by ${firstNumeric.name} and explain what they have in common.`
-			});
-		}
 		if (firstCategorical) {
 			chips.push({
 				label: `Break down by ${firstCategorical.name}`,
@@ -134,62 +124,103 @@
 
 	let messages = $state<ChatMessage[]>([]);
 
-	const BOOKMARKS_KEY = 'xlsx-ai:prompt-bookmarks:v1';
+	const CUSTOM_PROMPTS_KEY = 'xlsx-ai:custom-prompts:v1';
 
-	interface PromptBookmark {
+	interface CustomPrompt {
 		id: string;
-		label: string;
+		shortcut: string;
 		prompt: string;
+		label: string;
 	}
 
-	let promptBookmarks = $state<PromptBookmark[]>([]);
+	const DEFAULT_CUSTOM_PROMPTS: CustomPrompt[] = [
+		{
+			id: 'default-summarize',
+			shortcut: '/summarize',
+			label: 'Summarize dataset',
+			prompt: 'Summarize key patterns and anomalies in this dataset.'
+		},
+		{
+			id: 'default-format',
+			shortcut: '/format',
+			label: 'Check formatting',
+			prompt: 'Check data consistency, typos, and formatting across all columns.'
+		}
+	];
 
-	function loadBookmarks(): PromptBookmark[] {
+	function normalizeShortcut(value: string): string {
+		const trimmed = value.trim().toLowerCase();
+		if (!trimmed) return '';
+		return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+	}
+
+	function hydrateCustomPrompts(raw: string | null): CustomPrompt[] {
 		try {
-			if (typeof localStorage === 'undefined') return [];
-			const raw = localStorage.getItem(BOOKMARKS_KEY);
-			if (!raw) return [];
+			if (!raw) return [...DEFAULT_CUSTOM_PROMPTS];
 			const parsed: unknown = JSON.parse(raw);
-			if (!Array.isArray(parsed)) return [];
-			return (parsed as Array<Record<string, unknown>>)
-				.filter((b) => !!b && typeof b === 'object' && typeof b.id === 'string' && typeof b.prompt === 'string')
-				.map((b) => ({
-					id: b.id as string,
-					label: typeof b.label === 'string' && (b.label as string).trim() ? (b.label as string) : (b.prompt as string).slice(0, 28),
-					prompt: b.prompt as string
-				}));
+			if (!Array.isArray(parsed)) return [...DEFAULT_CUSTOM_PROMPTS];
+			const items = (parsed as Array<Record<string, unknown>>)
+				.filter(
+					(p) =>
+						!!p &&
+						typeof p === 'object' &&
+						typeof p.id === 'string' &&
+						typeof p.shortcut === 'string' &&
+						typeof p.prompt === 'string'
+				)
+				.map((p) => ({
+					id: p.id as string,
+					shortcut: normalizeShortcut(p.shortcut as string),
+					prompt: p.prompt as string,
+					label:
+						typeof p.label === 'string' && (p.label as string).trim()
+							? (p.label as string)
+							: (p.prompt as string).slice(0, 28)
+				}))
+				.filter((p) => p.shortcut && p.prompt.trim());
+			return items.length > 0 ? items : [...DEFAULT_CUSTOM_PROMPTS];
 		} catch {
-			return [];
+			return [...DEFAULT_CUSTOM_PROMPTS];
 		}
 	}
 
-	function saveBookmarks(items: PromptBookmark[]) {
-		promptBookmarks = items;
+	function expandShortcut(text: string, prompts: CustomPrompt[]): string {
+		const trimmed = text.trim();
+		if (!trimmed.startsWith('/')) return text;
+		const firstToken = trimmed.split(/\s+/)[0]?.toLowerCase() ?? '';
+		const match = prompts.find((p) => p.shortcut.toLowerCase() === firstToken);
+		if (!match) return text;
+		const rest = trimmed.slice(firstToken.length);
+		return `${match.prompt}${rest}`;
+	}
+
+	let customPrompts = $state<CustomPrompt[]>([...DEFAULT_CUSTOM_PROMPTS]);
+
+	function loadCustomPrompts(): CustomPrompt[] {
 		try {
-			localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(items));
+			if (typeof localStorage === 'undefined') return [...DEFAULT_CUSTOM_PROMPTS];
+			return hydrateCustomPrompts(localStorage.getItem(CUSTOM_PROMPTS_KEY));
 		} catch {
-			// Storage may be unavailable (private mode); in-memory state still applies.
+			return [...DEFAULT_CUSTOM_PROMPTS];
 		}
 	}
 
-	function addBookmark() {
-		const text = promptInput.trim();
-		if (!text) return;
-		const item: PromptBookmark = {
-			id: `bm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-			label: text.slice(0, 28),
-			prompt: text
-		};
-		saveBookmarks([...promptBookmarks, item]);
-		onNotify('info', 'Prompt bookmarked');
-	}
+	let slashMatches = $derived.by(() => {
+		if (!promptInput.startsWith('/')) return [];
+		const token = promptInput.split(' ')[0]?.toLowerCase() ?? '';
+		if (!token) return [];
+		return customPrompts.filter((p) => p.shortcut.toLowerCase().startsWith(token));
+	});
 
-	function removeBookmark(id: string) {
-		saveBookmarks(promptBookmarks.filter((b) => b.id !== id));
+	let showSlashMenu = $derived(promptInput.startsWith('/') && slashMatches.length > 0);
+
+	function applySlashMatch(match: CustomPrompt) {
+		promptInput = match.prompt;
+		promptEl?.focus();
 	}
 
 	onMount(() => {
-		promptBookmarks = loadBookmarks();
+		customPrompts = loadCustomPrompts();
 	});
 
 	// Structured Diff Preview Interface
@@ -364,8 +395,9 @@
 
 	// Send generic conversational chat message
 	async function sendChatMessage(customPrompt?: string) {
-		const text = customPrompt ?? promptInput.trim();
-		if (!text) return;
+		const raw = customPrompt ?? promptInput.trim();
+		if (!raw) return;
+		const text = expandShortcut(raw, customPrompts);
 
 		const key = store.apiKey?.trim();
 		if (!key || !store.aiModel) {
@@ -607,34 +639,6 @@
 					<div class="empty-bot-wrap w-10 h-10 rounded-full bg-[var(--surface-2)] border border-[var(--border)] flex items-center justify-center text-[var(--accent-primary)] mb-1"><Icon name="bot" size={22} aria-hidden="true" /></div>
 					<p class="empty-title font-semibold text-[13px] text-[var(--text-1)] m-0">Ask anything about this table</p>
 					<p class="empty-desc text-[12px] text-[var(--text-3)] max-w-[240px] m-0">Summarize trends, fill blanks, or clean formats. Try a prompt:</p>
-					{#if promptBookmarks.length > 0}
-						<div class="bookmark-chips flex flex-col gap-1.5 mt-2 w-full max-w-[260px]">
-							<div class="bookmark-heading text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] text-left">Saved prompts</div>
-							{#each promptBookmarks as bm (bm.id)}
-								<div class="bookmark-chip-row flex items-center gap-1 w-full">
-									<button
-										class="chip bookmark-chip flex-1 text-left text-[11.5px] px-2.5 py-1.5 rounded-md bg-[var(--accent-primary-bg)] border border-[var(--accent-primary-border)] text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors cursor-pointer truncate"
-										title={bm.prompt}
-										onclick={() => {
-											promptInput = bm.prompt;
-											promptEl?.focus();
-										}}>{bm.label}</button
-									>
-									<button
-										class="bookmark-delete flex items-center justify-center w-5 h-5 rounded-md text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--accent-rose-bg)] cursor-pointer shrink-0 transition-colors"
-										aria-label="Remove bookmark {bm.label}"
-										title="Remove bookmark"
-										onclick={(e) => {
-											e.stopPropagation();
-											removeBookmark(bm.id);
-										}}
-									>
-										<Icon name="x" size={10} aria-hidden="true" />
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
 					<div class="example-chips flex flex-col gap-1.5 mt-2 w-full max-w-[260px]">
 						{#each examplePrompts as chip (chip.label)}
 							<button
@@ -659,39 +663,41 @@
 							{#if msg.isStreaming}
 								<span class="streaming-cursor animate-pulse inline-block text-[var(--accent-primary)]" aria-hidden="true">▋</span>
 							{/if}
-							{#if !msg.isStreaming && msg.content.trim()}
-							<div class="msg-actions flex gap-1 pt-1 text-[10px]">
-								<button
-									class="msg-action-btn inline-flex items-center justify-center w-6 h-6 rounded-md bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
-									aria-label="Copy message text"
-									title="Copy"
-									onclick={() => copyToClipboard(msg.content, () => onNotify('success', 'Copied to clipboard'), (err) => onNotify("error", err))}
-								>
-									<Icon name="copy" size={11} aria-hidden="true" />
-								</button>
-								{#if msg.role === 'assistant' && isSvgContent(msg.content)}
-									<button
-										class="msg-action-btn inline-flex items-center justify-center w-6 h-6 rounded-md bg-[var(--surface-3)] border border-[var(--border)] hover:bg-[var(--border-strong)] hover:text-[var(--text-1)] text-[var(--text-3)] transition-colors cursor-pointer select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-primary)]"
-										aria-label="Copy SVG source"
-										title="Copy SVG"
-										onclick={() => copySvgSource(msg.content, () => onNotify('success', 'Copied SVG source'), (err) => onNotify("error", err))}
-									>
-										<Icon name="copy" size={11} aria-hidden="true" />
-									</button>
-								{/if}
-							</div>
-							{/if}
-							{#if !msg.isStreaming && (msg.latencyMs || msg.usage?.totalTokens)}
-								<div class="msg-stats flex items-center gap-1.5 pt-1 text-[10.5px] text-[var(--text-3)] font-mono select-none">
-									{#if msg.usage?.totalTokens}
-										<span>{msg.usage.totalTokens.toLocaleString()} tokens</span>
-									{/if}
-									{#if msg.usage?.totalTokens && msg.latencyMs}
-										<span>•</span>
-									{/if}
-									{#if msg.latencyMs}
-										<span>{(msg.latencyMs / 1000).toFixed(1)}s</span>
-									{/if}
+							{#if msg.role === 'assistant' && !msg.isStreaming}
+								<div class="msg-footer flex items-center justify-between pt-1 select-none text-[10.5px] text-[var(--text-3)]">
+									<div class="msg-stats flex items-center gap-1.5 font-mono">
+										{#if msg.usage?.totalTokens}
+											<span>{msg.usage.totalTokens.toLocaleString()} tokens</span>
+										{/if}
+										{#if msg.usage?.totalTokens && msg.latencyMs}
+											<span>•</span>
+										{/if}
+										{#if msg.latencyMs}
+											<span>{(msg.latencyMs / 1000).toFixed(1)}s</span>
+										{/if}
+									</div>
+									<div class="msg-actions flex items-center gap-1">
+										{#if isSvgContent(msg.content)}
+											<button
+												class="ghost-copy-btn p-1 rounded text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer bg-transparent border-none"
+												title="Copy SVG"
+												aria-label="Copy SVG source"
+												onclick={() => copySvgSource(msg.content, () => onNotify('success', 'Copied SVG source'), (err) => onNotify('error', err))}
+											>
+												<Icon name="copy" size={11} aria-hidden="true" />
+											</button>
+										{/if}
+										{#if msg.content.trim()}
+											<button
+												class="ghost-copy-btn p-1 rounded text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-hover)] transition-colors cursor-pointer bg-transparent border-none"
+												title="Copy"
+												aria-label="Copy message text"
+												onclick={() => copyToClipboard(msg.content, () => onNotify('success', 'Copied to clipboard'), (err) => onNotify('error', err))}
+											>
+												<Icon name="copy" size={11} aria-hidden="true" />
+											</button>
+										{/if}
+									</div>
 								</div>
 							{/if}
 						</div>
@@ -715,31 +721,19 @@
 					{/each}
 				</select>
 			</div>
-			{#if promptBookmarks.length > 0}
-				<div class="footer-bookmarks flex flex-wrap gap-1.5 px-0.5">
-					{#each promptBookmarks as bm (bm.id)}
-						<span class="bookmark-chip-inline inline-flex items-center gap-1 max-w-full pl-2.5 pr-1 py-1 rounded-md bg-[var(--surface-2)] border border-[var(--border)] text-[11px] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors">
-							<button
-								class="bg-transparent border-none p-0 text-inherit text-[11px] cursor-pointer truncate max-w-[140px]"
-								title={bm.prompt}
-								aria-label="Use bookmark {bm.label}"
-								onclick={() => {
-									promptInput = bm.prompt;
-									promptEl?.focus();
-								}}>{bm.label}</button
-							>
-							<button
-								class="flex items-center justify-center w-4 h-4 rounded text-[var(--text-3)] hover:text-[var(--accent-rose)] cursor-pointer bg-transparent border-none p-0"
-								aria-label="Remove bookmark {bm.label}"
-								title="Remove bookmark"
-								onclick={(e) => {
-									e.stopPropagation();
-									removeBookmark(bm.id);
-								}}
-							>
-								<Icon name="x" size={10} aria-hidden="true" />
-							</button>
-						</span>
+			{#if showSlashMenu}
+				<div class="slash-menu flex flex-col gap-0.5 p-1.5 rounded-xl bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-2xl" role="listbox" aria-label="Custom prompt shortcuts">
+					{#each slashMatches as match (match.id)}
+						<button
+							type="button"
+							role="option"
+							aria-selected="false"
+							class="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-transparent border-none text-left cursor-pointer hover:bg-[var(--surface-hover)] transition-colors"
+							onclick={() => applySlashMatch(match)}
+						>
+							<span class="font-mono font-bold text-[12px] text-[var(--accent-primary)] shrink-0">{match.shortcut}</span>
+							<span class="text-[12px] text-[var(--text-2)] truncate">{match.label}</span>
+						</button>
 					{/each}
 				</div>
 			{/if}
@@ -747,26 +741,22 @@
 				<textarea
 					rows="1"
 					bind:this={promptEl}
-					placeholder="Ask AI about this table..."
+					placeholder="Ask AI about this table... (type / for shortcuts)"
 					aria-label="Message for AI Assistant"
 					class="bg-transparent border-none outline-none text-[12.5px] text-[var(--text-1)] w-full resize-none overflow-y-auto placeholder:text-[var(--text-3)] font-normal leading-relaxed"
 					bind:value={promptInput}
 					onkeydown={(e) => {
+						if (showSlashMenu && (e.key === 'Tab' || e.key === 'Enter') && !e.shiftKey && slashMatches.length > 0) {
+							e.preventDefault();
+							applySlashMatch(slashMatches[0]);
+							return;
+						}
 						if (e.key === 'Enter' && !e.shiftKey) {
 							e.preventDefault();
 							sendChatMessage();
 						}
 					}}
 				></textarea>
-				<button
-					class="btn-tactile bookmark-btn w-7 h-7 rounded-lg bg-transparent border border-transparent text-[var(--text-3)] hover:text-[var(--accent-primary)] hover:bg-[var(--accent-primary-bg)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors ml-1"
-					disabled={!promptInput.trim()}
-					onclick={addBookmark}
-					title="Bookmark prompt"
-					aria-label="Bookmark prompt"
-				>
-					<Icon name="star" size={13} aria-hidden="true" />
-				</button>
 				<button
 					class="btn-tactile send-btn w-7 h-7 rounded-lg bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer shrink-0 transition-colors shadow-sm ml-1"
 					disabled={isGenerating || !promptInput.trim()}

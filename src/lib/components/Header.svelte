@@ -275,30 +275,6 @@
 					<span class="title-text truncate max-w-[260px]">{store.title}</span>
 				</button>
 			{/if}
-
-			{#if documents.activeMeta?.sourceFiles && documents.activeMeta.sourceFiles.length > 0}
-				<button
-					class="source-pill-badge inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition-colors shrink-0 {isSourceOpen()
-						? 'bg-[var(--accent-primary)] text-[var(--text-inverse)] border-[var(--accent-primary)] shadow-xs'
-						: 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] border-[var(--border)] text-[var(--text-2)] hover:text-[var(--text-1)]'}"
-					onclick={() => {
-						if (onToggleSourceDrawer) onToggleSourceDrawer();
-						else toggleDrawer('source');
-					}}
-					title={isSourceOpen()
-						? 'Close source documents (Esc)'
-						: `View ${documents.activeMeta.sourceFiles.length} attached source document${documents.activeMeta.sourceFiles.length > 1 ? 's' : ''}`}
-					aria-label={isSourceOpen() ? 'Close source documents' : 'View source files'}
-					aria-pressed={isSourceOpen()}
-				>
-					<Icon
-						name="file-text"
-						size={12}
-						class={isSourceOpen() ? 'text-[var(--text-inverse)]' : 'text-[var(--accent-primary)]'}
-					/>
-					<span>{documents.activeMeta.sourceFiles.length} file{documents.activeMeta.sourceFiles.length > 1 ? 's' : ''}</span>
-				</button>
-			{/if}
 		</div>
 	</div>
 
