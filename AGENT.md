@@ -62,7 +62,7 @@
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.
-- **ICEGrid drawback and quantity formulas**: Scheme 00 is non-drawback (leaving RewardItem and RoDTEP selectable). On drawback schemes, an empty `dbk_unit` inherits `QuantityUnit`. `dbk_qty` uses formula `=O{row}` if `dbk_unit` matches `SQCUnit`, `=M{row}` if it matches `QuantityUnit`, or `Quantity` as default.
+- **ICEGrid drawback and quantity formulas**: Scheme 00 is non-drawback (leaving RewardItem and RoDTEP selectable). On drawback schemes, an empty `dbk_unit` inherits `QuantityUnit`. `dbk_qty` uses formula `=O{row}` if `dbk_unit` matches `SQCUnit`, `=M{row}` if it matches `QuantityUnit` or if `dbk_unit` is empty, or `Quantity` as default.
 - **Confirmation dialog**: `pipeline.ts` runs `deriveRows` before confirmation to generate proposals, and re-derives over confirmed answers so downstream fields recompute. Dialog asks per unique RITC plus invoice-wide block.
 - **Exchange rate**: `impexcube.in/Home/LoadExRate` GET endpoint supplies the board. Always use `Export` column (never `Import`). Scanner detects currency from document text, excluding `INR`.
 - **Formulas evaluation**: Evaluated via `xlsx-calc` into `store.resolvedRows` (editor uses `store.rawCell()`). `normalizeCellValue` passes `=`-prefixed text through untouched.

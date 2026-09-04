@@ -135,16 +135,24 @@ describe('ICEGrid Rules - Quantity and Formulas', () => {
 		expect(deriveSqcQty(null, 'PCS', 50, null, 6)).toBeNull();
 	});
 
-	it('Rule 4: dbk_qty uses =O{row} when dbk_unit matches SQCUnit, or =M{row} when dbk_unit matches QuantityUnit', () => {
+	it('Rule 4: dbk_qty uses =O{row} when dbk_unit matches SQCUnit, or =M{row} when dbk_unit matches QuantityUnit or is empty', () => {
 		// Matching SQCUnit on drawback scheme -> =O2
 		expect(deriveDbkQty('NOS', 'NOS', 'PCS', 50, 2, true)).toBe('=O2');
 		expect(deriveDbkQty('KGS', 'KGS', 'PCS', 50, 3, true)).toBe('=O3');
 		// Matching QuantityUnit (when SQCUnit does not match) -> =M4
 		expect(deriveDbkQty('PCS', 'NOS', 'PCS', 50, 4, true)).toBe('=M4');
+		// Empty dbk_unit on drawback scheme -> =M{row}
+		expect(deriveDbkQty(null, 'NOS', 'PCS', 50, 4, true)).toBe('=M4');
+		expect(deriveDbkQty('', 'NOS', 'PCS', 50, 4, true)).toBe('=M4');
+		expect(deriveDbkQty(undefined, 'NOS', 'PCS', 50, 4, true)).toBe('=M4');
+		expect(deriveDbkQty('   ', 'NOS', 'PCS', 50, 4, true)).toBe('=M4');
+		// Empty dbk_unit when SQCUnit is also NOS -> =M{row}
+		expect(deriveDbkQty(null, 'NOS', 'NOS', 50, 4, true)).toBe('=M4');
 		// Mismatched both units on drawback scheme -> Quantity
 		expect(deriveDbkQty('MTR', 'NOS', 'PCS', 50, 4, true)).toBe(50);
 		// Non-drawback scheme -> null
 		expect(deriveDbkQty('NOS', 'NOS', 'NOS', 50, 5, false)).toBeNull();
+		expect(deriveDbkQty(null, 'NOS', 'NOS', 50, 5, false)).toBeNull();
 	});
 
 	it('RoDTEPQty uses =O{row} when RoDTEP is Yes', () => {
@@ -186,6 +194,21 @@ describe('ICEGrid Rules - Quantity and Formulas', () => {
 		expect(row.SQCQTY).toBe('=M2');
 		expect(row.dbk_qty).toBe('=O2');
 		expect(row.RoDTEPQty).toBe('=O2');
+	});
+
+	it('applyQuantityRules applies =M{row} when dbk_unit is initially empty even if SQCUnit matches QuantityUnit', () => {
+		const row = makeRow({
+			SQCUnit: 'NOS',
+			QuantityUnit: 'NOS',
+			Quantity: 100,
+			dbk_unit: null,
+			RODTEP: 'Yes'
+		});
+
+		applyQuantityRules(row, 2, true);
+
+		expect(row.dbk_unit).toBe('NOS');
+		expect(row.dbk_qty).toBe('=M2');
 	});
 });
 

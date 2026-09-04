@@ -35,7 +35,10 @@ export function deriveSqcQty(
 
 function matchesUnit(a: string | null | undefined, b: string | null | undefined): boolean {
 	if (isBlank(a) || isBlank(b)) return false;
-	return a!.trim().toUpperCase() === b!.trim().toUpperCase();
+	const aTrim = a!.trim();
+	const bTrim = b!.trim();
+	if (!aTrim || !bTrim) return false;
+	return aTrim.toUpperCase() === bTrim.toUpperCase();
 }
 
 /**
@@ -43,6 +46,7 @@ function matchesUnit(a: string | null | undefined, b: string | null | undefined)
  *
  * IF Col X (dbk_unit) matches Col P (SQCUnit), use formula `=O${excelRowIndex}`.
  * ELSE IF Col X (dbk_unit) matches Col N (QuantityUnit), use formula `=M${excelRowIndex}`.
+ * ELSE IF Col X (dbk_unit) is empty, use formula `=M${excelRowIndex}`.
  * Otherwise, keep default (Quantity).
  * Gated: If drawback is not eligible for this row, dbk_qty is null.
  */
@@ -61,6 +65,10 @@ export function deriveDbkQty(
 	}
 
 	if (matchesUnit(dbkUnit, quantityUnit)) {
+		return `=M${excelRowIndex}`;
+	}
+
+	if (!dbkUnit?.trim()) {
 		return `=M${excelRowIndex}`;
 	}
 
@@ -100,11 +108,6 @@ export function applyQuantityRules(
 
 	// Rule 4: dbk_unit and dbk_qty formulas or defaults
 	if (isDrawbackEligible) {
-		// If DBK Details Unit is empty, Col X (dbk_unit) should be same as Col N (QuantityUnit)
-		if (isBlank(row.dbk_unit) && !isBlank(row.QuantityUnit)) {
-			row.dbk_unit = row.QuantityUnit;
-		}
-
 		if (isBlank(row.dbk_qty)) {
 			const dbk = deriveDbkQty(
 				row.dbk_unit,
@@ -117,6 +120,11 @@ export function applyQuantityRules(
 			if (!isBlank(dbk)) {
 				row.dbk_qty = dbk;
 			}
+		}
+
+		// If DBK Details Unit is empty, Col X (dbk_unit) should be same as Col N (QuantityUnit)
+		if (!row.dbk_unit?.trim() && !isBlank(row.QuantityUnit)) {
+			row.dbk_unit = row.QuantityUnit;
 		}
 	} else {
 		row.dbk_qty = null;
