@@ -1,5 +1,6 @@
 import {
 	DEFAULT_AI_MODEL,
+	DEFAULT_OPENROUTER_MODEL,
 	DEFAULT_AI_PROVIDER,
 	RETIRED_AI_MODELS,
 	LS_AI_SETTINGS,
@@ -8,16 +9,17 @@ import {
 	LS_AI_MODEL,
 	LS_FAV_MODELS
 } from '$lib/constants';
-import type {
-	AiProvider,
-	AiProviderProfile
+import {
+	isSupportedModelId,
+	type AiProvider,
+	type AiProviderProfile
 } from './providers';
 
 function clampKeyIndex(keys: string[], index: number): number {
 	return keys.length === 0 ? 0 : Math.min(Math.max(0, Math.trunc(index)), keys.length - 1);
 }
 
-function normalizeProfile(value: unknown, defaultModel: string): AiProviderProfile {
+function normalizeProfile(provider: AiProvider, value: unknown, defaultModel: string): AiProviderProfile {
 	if (!value || typeof value !== 'object') {
 		return { keys: [], activeKeyIndex: 0, modelId: defaultModel, favoriteModels: [] };
 	}
@@ -26,13 +28,19 @@ function normalizeProfile(value: unknown, defaultModel: string): AiProviderProfi
 		? raw.keys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0)
 		: [];
 	const active = typeof raw.activeKeyIndex === 'number' ? raw.activeKeyIndex : 0;
+	const candidateModel = typeof raw.modelId === 'string' ? raw.modelId.trim() : '';
+	const modelId =
+		candidateModel && isSupportedModelId(provider, candidateModel) ? candidateModel : defaultModel;
+	const favoriteModels = Array.isArray(raw.favoriteModels)
+		? raw.favoriteModels.filter(
+				(id): id is string => typeof id === 'string' && isSupportedModelId(provider, id)
+			)
+		: [];
 	return {
 		keys,
 		activeKeyIndex: clampKeyIndex(keys, active),
-		modelId: typeof raw.modelId === 'string' ? raw.modelId.trim() : defaultModel,
-		favoriteModels: Array.isArray(raw.favoriteModels)
-			? raw.favoriteModels.filter((id): id is string => typeof id === 'string')
-			: []
+		modelId,
+		favoriteModels
 	};
 }
 
@@ -40,7 +48,7 @@ export function createAiSettingsStore() {
 	let aiProvider = $state<AiProvider>(DEFAULT_AI_PROVIDER);
 	let aiProfiles = $state<Record<AiProvider, AiProviderProfile>>({
 		gemini: { keys: [], activeKeyIndex: 0, modelId: DEFAULT_AI_MODEL, favoriteModels: [] },
-		openrouter: { keys: [], activeKeyIndex: 0, modelId: '', favoriteModels: [] }
+		openrouter: { keys: [], activeKeyIndex: 0, modelId: DEFAULT_OPENROUTER_MODEL, favoriteModels: [] }
 	});
 
 	const activeAiProfile = $derived(aiProfiles[aiProvider]);
@@ -70,8 +78,8 @@ export function createAiSettingsStore() {
 					const raw = parsed as Record<string, unknown>;
 					const profiles = raw.profiles as Record<string, unknown> | undefined;
 					aiProfiles = {
-						gemini: normalizeProfile(profiles?.gemini, DEFAULT_AI_MODEL),
-						openrouter: normalizeProfile(profiles?.openrouter, '')
+						gemini: normalizeProfile('gemini', profiles?.gemini, DEFAULT_AI_MODEL),
+						openrouter: normalizeProfile('openrouter', profiles?.openrouter, DEFAULT_OPENROUTER_MODEL)
 					};
 					aiProvider = raw.provider === 'openrouter' ? 'openrouter' : 'gemini';
 				}
@@ -168,6 +176,7 @@ export function createAiSettingsStore() {
 	}
 
 	function toggleFavoriteModel(modelId: string) {
+		if (!isSupportedModelId(aiProvider, modelId)) return;
 		const next = favoriteModels.includes(modelId)
 			? favoriteModels.filter((id) => id !== modelId)
 			: [...favoriteModels, modelId];
@@ -175,7 +184,9 @@ export function createAiSettingsStore() {
 	}
 
 	function setAiModel(newModel: string) {
-		replaceActiveProfile({ ...activeAiProfile, modelId: newModel.trim() });
+		const clean = newModel.trim();
+		if (!clean || !isSupportedModelId(aiProvider, clean)) return;
+		replaceActiveProfile({ ...activeAiProfile, modelId: clean });
 	}
 
 	function setAiProvider(provider: AiProvider) {

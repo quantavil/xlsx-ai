@@ -66,6 +66,19 @@ export const AI_MODELS: AiModelConfig[] = [
 	}
 ];
 
+export const DEFAULT_OPENROUTER_MODEL = 'openrouter/free';
+
+export const OPENROUTER_MODELS: AiModelConfig[] = [
+	{
+		id: 'openrouter/free',
+		name: 'Free Models Router',
+		description: 'The simplest way to get free inference across available free models on OpenRouter.',
+		badge: 'Default',
+		speed: 'Fast',
+		contextWindow: '200k tokens'
+	}
+];
+
 
 
 const numberFormatter = new Intl.NumberFormat('en-US', {

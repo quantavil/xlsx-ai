@@ -7,6 +7,7 @@
 	import { validatePatchProposals } from '$lib/ai/patches';
 	import { documents } from '$lib/workspace.svelte';
 	import { extractSvgElement, isSvgContent } from '$lib/ai/copy';
+	import { isSupportedModelId } from '$lib/ai/providers';
 
 	let {
 		store,
@@ -19,16 +20,15 @@
 	} = $props();
 
 	// Favourites only, plus whichever model is actually in use so the control never
-	// displays a value it does not list. Ids verbatim, never display names: a model
-	// starred from the live catalog has no name stored here, and half a list of
-	// "Gemini 3.7 Flash" next to half a list of "gemini-3.5-flash-lite" reads as a bug.
-	let switchableModels = $derived(
-		!store.aiModel
-			? store.favoriteModels
-			: store.favoriteModels.includes(store.aiModel)
-			? store.favoriteModels
-			: [store.aiModel, ...store.favoriteModels]
-	);
+	// displays a value it does not list. Always filtered by active provider so models
+	// from another provider never leak into the switcher.
+	let switchableModels = $derived.by(() => {
+		const validFavs = store.favoriteModels.filter((id) => isSupportedModelId(store.aiProvider, id));
+		const current =
+			store.aiModel && isSupportedModelId(store.aiProvider, store.aiModel) ? store.aiModel : '';
+		if (!current) return validFavs;
+		return validFavs.includes(current) ? validFavs : [current, ...validFavs];
+	});
 
 	// Grow the composer with its content instead of scrolling one fixed row. `field-sizing`
 	// would do this in CSS but Firefox and Safari do not ship it yet.

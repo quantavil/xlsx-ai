@@ -270,20 +270,21 @@ describe('Server AI Endpoint (/api/ai)', () => {
 		expect((await response.json()).error).toContain('Unsupported Gemini model');
 	});
 
-	it('requires an explicit model for OpenRouter generation', async () => {
+	it('defaults to openrouter/free and rejects unsupported OpenRouter model ids', async () => {
 		const request = new Request('http://localhost:5173/api/ai', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
 				'x-ai-provider': 'openrouter',
-				'x-ai-api-key': 'sk-or-v1-valid-test-key'
+				'x-ai-api-key': 'sk-or-v1-valid-test-key',
+				'x-ai-model-id': 'invalid-slug-without-slash'
 			},
 			body: JSON.stringify({ tableContext: { title: 'Test', columns: [], rows: [] } })
 		});
 
 		const response = await POST({ request } as any);
 		expect(response.status).toBe(400);
-		expect((await response.json()).error).toContain('OpenRouter model');
+		expect((await response.json()).error).toContain('Unsupported OpenRouter model');
 	});
 
 	it('rejects unknown AI providers before generation', async () => {

@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { generateObject } from 'ai';
-import { DEFAULT_AI_MODEL } from '$lib/constants';
+import { DEFAULT_AI_MODEL, DEFAULT_OPENROUTER_MODEL } from '$lib/constants';
 import { getModuleAiHandler } from '$lib/server/modules/registry';
 import { createAiLanguageModel } from '$lib/server/ai-provider';
 import {
@@ -184,7 +184,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const requestedModel = request.headers.get('x-ai-model-id')?.trim();
-	const targetModel = requestedModel || (provider === 'gemini' ? DEFAULT_AI_MODEL : '');
+	const targetModel =
+		requestedModel || (provider === 'gemini' ? DEFAULT_AI_MODEL : DEFAULT_OPENROUTER_MODEL);
 	if (!targetModel) {
 		return json({ error: 'An OpenRouter model must be selected in Settings → AI & Models.' }, { status: 400 });
 	}

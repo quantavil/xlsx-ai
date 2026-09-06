@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto, preloadData } from '$app/navigation';
 	import Icon from '$lib/components/Icons.svelte';
-	import { AI_MODELS, maskApiKey, type AiModelConfig } from '$lib/constants';
+	import { AI_MODELS, OPENROUTER_MODELS, maskApiKey, type AiModelConfig } from '$lib/constants';
 	import { store, moduleStore, notify } from '$lib/workspace.svelte';
 
 	import AiSection from '$lib/components/settings/AiSection.svelte';
@@ -22,19 +22,28 @@
 	let activeSection = $state<string>('ai');
 	const currentSection = $derived(SECTIONS.find((s) => s.id === activeSection) ?? SECTIONS[0]);
 
+	function fallbackModels(provider: AiProvider): AiModelConfig[] {
+		return provider === 'gemini' ? AI_MODELS : OPENROUTER_MODELS;
+	}
+
 	let apiKey = $state<string>('');
 	let showApiKey = $state<boolean>(false);
 	let isSaved = $state<boolean>(false);
-	let availableModels = $state<AiModelConfig[]>(AI_MODELS);
+	let availableModels = $state<AiModelConfig[]>(fallbackModels(store.aiProvider));
 	let isLoadingModels = $state<boolean>(false);
 	let modelsFetchError = $state<string>('');
 
 	let fetchRequestId = 0;
 	let activeFetchController: AbortController | null = null;
 
-	function fallbackModels(provider: AiProvider): AiModelConfig[] {
-		return provider === 'gemini' ? AI_MODELS : [];
-	}
+	let lastTrackedProvider = $state<AiProvider>(store.aiProvider);
+	$effect(() => {
+		if (store.aiProvider !== lastTrackedProvider) {
+			lastTrackedProvider = store.aiProvider;
+			availableModels = fallbackModels(store.aiProvider);
+			if (store.apiKey) fetchModels(store.apiKey);
+		}
+	});
 
 	async function fetchModels(keyToUse?: string) {
 		const provider = store.aiProvider;
@@ -133,6 +142,7 @@
 	}
 
 	onMount(() => {
+		availableModels = fallbackModels(store.aiProvider);
 		if (store.apiKey) {
 			isSaved = true;
 			fetchModels(store.apiKey);

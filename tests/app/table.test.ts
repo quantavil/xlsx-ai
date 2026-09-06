@@ -469,8 +469,12 @@ describe('AI provider profiles', () => {
 		store.setAiProvider('openrouter');
 		expect(store.aiProvider).toBe('openrouter');
 		expect(store.apiKey).toBe('');
-		expect(store.aiModel).toBe('');
+		expect(store.aiModel).toBe('openrouter/free');
 		expect(store.favoriteModels).toEqual([]);
+
+		// Setting an invalid cross-provider model should be ignored
+		store.setAiModel('gemini-2.5-flash');
+		expect(store.aiModel).toBe('openrouter/free');
 
 		store.addApiKey('sk-or-v1-openrouter-test-key');
 		store.setAiModel('anthropic/claude-sonnet-4');
