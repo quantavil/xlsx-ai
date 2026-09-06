@@ -176,6 +176,7 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 			...classifyWarnings,
 			...derived.warnings,
 			...validation.warnings
-		]
+		],
+		usage: candidate.usage
 	};
 }

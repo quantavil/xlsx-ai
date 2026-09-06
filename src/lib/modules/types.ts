@@ -2,15 +2,29 @@ import type { Component } from 'svelte';
 import type { TableData, IconName } from '$lib/types';
 import type { AiApi } from '$lib/ai/client';
 
+export interface ModuleProgressStats {
+	tokens?: string | number;
+	cost?: string;
+	detail?: string;
+}
+
+export interface ModuleUsage {
+	promptTokens?: number;
+	completionTokens?: number;
+	totalTokens?: number;
+	cost?: number;
+}
+
 export interface ModuleContext {
 	ai: AiApi;
 	signal: AbortSignal;
-	onProgress(message: string): void;
+	onProgress(message: string, stats?: ModuleProgressStats): void;
 }
 
 export interface ModuleResult {
 	table: TableData;
 	warnings: string[];
+	usage?: ModuleUsage;
 }
 
 export interface ModuleRibbonAction {

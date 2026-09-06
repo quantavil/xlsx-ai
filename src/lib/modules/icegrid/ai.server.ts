@@ -122,11 +122,27 @@ Extract every commercial-invoice line item as one row, with evidence spans for e
 		// reportVersion and sourceFiles are stamped here, not generated: Gemini's
 		// responseSchema rejects a non-string enum, and re-typing filenames it was
 		// handed is pure hallucination surface.
+		const usage = result.usage
+			? {
+					promptTokens:
+						// @ts-expect-error AI SDK v7 uses inputTokens
+						result.usage.promptTokens ?? (result.usage as unknown as { inputTokens?: number }).inputTokens,
+					completionTokens:
+						// @ts-expect-error AI SDK v7 uses outputTokens
+						result.usage.completionTokens ?? (result.usage as unknown as { outputTokens?: number }).outputTokens,
+					totalTokens: result.usage.totalTokens,
+					cost:
+						(result.usage as unknown as { raw?: { cost?: number }; cost?: number })?.raw?.cost ??
+						(result.usage as unknown as { cost?: number })?.cost
+				}
+			: undefined;
+
 		const report: IcegridAiReport = {
 			reportVersion: 1,
 			sourceFiles: documentContext.sourceFiles,
 			rows: result.object.rows,
-			warnings: result.object.warnings ?? []
+			warnings: result.object.warnings ?? [],
+			usage
 		};
 		return report;
 	}

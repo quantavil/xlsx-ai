@@ -115,10 +115,20 @@ export const IcegridExtractionSchema = z.object({
 	warnings: z.array(z.string()).max(100).describe('Extraction notes, ambiguities, or warnings')
 });
 
+export const IcegridUsageSchema = z.object({
+	promptTokens: z.number().optional(),
+	completionTokens: z.number().optional(),
+	totalTokens: z.number().optional(),
+	cost: z.number().optional()
+});
+
+export type IcegridUsage = z.infer<typeof IcegridUsageSchema>;
+
 /** Raw Gemini output plus the server-stamped provenance. Still carries evidence. */
 export const IcegridAiReportSchema = IcegridExtractionSchema.extend({
 	reportVersion: z.literal(1).describe('Schema report version 1'),
-	sourceFiles: z.array(z.string()).min(1).max(20).describe('List of analyzed source filenames')
+	sourceFiles: z.array(z.string()).min(1).max(20).describe('List of analyzed source filenames'),
+	usage: IcegridUsageSchema.optional()
 });
 
 /** The clean report after sanitization: verified 37-field rows, no evidence. */

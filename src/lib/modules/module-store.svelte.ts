@@ -1,5 +1,5 @@
 import { BUILTIN_MODULES, getModuleById } from './registry';
-import type { ModuleResult } from './types';
+import type { ModuleResult, ModuleProgressStats } from './types';
 import { createAiApi } from '$lib/ai/client';
 import type { AiProvider } from '$lib/ai/providers';
 
@@ -9,6 +9,9 @@ export function createModuleStore() {
 	let enabledState = $state<Record<string, boolean>>({});
 	let runningModuleId = $state<string | null>(null);
 	let progressMessage = $state<string>('');
+	let progressStats = $state<ModuleProgressStats | null>(null);
+	let elapsedTime = $state<number>(0);
+	let timerInterval: ReturnType<typeof setInterval> | null = null;
 	let activeController = $state<AbortController | null>(null);
 
 	// Initialize default states from manifests
@@ -84,8 +87,14 @@ export function createModuleStore() {
 			activeController.abort();
 			activeController = null;
 		}
+		if (timerInterval) {
+			clearInterval(timerInterval);
+			timerInterval = null;
+		}
 		runningModuleId = null;
 		progressMessage = '';
+		progressStats = null;
+		elapsedTime = 0;
 	}
 
 	async function runModule(
@@ -106,6 +115,14 @@ export function createModuleStore() {
 		activeController = controller;
 		runningModuleId = id;
 		progressMessage = 'Preparing documents...';
+		progressStats = null;
+		elapsedTime = 0;
+
+		const startTime = Date.now();
+		if (timerInterval) clearInterval(timerInterval);
+		timerInterval = setInterval(() => {
+			elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+		}, 1000);
 
 		try {
 			const ai = createAiApi({
@@ -117,8 +134,11 @@ export function createModuleStore() {
 			const result = await mod.run(files, {
 				ai,
 				signal: controller.signal,
-				onProgress: (msg: string) => {
+				onProgress: (msg: string, stats?: ModuleProgressStats) => {
 					progressMessage = msg;
+					if (stats !== undefined) {
+						progressStats = stats;
+					}
 				}
 			});
 
@@ -135,8 +155,14 @@ export function createModuleStore() {
 		} finally {
 			if (activeController === controller) {
 				activeController = null;
+				if (timerInterval) {
+					clearInterval(timerInterval);
+					timerInterval = null;
+				}
 				runningModuleId = null;
 				progressMessage = '';
+				progressStats = null;
+				elapsedTime = 0;
 			}
 		}
 	}
@@ -150,6 +176,12 @@ export function createModuleStore() {
 		},
 		get progressMessage() {
 			return progressMessage;
+		},
+		get progressStats() {
+			return progressStats;
+		},
+		get elapsedTime() {
+			return elapsedTime;
 		},
 		isEnabled,
 		setEnabled,

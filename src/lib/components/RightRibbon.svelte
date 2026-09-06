@@ -72,6 +72,15 @@
 			if (result && result.table && result.table.columns.length > 0) {
 				onCreateFile(result.table, files);
 				onNotify('success', `Imported ${result.table.rows.length} row(s) via ${mod.name}.`);
+				if (result.usage) {
+					const inTokens = result.usage.promptTokens?.toLocaleString() ?? '0';
+					const outTokens = result.usage.completionTokens?.toLocaleString() ?? '0';
+					const cost = result.usage.cost;
+					const costDisplay = cost != null
+						? (cost === 0 ? '$0.00 (Free)' : `$${cost < 0.0001 ? '<0.0001' : cost.toFixed(4)}`)
+						: '$0.00 (Free)';
+					onNotify('info', `AI Usage: ${inTokens} in / ${outTokens} out tokens • Cost: ${costDisplay}`);
+				}
 				// One summary toast. A 40-row extraction can raise 40 warnings; firing one
 				// toast each buries the screen and pushes the success message off-stack.
 				const warnings = result.warnings ?? [];
@@ -190,18 +199,29 @@
 	     a spinning glyph — the module store's progress messages went nowhere. -->
 	{#if moduleStore?.runningModuleId}
 		<div
-			class="module-progress-banner fixed bottom-6 left-1/2 -translate-x-1/2 z-[900] flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-2xl text-[12.5px] text-[var(--text-1)] max-w-[min(92vw,460px)]"
+			class="module-progress-banner fixed bottom-6 left-1/2 -translate-x-1/2 z-[900] flex flex-col gap-1.5 px-4 py-2.5 rounded-xl bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-2xl text-[12.5px] text-[var(--text-1)] min-w-[320px] max-w-[min(92vw,480px)]"
 			role="status"
 			aria-live="polite"
 		>
-			<Icon name="loader" size={14} class="animate-spin text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
-			<span class="truncate">{moduleStore.progressMessage || 'Working…'}</span>
-			<button
-				class="module-progress-cancel shrink-0 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[11.5px] font-semibold text-[var(--text-2)] hover:text-[var(--accent-rose)] hover:border-[var(--accent-rose-border)] cursor-pointer transition-colors"
-				onclick={() => moduleStore?.cancelRun()}
-			>
-				Cancel
-			</button>
+			<div class="flex items-center justify-between gap-3">
+				<div class="flex items-center gap-2 min-w-0">
+					<Icon name="loader" size={14} class="animate-spin text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
+					<span class="font-medium truncate">{moduleStore.progressMessage || 'Working…'}</span>
+				</div>
+				<button
+					class="module-progress-cancel shrink-0 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[11px] font-semibold text-[var(--text-2)] hover:text-[var(--accent-rose)] hover:border-[var(--accent-rose-border)] cursor-pointer transition-colors"
+					onclick={() => moduleStore?.cancelRun()}
+				>
+					Cancel
+				</button>
+			</div>
+			<div class="flex items-center gap-2 text-[11px] text-[var(--text-3)] font-mono pl-[22px] border-t border-[var(--border-subtle)] pt-1.5">
+				<span>Tokens: <strong class="text-[var(--text-2)] font-semibold">{moduleStore.progressStats?.tokens ?? '—'}</strong></span>
+				<span class="text-[var(--border-strong)]">│</span>
+				<span>Est: <strong class="text-[var(--text-2)] font-semibold">{moduleStore.progressStats?.cost ?? '$0.00 (Free)'}</strong></span>
+				<span class="text-[var(--border-strong)]">│</span>
+				<span>Elapsed: <strong class="text-[var(--text-2)] font-semibold">{moduleStore.elapsedTime}s</strong></span>
+			</div>
 		</div>
 	{/if}
 

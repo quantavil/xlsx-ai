@@ -16,8 +16,24 @@ export async function requestIcegridExtraction(
 		throw new Error(`${label} API key is missing or invalid. Please configure it in Settings.`);
 	}
 
+	const charCount = extraction.totalChars;
+	const estimatedPromptTokens = Math.round(charCount / 4);
+	const tokenStr = estimatedPromptTokens >= 1000
+		? `~${(estimatedPromptTokens / 1000).toFixed(1)}k`
+		: `~${estimatedPromptTokens}`;
+
+	const isFree =
+		context.ai.modelId.endsWith(':free') ||
+		context.ai.modelId === 'openrouter/free' ||
+		context.ai.provider === 'gemini';
+	const estCost = isFree ? '$0.00 (Free)' : '< $0.01';
+
 	context.onProgress(
-		`Sending ${extraction.sourceFiles.length} document(s) to ${label} (${context.ai.modelId})...`
+		`Sending ${extraction.sourceFiles.length} document(s) to ${label} (${context.ai.modelId})...`,
+		{
+			tokens: tokenStr,
+			cost: estCost
+		}
 	);
 
 	const payload = {
