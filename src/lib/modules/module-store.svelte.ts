@@ -12,6 +12,7 @@ export function createModuleStore() {
 	let progressStats = $state<ModuleProgressStats | null>(null);
 	let elapsedTime = $state<number>(0);
 	let timerInterval: ReturnType<typeof setInterval> | null = null;
+	let activeModelId = $state<string | null>(null);
 	let activeController = $state<AbortController | null>(null);
 
 	// Initialize default states from manifests
@@ -94,6 +95,7 @@ export function createModuleStore() {
 		runningModuleId = null;
 		progressMessage = '';
 		progressStats = null;
+		activeModelId = null;
 		elapsedTime = 0;
 	}
 
@@ -116,6 +118,7 @@ export function createModuleStore() {
 		runningModuleId = id;
 		progressMessage = 'Preparing documents...';
 		progressStats = null;
+		activeModelId = context.modelId;
 		elapsedTime = 0;
 
 		const startTime = Date.now();
@@ -162,6 +165,7 @@ export function createModuleStore() {
 				runningModuleId = null;
 				progressMessage = '';
 				progressStats = null;
+				activeModelId = null;
 				elapsedTime = 0;
 			}
 		}
@@ -179,6 +183,9 @@ export function createModuleStore() {
 		},
 		get progressStats() {
 			return progressStats;
+		},
+		get activeModelId() {
+			return activeModelId;
 		},
 		get elapsedTime() {
 			return elapsedTime;

@@ -6,6 +6,7 @@ export interface ModuleProgressStats {
 	tokens?: string | number;
 	cost?: string;
 	detail?: string;
+	model?: string;
 }
 
 export interface ModuleUsage {

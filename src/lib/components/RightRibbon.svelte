@@ -199,22 +199,36 @@
 	     a spinning glyph — the module store's progress messages went nowhere. -->
 	{#if moduleStore?.runningModuleId}
 		<div
-			class="module-progress-banner fixed bottom-6 left-1/2 -translate-x-1/2 z-[900] flex flex-col gap-1.5 px-4 py-2.5 rounded-xl bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-2xl text-[12.5px] text-[var(--text-1)] min-w-[320px] max-w-[min(92vw,480px)]"
+			class="module-progress-banner fixed bottom-6 left-1/2 -translate-x-1/2 z-[900] flex flex-col gap-1.5 px-3.5 py-2.5 rounded-xl bg-[var(--surface-1)] border border-[var(--border-strong)] shadow-2xl text-[12px] text-[var(--text-1)] min-w-[320px] max-w-[min(92vw,500px)]"
 			role="status"
 			aria-live="polite"
 		>
-			<div class="flex items-center justify-between gap-3">
-				<div class="flex items-center gap-2 min-w-0">
+			<!-- Line 1: Action status and small SVG Cancel button -->
+			<div class="flex items-center justify-between gap-2.5">
+				<div class="flex items-center gap-2 min-w-0 flex-1">
 					<Icon name="loader" size={14} class="animate-spin text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
 					<span class="font-medium truncate">{moduleStore.progressMessage || 'Working…'}</span>
 				</div>
 				<button
-					class="module-progress-cancel shrink-0 px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[11px] font-semibold text-[var(--text-2)] hover:text-[var(--accent-rose)] hover:border-[var(--accent-rose-border)] cursor-pointer transition-colors"
+					class="module-progress-cancel shrink-0 p-1 rounded-md text-[var(--text-3)] hover:text-[var(--accent-rose)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
 					onclick={() => moduleStore?.cancelRun()}
+					title="Cancel"
+					aria-label="Cancel"
 				>
-					Cancel
+					<Icon name="x" size={13} aria-hidden="true" />
 				</button>
 			</div>
+
+			<!-- Line 2: Full model name -->
+			{#if moduleStore.activeModelId || moduleStore.progressStats?.model}
+				{@const currentModel = moduleStore.progressStats?.model || moduleStore.activeModelId}
+				<div class="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-3)] pl-[22px] min-w-0">
+					<span>Model:</span>
+					<span class="text-[var(--text-2)] font-medium break-all">{currentModel}</span>
+				</div>
+			{/if}
+
+			<!-- Line 3: Tokens, Estimated Cost, and Elapsed time -->
 			<div class="flex items-center gap-2 text-[11px] text-[var(--text-3)] font-mono pl-[22px] border-t border-[var(--border-subtle)] pt-1.5">
 				<span>Tokens: <strong class="text-[var(--text-2)] font-semibold">{moduleStore.progressStats?.tokens ?? '—'}</strong></span>
 				<span class="text-[var(--border-strong)]">│</span>

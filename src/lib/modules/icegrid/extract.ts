@@ -29,10 +29,11 @@ export async function requestIcegridExtraction(
 	const estCost = isFree ? '$0.00 (Free)' : '< $0.01';
 
 	context.onProgress(
-		`Sending ${extraction.sourceFiles.length} document(s) to ${label} (${context.ai.modelId})...`,
+		`Sending ${extraction.sourceFiles.length} document(s) to ${label}...`,
 		{
 			tokens: tokenStr,
-			cost: estCost
+			cost: estCost,
+			model: context.ai.modelId
 		}
 	);
 
