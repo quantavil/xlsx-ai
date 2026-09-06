@@ -59,6 +59,7 @@
 - Svelte 5 effect reading/writing blob URL state in drawer caused infinite reactive loop (maximum update depth exceeded), freezing grid and menus. Fixed with pure effect teardown `return () => URL.revokeObjectURL(url)`.
 - Cell `onfocus` firing on right-click mousedown collapsed multi-cell selections before context menu opened. Fixed by skipping focus collapse when target cell is in `selectionKeys` or right-clicked.
 - Number parsing in `to-table.ts` and `derive.ts` stripped leading `=` on numeric formula expressions (`=M2` -> `null` or `2`). Fixed by preserving strings starting with `=` before parsing floats.
+- OpenRouter model ID regex rejected alias slugs starting with `~` and included uncallable `:batch` models. Fixed by permitting leading `~` in `isSupportedModelId` and excluding `:batch` models.
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.

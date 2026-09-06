@@ -131,12 +131,17 @@ async function listOpenRouterModels(apiKey: string): Promise<Response> {
 		return json({ error: 'Unexpected response schema from OpenRouter.' }, { status: 502 });
 	}
 	const models = parsed.data.data
-		.filter(
-			(item) =>
-				isSupportedModelId('openrouter', item.id) &&
-				(item.architecture?.output_modalities ?? []).includes('text') &&
-				(item.supported_parameters ?? []).includes('structured_outputs')
-		)
+		.filter((item) => {
+			if (!isSupportedModelId('openrouter', item.id)) return false;
+			const modalities = item.architecture?.output_modalities;
+			if (modalities && !modalities.includes('text')) return false;
+			const params = item.supported_parameters ?? [];
+			return (
+				params.includes('structured_outputs') ||
+				params.includes('tools') ||
+				params.includes('response_format')
+			);
+		})
 		.map((item) => ({
 			id: item.id,
 			name: item.name || item.id,

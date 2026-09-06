@@ -28,5 +28,8 @@ export function isSupportedModelId(provider: AiProvider, modelId: string): boole
 		);
 	}
 
-	return /^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._:+-]{0,127}$/i.test(modelId);
+	return (
+		/^~?[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._:+-]{0,127}$/i.test(modelId) &&
+		!modelId.endsWith(':batch')
+	);
 }

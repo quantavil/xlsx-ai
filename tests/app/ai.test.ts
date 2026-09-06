@@ -52,6 +52,9 @@ describe('Server AI Endpoint (/api/ai)', () => {
 
 	it('validates model ids against the selected provider', () => {
 		expect(isSupportedModelId('openrouter', 'anthropic/claude-sonnet-4')).toBe(true);
+		expect(isSupportedModelId('openrouter', '~openai/gpt-latest')).toBe(true);
+		expect(isSupportedModelId('openrouter', '~anthropic/claude-sonnet-latest')).toBe(true);
+		expect(isSupportedModelId('openrouter', 'openai/gpt-6-astra:batch')).toBe(false);
 		expect(isSupportedModelId('openrouter', 'gemini-3.6-flash')).toBe(false);
 		expect(isSupportedModelId('gemini', 'anthropic/claude-sonnet-4')).toBe(false);
 		expect(isSupportedModelId('gemini', 'gemini-3.6-flash')).toBe(true);
@@ -377,6 +380,28 @@ describe('Server AI Endpoint (/api/ai)', () => {
 						architecture: { output_modalities: ['text'] }
 					},
 					{
+						id: '~openai/gpt-latest',
+						name: 'GPT Latest',
+						description: 'Alias model with tools',
+						context_length: 128_000,
+						supported_parameters: ['tools'],
+						architecture: { output_modalities: ['text'] }
+					},
+					{
+						id: 'vendor/json-model',
+						name: 'JSON Model',
+						context_length: 64_000,
+						supported_parameters: ['response_format'],
+						architecture: { output_modalities: ['text'] }
+					},
+					{
+						id: 'vendor/batch-model:batch',
+						name: 'Batch Model',
+						context_length: 128_000,
+						supported_parameters: ['structured_outputs'],
+						architecture: { output_modalities: ['text'] }
+					},
+					{
 						id: 'vendor/plain-chat',
 						name: 'Plain Chat',
 						context_length: 32_000,
@@ -406,7 +431,9 @@ describe('Server AI Endpoint (/api/ai)', () => {
 			expect(response.status).toBe(200);
 			const data = await response.json();
 			expect(data.models.map((model: { id: string }) => model.id)).toEqual([
-				'anthropic/claude-sonnet-4'
+				'anthropic/claude-sonnet-4',
+				'~openai/gpt-latest',
+				'vendor/json-model'
 			]);
 			expect(data.models[0].contextWindow).toBe('200k tokens');
 			expect(capturedRequest?.url).toContain('openrouter.ai/api/v1/models');
