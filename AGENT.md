@@ -62,6 +62,7 @@
 - OpenRouter model ID regex rejected alias slugs starting with `~` and included uncallable `:batch` models. Fixed by permitting leading `~` in `isSupportedModelId` and excluding `:batch` models.
 - Settings availableModels initialized to Gemini catalog leaked Google models when OpenRouter was active. Fixed by deriving fallbackModels from active provider and validating provider models on select and drawer.
 - Module execution progress lacked cost and token metrics, and truncated long model names. Added three-line progress banner with full model name, compact SVG cancel button, real-time tokens, price estimation, and elapsed timer, plus a completion toast detailing prompt/completion tokens and cost.
+- E2E test asserting 'No models matching' on unconfigured OpenRouter failed after introducing default fallback models. Fixed expectation in table.spec.ts to assert 'Free Models Router'.
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.

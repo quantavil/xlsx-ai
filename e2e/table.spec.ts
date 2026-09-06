@@ -420,7 +420,7 @@ test.describe('xlsx-ai E2E Workflow', () => {
 			'https://openrouter.ai/settings/keys'
 		);
 		await expect(settingsPage.locator('.model-scroll-container')).toContainText(
-			'No models matching'
+			'Free Models Router'
 		);
 
 		await providerPicker.getByRole('button', { name: 'Gemini' }).click();

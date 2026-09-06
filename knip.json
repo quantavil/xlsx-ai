@@ -1,0 +1,12 @@
+{
+	"$schema": "https://unpkg.com/knip@5/overview.json",
+	"entry": [
+		"src/routes/**/+*.{js,ts,svelte}",
+		"tests/**/*.test.ts",
+		"e2e/**/*.spec.ts"
+	],
+	"rules": {
+		"exports": "off",
+		"types": "off"
+	}
+}
