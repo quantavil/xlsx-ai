@@ -65,7 +65,7 @@
 					class="text-[12px] px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-1)] disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]"
 				>
 					<option value="">— not set —</option>
-					{#each options as opt (opt.value)}
+					{#each options as opt, idx (`${opt.value}::${idx}`)}
 						<option value={opt.value}>{opt.label ? `${opt.value} — ${opt.label}` : opt.value}</option>
 					{/each}
 				</select>

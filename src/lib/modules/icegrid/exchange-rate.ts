@@ -25,12 +25,15 @@ export interface ExchangeRateBatch {
 export function parseExchangeRates(body: unknown): ExchangeRate[] {
 	if (!Array.isArray(body)) return [];
 
+	const seen = new Set<string>();
 	const rates: ExchangeRate[] = [];
 	for (const raw of body) {
 		const row = (raw ?? {}) as Record<string, unknown>;
 		const code = String(row.CurrencyCode ?? '').trim().toUpperCase();
 		const value = Number(String(row.Export ?? '').trim());
 		if (!/^[A-Z]{3}$/.test(code) || !Number.isFinite(value) || value <= 0) continue;
+		if (seen.has(code)) continue;
+		seen.add(code);
 		rates.push({ code, name: String(row.CurrencyName ?? '').trim(), exportRate: value });
 	}
 	return rates;

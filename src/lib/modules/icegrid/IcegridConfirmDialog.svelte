@@ -295,7 +295,7 @@
 							class="icegrid-field"
 						>
 							<option value="">— not set —</option>
-							{#each catalog('scheme') as opt (opt.value)}
+							{#each catalog('scheme') as opt, idx (`${opt.value}::${idx}`)}
 								<option value={opt.value}>{optionLabel(opt)}</option>
 							{/each}
 						</select>
@@ -311,7 +311,7 @@
 							class="icegrid-field"
 						>
 							<option value="">— not set —</option>
-							{#each catalog('endUse') as opt (opt.value)}
+							{#each catalog('endUse') as opt, idx (`${opt.value}::${idx}`)}
 								<option value={opt.value}>{optionLabel(opt)}</option>
 							{/each}
 						</select>
@@ -325,7 +325,7 @@
 							class="icegrid-field"
 						>
 							<option value="">— not set —</option>
-							{#each catalog('rewardItem') as opt (opt.value)}
+							{#each catalog('rewardItem') as opt, idx (`${opt.value}::${idx}`)}
 								<option value={opt.value}>{optionLabel(opt)}</option>
 							{/each}
 						</select>
@@ -339,7 +339,7 @@
 							class="icegrid-field"
 						>
 							<option value="">— not set —</option>
-							{#each catalog('state') as opt (opt.value)}
+							{#each catalog('state') as opt, idx (`${opt.value}::${idx}`)}
 								<option value={opt.value}>{optionLabel(opt)}</option>
 							{/each}
 						</select>
@@ -356,7 +356,7 @@
 							<option value="">
 								{districtOptions.length === 0 ? '— pick a state first —' : '— not set —'}
 							</option>
-							{#each districtOptions as opt (opt.value)}
+							{#each districtOptions as opt, idx (`${opt.value}::${idx}`)}
 								<option value={opt.value}>{optionLabel(opt)}</option>
 							{/each}
 						</select>
@@ -373,7 +373,7 @@
 							<option value="">
 								{rates.length === 0 ? '— rate board unavailable —' : '— not set —'}
 							</option>
-							{#each rates as rate (rate.code)}
+							{#each rates as rate, idx (`${rate.code}::${idx}`)}
 								<option value={rate.code}>{rate.code} — {rate.name}</option>
 							{/each}
 						</select>
@@ -438,7 +438,7 @@
 					{/if}
 
 					<div class="flex flex-col gap-2.5">
-						{#each input.unclassified as item (item.key)}
+						{#each input.unclassified as item, itemIdx (`${item.key}::${itemIdx}`)}
 							{@const options = candidatesFor(item)}
 							{@const chosen = answers.assignedRitc[item.key]}
 							<div class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 flex flex-col gap-2">
@@ -518,7 +518,7 @@
 									</span>
 								{:else}
 									<div class="flex flex-col gap-0.5">
-										{#each options as option (option.code)}
+										{#each options as option, optIdx (`${option.code}::${optIdx}`)}
 											<label class="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-[var(--surface-3)]">
 												<input
 													type="radio"
@@ -538,13 +538,15 @@
 															? `under ${option.via}`
 															: option.basis === 'broad'
 																? `broader: ${option.via}`
-																: `“${option.via}”`}</span>
-													<span class="block text-[11px] text-[var(--text-2)] leading-snug"
-														>{tariffLeaf(option.description)}{#if pathAbove(option.description)}<span
-																class="text-[var(--text-3)]"
-															> · {pathAbove(option.description)}</span
-															>{/if}</span
-													>
+																: option.basis === 'search'
+																	? 'search match'
+																	: 'invoice code'}</span>
+													<span class="block text-[11px] text-[var(--text-2)] leading-snug">
+														{#if pathAbove(option.description)}
+															<span class="text-[var(--text-3)]">{pathAbove(option.description)}: </span>
+														{/if}
+														{tariffLeaf(option.description)}
+													</span>
 												</span>
 											</label>
 										{/each}
@@ -553,15 +555,18 @@
 
 								{#if chosen}
 									{@const values = answers.perItem[item.key]}
-									<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[var(--border)]">
+									<div class="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-2 border-t border-[var(--border)]">
 										<label class="flex flex-col gap-1">
-											<span class="text-[10.5px] font-semibold text-[var(--text-2)]">Drawback serial</span>
+											<span class="text-[10.5px] font-semibold text-[var(--text-2)]">Drawback</span>
 											<select
 												value={values.drawback_schno ?? ''}
 												onchange={(e) => (values.drawback_schno = e.currentTarget.value || null)}
+												disabled={pendingLookups > 0 && !dutyByCode[chosen]}
 												class="icegrid-field"
 											>
-												<option value="">— not set —</option>
+												<option value="">
+													{pendingLookups > 0 && !dutyByCode[chosen] ? '— fetching… —' : '— not set —'}
+												</option>
 												{#each dutyByCode[chosen]?.options ?? [] as opt, idx (`${opt.value}::${idx}`)}
 													<option value={opt.value}>{optionLabel(opt)}</option>
 												{/each}
@@ -575,7 +580,7 @@
 												class="icegrid-field"
 											>
 												<option value="">— not set —</option>
-												{#each catalog('rodtep') as opt (opt.value)}
+												{#each catalog('rodtep') as opt, idx (`${opt.value}::${idx}`)}
 													<option value={opt.value}>{optionLabel(opt)}</option>
 												{/each}
 											</select>
@@ -588,7 +593,7 @@
 												class="icegrid-field"
 											>
 												<option value="">— not set —</option>
-												{#each catalog('igstPaymentStatus') as opt (opt.value)}
+												{#each catalog('igstPaymentStatus') as opt, idx (`${opt.value}::${idx}`)}
 													<option value={opt.value}>{optionLabel(opt)}</option>
 												{/each}
 											</select>
@@ -633,7 +638,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each input.groups as group (group.key)}
+							{#each input.groups as group, groupIdx (`${group.key}::${groupIdx}`)}
 								{@const values = answers.perRitc[group.key]}
 								<tr class="border-t border-[var(--border)] align-top">
 									<td class="px-3 py-2">
@@ -666,7 +671,7 @@
 											class="icegrid-field"
 										>
 											<option value="">— not set —</option>
-											{#each catalog('rodtep') as opt (opt.value)}
+											{#each catalog('rodtep') as opt, idx (`${opt.value}::${idx}`)}
 												<option value={opt.value}>{optionLabel(opt)}</option>
 											{/each}
 										</select>
@@ -679,7 +684,7 @@
 											class="icegrid-field"
 										>
 											<option value="">— not set —</option>
-											{#each catalog('igstPaymentStatus') as opt (opt.value)}
+											{#each catalog('igstPaymentStatus') as opt, idx (`${opt.value}::${idx}`)}
 												<option value={opt.value}>{optionLabel(opt)}</option>
 											{/each}
 										</select>

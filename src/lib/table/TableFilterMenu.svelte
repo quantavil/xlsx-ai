@@ -128,7 +128,7 @@
 				<span class="ml-auto text-[11px] text-[var(--text-3)]">{draftValues.size}/{colDistinct.length} selected</span>
 			</div>
 			<div class="filter-values-list flex-1 overflow-y-auto border border-[var(--border)] rounded-lg bg-[var(--surface-2)] max-h-[180px] p-1 flex flex-col gap-0.5">
-				{#each filteredDistinct as v (v)}
+				{#each filteredDistinct as v, idx (`${v}::${idx}`)}
 					{@const label = v === '' ? '(Empty)' : v}
 					{@const id = `filter-${column.id}-${v === '' ? '__empty__' : v}`}
 					<label for={id} class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[var(--surface-1)] cursor-pointer text-[12px] text-[var(--text-1)]">
