@@ -64,6 +64,7 @@
 - Module execution progress lacked cost and token metrics, and truncated long model names. Added three-line progress banner with full model name, compact SVG cancel button, real-time tokens, price estimation, and elapsed timer, plus a completion toast detailing prompt/completion tokens and cost.
 - E2E test asserting 'No models matching' on unconfigured OpenRouter failed after introducing default fallback models. Fixed expectation in table.spec.ts to assert 'Free Models Router'.
 - Marking `MaterialComposition` and `_PatchSchema.oldValue` `.optional()` broke strict JSON schema validation across Gemini (400 `INVALID_ARGUMENT`) and OpenRouter/Meta models (`required` must include all properties). Fixed by keeping all object properties in `required` using `.nullable()` without `.optional()`.
+- Nested enum and array bounds (e.g. `fields: z.array(z.enum(...)).max(50)` inside `evidence.max(100)` inside `rows.max(500)`) caused Gemini grammar parser state explosion, failing with HTTP 400 `INVALID_ARGUMENT` ("too many states for serving"). Fixed by using `z.array(z.string())` for `fields` and omitting state-exploding array/string max limits in the extraction schema.
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.

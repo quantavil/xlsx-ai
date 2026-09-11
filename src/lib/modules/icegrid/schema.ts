@@ -15,16 +15,12 @@ export type IcegridHeader = z.infer<typeof IcegridHeaderSchema>;
  * sanitization and then discarded. It never becomes an output column.
  */
 export const IcegridEvidenceSpanSchema = z.object({
-	sourceFile: z.string().min(1).max(200).describe('Exact filename this quote came from'),
+	sourceFile: z.string().describe('Exact filename this quote came from'),
 	quote: z
 		.string()
-		.min(1)
-		.max(1_000)
 		.describe('Short verbatim excerpt copied exactly from the source document'),
 	fields: z
-		.array(IcegridHeaderSchema)
-		.min(1)
-		.max(50)
+		.array(z.string())
 		.describe('Which output fields this quote supports')
 });
 
@@ -96,7 +92,6 @@ export const IcegridCandidateRowSchema = IcegridRowSchema.omit({
 }).extend({
 	evidence: z
 		.array(IcegridEvidenceSpanSchema)
-		.max(100)
 		.describe('Source spans supporting every non-null field in this row')
 });
 
@@ -114,9 +109,8 @@ export const IcegridExtractionSchema = z.object({
 	 */
 	rows: z
 		.array(IcegridCandidateRowSchema)
-		.max(500)
 		.describe('Candidate ICEGATE rows, one per commercial invoice line'),
-	warnings: z.array(z.string()).max(100).describe('Extraction notes, ambiguities, or warnings')
+	warnings: z.array(z.string()).describe('Extraction notes, ambiguities, or warnings')
 });
 
 export const IcegridUsageSchema = z.object({
