@@ -152,6 +152,8 @@ confirmed answer sits on the raw row *before* derivation, so its consequences re
 free — a changed drawback serial pulls its own rate, description, ROSL values and unit;
 an `IGST_PaymentStatus` changed to `LUT` zeroes the tax block.
 
+Once imported, active ICEGrid tables can reopen this confirmation anytime from the right ribbon's **Shipment Questions** button (`help-circle`), re-evaluating declarations and re-deriving dependent rate/tax values with single-step undo.
+
 State and district of origin, currency and exchange rate used to be Settings defaults and
 are not any more: they change per consignment, so remembering them was wrong as often as it
 was right.
@@ -188,16 +190,22 @@ The match is **literal**, and that is the whole reason a model is involved:
 | `furniture of wood` | **0** — word order matters |
 | `SIDE TABLE LARGE MANGO WOOD` | **0** |
 
-So the model's job is to translate invoice language into tariff language. It returns
+So the model's job is to translate invoice language and material breakdowns into tariff language. It returns
 **search phrases, never codes** — the schema it answers with has no field a code could
 travel in. A second pass then *orders* the candidates DGFT returned, and any code it names
 that was not on the list it was given is discarded. A hallucinated code cannot reach the
 dialog: it would have to exist in the schedule to be returned at all.
 
+#### Material Deduction & GRI Rule 3(b)
+For composite goods consisting of multiple materials (e.g. wood, iron, copper), customs classification cannot be settled by description alone. Packing list constituent materials and weights are extracted into internal `MaterialComposition` and evaluated under **GRI Rule 3(b) Essential Character**:
+- **Weight Preponderance**: The constituent with the highest net weight (e.g. 78% wood vs 22% iron) governs the heading.
+- **Single-Stream Batching**: All unclassified items are classified together in a single stream rather than looped one by one, with parallel DGFT recovery search.
+- **Grounded Ranking & Justification**: The model orders official candidates grounded in the DGFT master and provides a concise GRI 3(b) justification in the dialog.
+
 | Case | What runs |
 | :--- | :--- |
 | Heading printed (`9403`) | DGFT enumerates its 16 filable children. **No model at all** — the document decided. |
-| Nothing printed | One batched call for phrases → DGFT → one call to rank → shortlist of 6 |
+| Nothing printed | Batched call with materials/weights → parallel DGFT searches → batched GRI 3(b) rank → shortlist of 6 |
 
 Choosing a code fires its duty lookup immediately, so the drawback serial and RoDTEP verdict
 are prefilled and visible rather than settled silently afterwards. Change the code and both

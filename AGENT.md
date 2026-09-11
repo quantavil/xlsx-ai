@@ -63,6 +63,7 @@
 - Settings availableModels initialized to Gemini catalog leaked Google models when OpenRouter was active. Fixed by deriving fallbackModels from active provider and validating provider models on select and drawer.
 - Module execution progress lacked cost and token metrics, and truncated long model names. Added three-line progress banner with full model name, compact SVG cancel button, real-time tokens, price estimation, and elapsed timer, plus a completion toast detailing prompt/completion tokens and cost.
 - E2E test asserting 'No models matching' on unconfigured OpenRouter failed after introducing default fallback models. Fixed expectation in table.spec.ts to assert 'Free Models Router'.
+- `safeParse` on `IcegridRowSchema` failed on rows missing newly added internal column `MaterialComposition`. Fixed by marking `MaterialComposition` optional in schema.
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.
@@ -80,7 +81,7 @@
 - **Cell alignment**: Stored in `TableData.cellAlign` (`rowId::columnId -> left|center|right`). Pruned on sanitize and forwarded to `.xlsx` export.
 - **Roving tabindex & Popovers**: Grid cells use roving `tabindex="0"/-1`. Table popovers use `position: fixed` via `computeFloatingPosition()`.
 - **Coupled dropdowns**: `DropdownOption.fills` and `fillsIfBlank` expand in `commands.ts` (one hop, never cascade). Options resolve via `resolveDropdownOptions(col, row, rows)`.
-- **Internal columns**: Columns marked `internal: true` (e.g. `NetWeight`) are excluded from grid/export but preserved for derivation rules.
+- **Internal columns**: Columns marked `internal: true` (`NetWeight`, `MaterialComposition`) are excluded from grid/export but preserved for derivation rules and tariff classification.
 - **Cleared headers**: `Accessories` and `Total_Package` are cleared mechanically and excluded from extraction schemas.
 - **Column filters**: In-memory view-only session state (`columnFilters`) evaluated in `filteredRows` funnel; never persisted in document or history.
 - **Find & replace**: Keybinding is `Cmd/Ctrl+H`. Literal replacements escape regex specials; matches scan raw `storageRow` strings for 1-step atomic undo.
