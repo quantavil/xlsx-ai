@@ -4,6 +4,13 @@ import IcegridSettings from './IcegridSettings.svelte';
 export { ICEGRID_COLUMNS, ICEGRID_HEADERS, buildIcegridTableColumns, isIcegridTable } from './columns';
 export { reopenIcegridConfirmation, type ReopenIcegridResult } from './reopen';
 export {
+	saveIcegridSession,
+	getIcegridSession,
+	clearIcegridSessions,
+	type IcegridClassificationSession,
+	type IcegridUnclassifiedSessionItem
+} from './session';
+export {
 	IcegridRowSchema,
 	IcegridReportSchema,
 	IcegridAiReportSchema,

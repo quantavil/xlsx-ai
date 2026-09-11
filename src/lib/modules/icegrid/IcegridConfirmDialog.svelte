@@ -107,6 +107,28 @@
 	 */
 	let dutyByCode = $state<Record<string, { options: DropdownOption[]; suggested: string | null; rodtep: string }>>({});
 
+	// Seed duty structure for preselected tariff codes on mount
+	$effect(() => {
+		for (const [key, code] of Object.entries(answers.assignedRitc)) {
+			if (code && !dutyByCode[code]) {
+				const itemValues = answers.perItem[key];
+				requestDutyLookups([code]).then(({ entries }) => {
+					const entry = entries[0];
+					if (entry && !dutyByCode[code]) {
+						dutyByCode[code] = {
+							options: entry.drawback.map((c) => ({
+								value: c.serial,
+								...(c.description ? { label: c.description } : {})
+							})),
+							suggested: selectDrawbackSerial(entry.drawback, itemValues?.drawback_schno ?? null).serial,
+							rodtep: entry.rodtep ? 'Yes' : 'N/A'
+						};
+					}
+				});
+			}
+		}
+	});
+
 	/**
 	 * The headings a tariff item hangs under, for the muted half of its label.
 	 *
@@ -412,12 +434,21 @@
 							<div class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 flex flex-col gap-2">
 								<div class="flex items-baseline justify-between gap-3 flex-wrap">
 									<span class="text-[12.5px] font-semibold text-[var(--text-1)]">{item.description}</span>
-									<span class="text-[10.5px] text-[var(--text-3)]">
-										{item.rowCount} row{item.rowCount === 1 ? '' : 's'}
-										{#if item.printed}
-											· invoice printed <span class="font-mono text-[var(--accent-primary)]">{item.printed}</span>
-										{:else}
-											· no code printed
+									<span class="text-[10.5px] text-[var(--text-3)] flex items-center gap-2">
+										<span>
+											{item.rowCount} row{item.rowCount === 1 ? '' : 's'}
+											{#if item.printed}
+												· invoice printed <span class="font-mono text-[var(--accent-primary)]">{item.printed}</span>
+											{:else}
+												· no code printed
+											{/if}
+										</span>
+										{#if chosen}
+											<button
+												type="button"
+												class="text-[10.5px] text-[var(--accent-rose)] hover:underline cursor-pointer bg-transparent border-0 p-0"
+												onclick={() => chooseRitc(item.key, '')}
+											>Clear selection</button>
 										{/if}
 									</span>
 								</div>

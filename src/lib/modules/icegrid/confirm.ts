@@ -4,6 +4,7 @@ import { buildDrawbackOptions, normalizeRitcCode, type DutyLookupMap } from './d
 import type { ExchangeRate } from './exchange-rate';
 import type { TariffCandidate, TariffClassification, TariffQuery } from './tariff';
 import type { IcegridRow } from './schema';
+import type { IcegridClassificationSession } from './session';
 import { isBlank } from '$lib/table/cells';
 
 /**
@@ -79,6 +80,10 @@ export interface IcegridUnclassifiedItem {
 	materials?: string | null;
 	/** Net weight in kilograms, if available. */
 	netWeight?: number | null;
+	/** Currently assigned RITC code from prior selection, if any. */
+	initialRitc?: string | null;
+	/** Currently assigned duty answers from prior selection, if any. */
+	initialValues?: IcegridRitcAnswer | null;
 }
 
 export interface IcegridConfirmInput {
@@ -131,7 +136,8 @@ export function isFilableRitc(value: unknown): boolean {
  * its answers cannot drift apart.
  */
 export function unclassifiedKey(row: IcegridRow): string {
-	const printed = normalizeRitcCode(row.RITCCode);
+	if (row._unclassifiedKey) return row._unclassifiedKey;
+	const printed = normalizeRitcCode(row._printedRitc ?? row.RITCCode);
 	return `${printed}|${String(row.Description ?? '').trim().toLowerCase()}`;
 }
 
@@ -195,6 +201,7 @@ export function buildConfirmInput(
 		classifyWarning?: string;
 		isReopen?: boolean;
 		fallbackDrawbackOptions?: readonly DropdownOption[];
+		unclassifiedSession?: IcegridClassificationSession | null;
 	}
 ): IcegridConfirmInput {
 	const lookupOptions = options.lookups ? buildDrawbackOptions(options.lookups) : [];
@@ -202,8 +209,26 @@ export function buildConfirmInput(
 		? [...lookupOptions, ...options.fallbackDrawbackOptions]
 		: lookupOptions;
 
-	const settled = rows.filter((row) => isFilableRitc(row.RITCCode));
-	const unsettled = rows.filter((row) => !isFilableRitc(row.RITCCode));
+	const sessionKeys = new Set(options.unclassifiedSession?.items.map((it) => it.key) ?? []);
+
+	function isUnclassifiedRow(row: IcegridRow): boolean {
+		if (row._unclassifiedKey && sessionKeys.has(row._unclassifiedKey)) return true;
+		if (row._unclassifiedKey && !isFilableRitc(row._printedRitc)) return true;
+		if (!isFilableRitc(row.RITCCode)) return true;
+		if (options.unclassifiedSession) {
+			const desc = String(row.Description ?? '').trim().toLowerCase();
+			const code = normalizeRitcCode(row.RITCCode);
+			return options.unclassifiedSession.items.some(
+				(it) =>
+					it.description.trim().toLowerCase() === desc &&
+					(normalizeRitcCode(it.assignedRitc) === code || normalizeRitcCode(it.printed) === code)
+			);
+		}
+		return false;
+	}
+
+	const settled = rows.filter((row) => !isUnclassifiedRow(row));
+	const unsettled = rows.filter(isUnclassifiedRow);
 
 	const groups: IcegridRitcGroup[] = [
 		...groupBy(settled, (row) => normalizeRitcCode(row.RITCCode))
@@ -225,18 +250,63 @@ export function buildConfirmInput(
 		...groupBy(unsettled, unclassifiedKey)
 	].map(([key, itemRows]) => {
 		const classification = options.classifications?.get(key);
-		const rawMaterials = asText(firstAnswer(itemRows, 'MaterialComposition'));
-		const rawWeight = asNumber(firstAnswer(itemRows, 'NetWeight'));
+		const sessionItem = options.unclassifiedSession?.items.find((it) => it.key === key);
+		const rawMaterials = asText(firstAnswer(itemRows, 'MaterialComposition')) ?? sessionItem?.materials;
+		const rawWeight = asNumber(firstAnswer(itemRows, 'NetWeight')) ?? sessionItem?.netWeight;
+
+		// Use classification candidates if provided, else fallback to sessionItem candidates
+		const candidates = [
+			...((classification?.candidates && classification.candidates.length > 0)
+				? classification.candidates
+				: (sessionItem?.candidates ?? []))
+		];
+
+		const terms =
+			classification?.terms && classification.terms.length > 0
+				? classification.terms
+				: (sessionItem?.terms ?? []);
+
+		const note = classification?.note || sessionItem?.note || '';
+
+		const printed =
+			sessionItem?.printed ??
+			normalizeRitcCode(itemRows[0]._printedRitc ?? itemRows[0].RITCCode);
+
+		// Current assigned RITC code (if any)
+		const currentAssigned =
+			sessionItem?.assignedRitc ??
+			(isFilableRitc(itemRows[0].RITCCode) ? normalizeRitcCode(itemRows[0].RITCCode) : null);
+
+		// If a code was assigned and is not in candidates list, add it as a candidate so radio option appears
+		if (
+			currentAssigned &&
+			!candidates.some((c) => normalizeRitcCode(c.code) === currentAssigned)
+		) {
+			candidates.push({
+				code: currentAssigned,
+				description: `Selected tariff code (${currentAssigned})`,
+				basis: 'search',
+				via: 'prior selection'
+			});
+		}
+
+		const currentValues = sessionItem?.values ?? ritcAnswerFrom(itemRows);
+
 		return {
 			key,
-			description: asText(firstAnswer(itemRows, 'Description')) ?? '(no description)',
-			printed: normalizeRitcCode(itemRows[0].RITCCode),
+			description:
+				asText(firstAnswer(itemRows, 'Description')) ??
+				sessionItem?.description ??
+				'(no description)',
+			printed,
 			rowCount: itemRows.length,
-			candidates: classification?.candidates ?? [],
-			terms: classification?.terms ?? [],
-			note: classification?.note ?? '',
+			candidates,
+			terms,
+			note,
 			...(rawMaterials ? { materials: rawMaterials } : {}),
-			...(rawWeight !== null ? { netWeight: rawWeight } : {})
+			...(rawWeight !== null && rawWeight !== undefined ? { netWeight: rawWeight } : {}),
+			initialRitc: currentAssigned,
+			initialValues: currentValues
 		};
 	});
 
@@ -304,11 +374,15 @@ export function defaultAnswers(input: IcegridConfirmInput): IcegridAnswers {
 	return {
 		invoice: { ...input.invoice },
 		perRitc: Object.fromEntries(input.groups.map((g) => [g.key, { ...g.values }])),
-		// Nothing is preselected. A suggested code is a suggestion until a human
-		// takes it, and a headless run must not file one nobody agreed to.
-		assignedRitc: Object.fromEntries(input.unclassified.map((item) => [item.key, null])),
+		// Preserves initialRitc if present (e.g. from reopen or session); otherwise null.
+		assignedRitc: Object.fromEntries(
+			input.unclassified.map((item) => [item.key, item.initialRitc ?? null])
+		),
 		perItem: Object.fromEntries(
-			input.unclassified.map((item) => [item.key, { ...EMPTY_RITC_ANSWER }])
+			input.unclassified.map((item) => [
+				item.key,
+				item.initialValues ? { ...item.initialValues } : { ...EMPTY_RITC_ANSWER }
+			])
 		),
 		currency: input.currency,
 		exchangeRate: input.exchangeRate
@@ -341,22 +415,31 @@ function applyRitcFields(target: IcegridRow, answer: IcegridRitcAnswer | undefin
  */
 export function applyIcegridAnswers(
 	rows: readonly IcegridRow[],
-	answers: IcegridAnswers
+	answers: IcegridAnswers,
+	unclassifiedKeys?: ReadonlySet<string>
 ): IcegridRow[] {
+	const unclassifiedSet = unclassifiedKeys ?? new Set(Object.keys(answers.assignedRitc));
+
 	return rows.map((row) => {
 		const next: IcegridRow = { ...row };
+		const key = unclassifiedKey(row);
+		const isUnclassified = unclassifiedSet.has(key) || Boolean(row._unclassifiedKey);
 
-		if (isFilableRitc(row.RITCCode)) {
-			applyRitcFields(next, answers.perRitc[normalizeRitcCode(row.RITCCode)]);
-		} else {
-			// The key is read off the row as it arrived, so a code assigned here cannot
-			// move the row into a different group midway through its own application.
-			const key = unclassifiedKey(row);
+		if (isUnclassified) {
+			next._unclassifiedKey = key;
+			if (!next._printedRitc) {
+				next._printedRitc = normalizeRitcCode(row._printedRitc ?? row.RITCCode);
+			}
 			const assigned = answers.assignedRitc[key];
 			if (!blank(assigned)) {
 				next.RITCCode = assigned;
 				applyRitcFields(next, answers.perItem[key]);
+			} else {
+				next.RITCCode = next._printedRitc || null;
+				applyRitcFields(next, answers.perItem[key]);
 			}
+		} else if (isFilableRitc(row.RITCCode)) {
+			applyRitcFields(next, answers.perRitc[normalizeRitcCode(row.RITCCode)]);
 		}
 
 		for (const field of INVOICE_FIELDS) {

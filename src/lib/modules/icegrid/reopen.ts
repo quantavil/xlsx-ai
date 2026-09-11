@@ -15,6 +15,7 @@ import { deriveRows } from './derive';
 import { mapReportToTableData } from './to-table';
 import { loadProfile } from './profile';
 import { normalizeRitcCode } from './duty-lookup';
+import { getIcegridSession, saveIcegridSession, type IcegridUnclassifiedSessionItem } from './session';
 import type { IcegridRow } from './schema';
 
 export interface ReopenIcegridResult {
@@ -43,13 +44,18 @@ export async function reopenIcegridConfirmation(
 		return row as IcegridRow;
 	});
 
-	// Collect unique RITC codes from rows
+	const session = getIcegridSession(table.title, icegridRows);
+
+	// Collect unique RITC codes from rows and session
 	const ritcCodes = Array.from(
-		new Set(
-			icegridRows
+		new Set([
+			...icegridRows
 				.map((r) => (typeof r.RITCCode === 'string' ? normalizeRitcCode(r.RITCCode) : null))
+				.filter((c): c is string => Boolean(c) && isFilableRitc(c)),
+			...(session?.items ?? [])
+				.map((item) => (item.assignedRitc ? normalizeRitcCode(item.assignedRitc) : null))
 				.filter((c): c is string => Boolean(c) && isFilableRitc(c))
-		)
+		])
 	);
 
 	// Live duty lookups for distinct tariff codes
@@ -104,7 +110,8 @@ export async function reopenIcegridConfirmation(
 		exchangeRate: currentRate,
 		documentExchangeRate: currentRate,
 		isReopen: true,
-		fallbackDrawbackOptions
+		fallbackDrawbackOptions,
+		unclassifiedSession: session
 	});
 
 	const answers = await confirmIcegridChoices(confirmInput, signal);
@@ -119,8 +126,32 @@ export async function reopenIcegridConfirmation(
 		extraLookupWarnings = extra.warnings;
 	}
 
+	// Update session with latest user selections
+	const updatedSessionItems: IcegridUnclassifiedSessionItem[] = confirmInput.unclassified.map((item) => {
+		const assignedRitc = answers.assignedRitc[item.key] ?? null;
+		const candidates = [...item.candidates];
+		if (
+			assignedRitc &&
+			!candidates.some((c) => normalizeRitcCode(c.code) === normalizeRitcCode(assignedRitc))
+		) {
+			candidates.push({
+				code: assignedRitc,
+				description: `Selected tariff code (${assignedRitc})`,
+				basis: 'search',
+				via: 'prior selection'
+			});
+		}
+		return {
+			...item,
+			assignedRitc,
+			values: answers.perItem[item.key] ?? null
+		};
+	});
+	saveIcegridSession(table.title, updatedSessionItems, icegridRows);
+
 	// Apply answers and re-derive
-	const updatedRows = applyIcegridAnswers(icegridRows, answers);
+	const unclassifiedKeys = new Set(confirmInput.unclassified.map((i) => i.key));
+	const updatedRows = applyIcegridAnswers(icegridRows, answers, unclassifiedKeys);
 	const derived = deriveRows(updatedRows, {
 		catalogs,
 		profile: loadProfile(),

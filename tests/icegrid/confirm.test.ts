@@ -155,6 +155,86 @@ describe('buildConfirmInput', () => {
 			'940302B'
 		]);
 	});
+
+	it('preserves unclassified items from session whether selected or not', () => {
+		const sessionRows = [
+			// Item 1: assigned 94036000
+			row({
+				RITCCode: '94036000',
+				Description: 'WOODEN TABLE',
+				_unclassifiedKey: '9403|wooden table',
+				_printedRitc: '9403'
+			}),
+			// Item 2: left unselected
+			row({
+				RITCCode: null,
+				Description: 'IRON STOOL',
+				_unclassifiedKey: '|iron stool',
+				_printedRitc: ''
+			}),
+			// Item 3: settled from invoice
+			row({
+				RITCCode: '73181500',
+				Description: 'STEEL SCREWS'
+			})
+		];
+
+		const inputWithSession = buildConfirmInput(sessionRows, {
+			catalogs,
+			unclassifiedSession: {
+				items: [
+					{
+						key: '9403|wooden table',
+						description: 'WOODEN TABLE',
+						printed: '9403',
+						rowCount: 1,
+						candidates: [
+							{ code: '94036000', description: 'Other wooden furniture', basis: 'prefix', via: '9403' }
+						],
+						terms: ['wooden furniture'],
+						note: '',
+						materials: 'Teak Wood: 10kg',
+						netWeight: 10,
+						assignedRitc: '94036000'
+					},
+					{
+						key: '|iron stool',
+						description: 'IRON STOOL',
+						printed: '',
+						rowCount: 1,
+						candidates: [
+							{ code: '94017900', description: 'Metal seats', basis: 'search', via: 'iron stool' }
+						],
+						terms: ['metal seats'],
+						note: '',
+						materials: null,
+						netWeight: null,
+						assignedRitc: null
+					}
+				],
+				updatedAt: Date.now()
+			}
+		});
+
+		// Settled groups should only contain the invoice item 73181500
+		expect(inputWithSession.groups.map((g) => g.key)).toEqual(['73181500']);
+
+		// Unclassified should contain BOTH items: selected (94036000) and unselected
+		expect(inputWithSession.unclassified.length).toBe(2);
+		expect(inputWithSession.unclassified[0].key).toBe('9403|wooden table');
+		expect(inputWithSession.unclassified[0].initialRitc).toBe('94036000');
+		expect(inputWithSession.unclassified[0].candidates.map((c) => c.code)).toEqual(['94036000']);
+		expect(inputWithSession.unclassified[0].materials).toBe('Teak Wood: 10kg');
+
+		expect(inputWithSession.unclassified[1].key).toBe('|iron stool');
+		expect(inputWithSession.unclassified[1].initialRitc).toBeNull();
+		expect(inputWithSession.unclassified[1].candidates.map((c) => c.code)).toEqual(['94017900']);
+
+		// defaultAnswers should seed assignedRitc with the preserved initialRitc
+		const seeded = defaultAnswers(inputWithSession);
+		expect(seeded.assignedRitc['9403|wooden table']).toBe('94036000');
+		expect(seeded.assignedRitc['|iron stool']).toBeNull();
+	});
 });
 
 describe('applyIcegridAnswers', () => {
@@ -292,6 +372,41 @@ describe('changing an assigned tariff code', () => {
 		expect(rows[0].drawback_schno).toBe('940302B');
 		expect(rows[0].dbk_rate).toBe(2.2);
 		expect(rows[0].ROSLRate).toBe(1);
+	});
+
+	it('supports changing or clearing an assigned tariff code on unclassified rows', () => {
+		const existingRow = row({
+			RITCCode: '94036000',
+			Description: 'WOODEN TABLE',
+			_unclassifiedKey: '9403|wooden table',
+			_printedRitc: '9403'
+		});
+
+		// 1. Change code from 94036000 to 94035000
+		const changedAnswers = {
+			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null, ApplicableExpSchemes: null },
+			perRitc: {},
+			assignedRitc: { '9403|wooden table': '94035000' },
+			perItem: {},
+			currency: null,
+			exchangeRate: null
+		};
+		const [updated] = applyIcegridAnswers([existingRow], changedAnswers, new Set(['9403|wooden table']));
+		expect(updated.RITCCode).toBe('94035000');
+		expect(updated._unclassifiedKey).toBe('9403|wooden table');
+
+		// 2. Clear code (unselect) -> restores _printedRitc
+		const clearedAnswers = {
+			invoice: { RewardItem: null, StateOrigin: null, DistrictOrigin: null, EndUse: null, ApplicableExpSchemes: null },
+			perRitc: {},
+			assignedRitc: { '9403|wooden table': null },
+			perItem: {},
+			currency: null,
+			exchangeRate: null
+		};
+		const [cleared] = applyIcegridAnswers([existingRow], clearedAnswers, new Set(['9403|wooden table']));
+		expect(cleared.RITCCode).toBe('9403');
+		expect(cleared._unclassifiedKey).toBe('9403|wooden table');
 	});
 });
 

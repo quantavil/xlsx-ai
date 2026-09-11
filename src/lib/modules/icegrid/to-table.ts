@@ -93,6 +93,13 @@ export function mapReportToTableData(
 			}
 		}
 
+		if (rawRow._unclassifiedKey) {
+			rowObj._unclassifiedKey = rawRow._unclassifiedKey;
+		}
+		if (rawRow._printedRitc) {
+			rowObj._printedRitc = rawRow._printedRitc;
+		}
+
 		return rowObj;
 	});
 

@@ -137,7 +137,10 @@ export const IcegridReportSchema = z.object({
 	warnings: z.array(z.string())
 });
 
-export type IcegridRow = z.infer<typeof IcegridRowSchema>;
+export type IcegridRow = z.infer<typeof IcegridRowSchema> & {
+	_unclassifiedKey?: string | null;
+	_printedRitc?: string | null;
+};
 export type IcegridCandidateRow = z.infer<typeof IcegridCandidateRowSchema>;
 export type IcegridExtraction = z.infer<typeof IcegridExtractionSchema>;
 export type IcegridAiReport = z.infer<typeof IcegridAiReportSchema>;

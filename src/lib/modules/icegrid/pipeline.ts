@@ -3,10 +3,11 @@ import { combineDocumentSources } from './readers';
 import { requestIcegridExtraction } from './extract';
 import { sanitizeIcegridExtraction } from './sanitize';
 import { validateIcegridReport } from './validate';
-import { mapReportToTableData } from './to-table';
+import { mapReportToTableData, deriveSmartDocumentTitle } from './to-table';
 import { getCatalogSnapshot } from './catalogs';
 import { deriveRows, findExchangeRate } from './derive';
-import { buildDrawbackOptions, distinctRitcCodes, type DutyLookupEntry } from './duty-lookup';
+import { buildDrawbackOptions, distinctRitcCodes, normalizeRitcCode, type DutyLookupEntry } from './duty-lookup';
+import { saveIcegridSession, type IcegridUnclassifiedSessionItem } from './session';
 import { requestDutyLookups } from './duty-lookup.client';
 import { detectInvoiceCurrency, rateFor, requestExchangeRates } from './exchange-rate';
 import {
@@ -107,21 +108,51 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 	}
 
 	context.onProgress('Waiting for your confirmation...');
-	const answers = await confirmIcegridChoices(
-		buildConfirmInput(proposed.rows, {
-			lookups,
-			catalogs,
-			rates,
-			currency,
-			exchangeRate: proposedRate,
-			documentExchangeRate,
-			classifications,
-			classifyWarning: classifyWarnings.join(' ')
-		}),
-		context.signal
-	);
+	const confirmInput = buildConfirmInput(proposed.rows, {
+		lookups,
+		catalogs,
+		rates,
+		currency,
+		exchangeRate: proposedRate,
+		documentExchangeRate,
+		classifications,
+		classifyWarning: classifyWarnings.join(' ')
+	});
+	const answers = await confirmIcegridChoices(confirmInput, context.signal);
 	// An AbortError so the caller can tell a deliberate cancellation from a failure.
 	if (!answers) throw new DOMException('ICEGrid import cancelled.', 'AbortError');
+
+	// Save session so candidate codes, terms, notes, and choices survive reopens
+	const smartTitle = deriveSmartDocumentTitle(report.rows, extraction.sourceFiles);
+	const sessionItems: IcegridUnclassifiedSessionItem[] = confirmInput.unclassified.map((item) => {
+		const assignedRitc = answers.assignedRitc[item.key] ?? null;
+		const candidates = [...item.candidates];
+		if (
+			assignedRitc &&
+			!candidates.some((c) => normalizeRitcCode(c.code) === normalizeRitcCode(assignedRitc))
+		) {
+			candidates.push({
+				code: assignedRitc,
+				description: `Selected tariff code (${assignedRitc})`,
+				basis: 'search',
+				via: 'prior selection'
+			});
+		}
+		return {
+			key: item.key,
+			description: item.description,
+			printed: item.printed,
+			rowCount: item.rowCount,
+			candidates,
+			terms: item.terms,
+			note: item.note,
+			materials: item.materials,
+			netWeight: item.netWeight,
+			assignedRitc,
+			values: answers.perItem[item.key] ?? null
+		};
+	});
+	saveIcegridSession(smartTitle, sessionItems, report.rows);
 
 	// A code chosen in the dialog has no duty lookup behind it yet - the batch above
 	// ran before it existed. Fetching it now is what lets the same derivation fill its
@@ -134,7 +165,8 @@ export async function runIcegridPipeline(files: File[], context: ModuleContext):
 		lookupWarnings = [...lookupWarnings, ...extra.warnings];
 	}
 
-	const derived = deriveRows(applyIcegridAnswers(report.rows, answers), {
+	const unclassifiedKeys = new Set(confirmInput.unclassified.map((item) => item.key));
+	const derived = deriveRows(applyIcegridAnswers(report.rows, answers, unclassifiedKeys), {
 		...deriveBase,
 		exchangeRate: answers.exchangeRate
 	});
