@@ -54,7 +54,6 @@ export const IcegridRowSchema = z.object({
 	MaterialComposition: z
 		.string()
 		.nullable()
-		.optional()
 		.describe('Constituent materials and weights/percentages from packing list or invoice (e.g. "Wood: 18kg, Iron: 5kg"); internal for tariff classification'),
 	UnitPrice: z.number().nullable(),
 	ProductAmount: z.number().nullable().describe('Line amount as printed on the document; never calculated'),

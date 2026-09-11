@@ -78,7 +78,9 @@ export const _RequestSchema = z.union([_ModuleOperationRequestSchema, _TableOper
 const _PatchSchema = z.object({
 	rowId: z.string().describe('The id of the row to update'),
 	columnId: z.string().describe('The id of the column to update'),
-	oldValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+	oldValue: z
+		.union([z.string(), z.number(), z.boolean(), z.null()])
+		.describe('The existing value being replaced, or null'),
 	newValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).describe('The new cleaned or imputed value')
 });
 

@@ -63,7 +63,7 @@
 - Settings availableModels initialized to Gemini catalog leaked Google models when OpenRouter was active. Fixed by deriving fallbackModels from active provider and validating provider models on select and drawer.
 - Module execution progress lacked cost and token metrics, and truncated long model names. Added three-line progress banner with full model name, compact SVG cancel button, real-time tokens, price estimation, and elapsed timer, plus a completion toast detailing prompt/completion tokens and cost.
 - E2E test asserting 'No models matching' on unconfigured OpenRouter failed after introducing default fallback models. Fixed expectation in table.spec.ts to assert 'Free Models Router'.
-- `safeParse` on `IcegridRowSchema` failed on rows missing newly added internal column `MaterialComposition`. Fixed by marking `MaterialComposition` optional in schema.
+- Marking `MaterialComposition` and `_PatchSchema.oldValue` `.optional()` broke strict JSON schema validation across Gemini (400 `INVALID_ARGUMENT`) and OpenRouter/Meta models (`required` must include all properties). Fixed by keeping all object properties in `required` using `.nullable()` without `.optional()`.
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.

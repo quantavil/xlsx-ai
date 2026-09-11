@@ -33,6 +33,7 @@ describe('ICEGrid Schema Validation', () => {
 		SQCQTY: 500,
 		SQCUnit: 'NOS',
 		NetWeight: 42.5,
+		MaterialComposition: null,
 		UnitPrice: 24.5,
 		ProductAmount: 12250.0,
 		Per: 1,
@@ -123,6 +124,17 @@ describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
 		if (Array.isArray(schema.enum) && schema.type !== 'string') {
 			found.push(`${path}: enum on type "${String(schema.type)}" (Gemini allows enum only on STRING)`);
 		}
+		if (schema.type === 'object' && schema.properties && typeof schema.properties === 'object') {
+			const keys = Object.keys(schema.properties);
+			const req = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+			for (const k of keys) {
+				if (!req.includes(k)) {
+					found.push(
+						`${path}: property "${k}" is in properties but missing from required (breaks strict JSON schema)`
+					);
+				}
+			}
+		}
 		for (const [key, value] of Object.entries(schema)) {
 			found.push(...collectViolations(value, `${path}.${key}`));
 		}
@@ -157,19 +169,21 @@ describe('ICEGrid extraction schema is legal Gemini responseSchema', () => {
 		return responseSchema;
 	}
 
-	it('sends Gemini a responseSchema with no non-string enums', async () => {
+	it('sends Gemini a responseSchema with no non-string enums and complete required fields', async () => {
 		// Every schema this module hands to generateObject, not just the first one:
-		// a numeric literal in any of them is a 400 on every call that uses it, and
-		// that is how the extraction schema broke every import once already.
+		// a numeric literal or missing required property in any of them is a 400 on every call that uses it.
 		const { IcegridExtractionSchema } = await import('../../src/lib/modules/icegrid/schema');
 		const { IcegridSearchTermsSchema, IcegridRankedCodesSchema } = await import(
 			'../../src/lib/modules/icegrid/ai.server'
 		);
+		const { _CleanFillSchema, _ChatSchema } = await import('../../src/routes/api/ai/+server');
 
 		for (const [name, schema] of [
 			['extraction', IcegridExtractionSchema],
 			['search terms', IcegridSearchTermsSchema],
-			['ranked codes', IcegridRankedCodesSchema]
+			['ranked codes', IcegridRankedCodesSchema],
+			['clean fill', _CleanFillSchema],
+			['chat', _ChatSchema]
 		] as const) {
 			const responseSchema = await capturedResponseSchema(schema);
 			expect(responseSchema, name).toBeTruthy();
