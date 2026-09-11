@@ -17,6 +17,7 @@ export function confirmIcegridChoices(
 	input: IcegridConfirmInput,
 	signal?: AbortSignal
 ): Promise<IcegridAnswers | null> {
+	if (signal?.aborted) return Promise.resolve(null);
 	if (typeof document === 'undefined') return Promise.resolve(defaultAnswers(input));
 
 	return new Promise((resolve) => {

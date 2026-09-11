@@ -234,12 +234,12 @@
 		<header class="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border)]">
 			<div class="min-w-0">
 				<h2 id="icegrid-confirm-title" class="text-[15px] font-semibold text-[var(--text-1)] m-0">
-					Confirm shipment values
+					{input.isReopen ? 'Review shipment values' : 'Confirm shipment values'}
 				</h2>
 				<p class="text-[11.5px] text-[var(--text-3)] m-0 mt-1 leading-relaxed max-w-[70ch]">
-					Every field below is already filled from your documents, the customs schedules and the
-					live duty lookup. Change anything that is wrong — these are declarations no document
-					can confirm for you.
+					{input.isReopen
+						? 'Review or update declarations, tariff codes, and duty structures for this shipment. Changes will recalculate dependent values and formulas in your table.'
+						: 'Every field below is already filled from your documents, the customs schedules and the live duty lookup. Change anything that is wrong — these are declarations no document can confirm for you.'}
 				</p>
 			</div>
 			<span
@@ -421,6 +421,15 @@
 										{/if}
 									</span>
 								</div>
+								{#if item.materials}
+									<div class="flex items-center gap-1.5 text-[11px] text-[var(--text-2)] flex-wrap">
+										<span class="font-medium text-[var(--text-3)]">Materials:</span>
+										<span class="font-mono text-[10.5px] bg-[var(--surface-3)] px-1.5 py-0.5 rounded border border-[var(--border)]">{item.materials}</span>
+										{#if item.netWeight}
+											<span class="text-[var(--text-3)]">· Net Wt: {item.netWeight} kg</span>
+										{/if}
+									</div>
+								{/if}
 
 								<span class="flex items-center gap-1.5">
 									<input
@@ -450,8 +459,12 @@
 								{/if}
 								{#if item.note}
 									<span
-										class="text-[10.5px] leading-snug text-[var(--accent-amber)] bg-[var(--accent-amber-bg)] border border-[var(--accent-amber-border)] rounded px-2 py-1"
-									>None of these look right: {item.note}</span>
+										class="text-[10.5px] leading-snug {item.note.toLowerCase().includes('gri') || item.note.toLowerCase().includes('classified')
+											? 'text-[var(--accent-primary)] bg-[var(--accent-primary-bg)] border border-[var(--accent-primary-border)]'
+											: 'text-[var(--accent-amber)] bg-[var(--accent-amber-bg)] border border-[var(--accent-amber-border)]'} rounded px-2 py-1"
+									>{item.note.toLowerCase().includes('gri') || item.note.toLowerCase().includes('classified')
+										? item.note
+										: `None of these look right: ${item.note}`}</span>
 								{/if}
 
 								{#if options.length === 0}
@@ -656,13 +669,13 @@
 				type="button"
 				class="px-3 py-1.5 rounded-lg border border-[var(--border)] text-[12px] font-semibold text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] transition-colors"
 				onclick={() => onDone(null)}
-			>Cancel import</button>
+			>{input.isReopen ? 'Cancel' : 'Cancel import'}</button>
 			<button
 				type="button"
 				disabled={pendingLookups > 0}
 				class="px-3.5 py-1.5 rounded-lg bg-[var(--accent-primary)] text-[12px] font-semibold text-[var(--text-inverse)] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
 				onclick={() => onDone($state.snapshot(answers) as IcegridAnswers)}
-			>Confirm and import</button>
+			>{input.isReopen ? 'Update values' : 'Confirm and import'}</button>
 		</footer>
 	</div>
 </div>

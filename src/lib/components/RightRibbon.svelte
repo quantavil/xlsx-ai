@@ -22,7 +22,9 @@
 		onCreateFile,
 		onToggleAiDrawer,
 		onToggleFindDrawer,
-		onToggleSourceDrawer
+		onToggleSourceDrawer,
+		onOpenQuestions,
+		isQuestionsAvailable = false
 	}: {
 		store: ReturnType<typeof createTableStore>;
 		findStore?: FindStore;
@@ -35,6 +37,8 @@
 		onToggleAiDrawer?: () => void;
 		onToggleFindDrawer?: () => void;
 		onToggleSourceDrawer?: () => void;
+		onOpenQuestions?: () => void;
+		isQuestionsAvailable?: boolean;
 	} = $props();
 
 	let moduleFileInputRefs = $state<Record<string, HTMLInputElement | null>>({});
@@ -356,6 +360,20 @@
 					</span>
 				</button>
 			{/each}
+		{/if}
+
+		<!-- Shipment Questions / Help Button -->
+		{#if onOpenQuestions && isQuestionsAvailable}
+			<button
+				class="ribbon-btn btn-questions-ribbon relative group/ribbon w-[34px] h-[34px] rounded-md border text-[var(--accent-primary)] bg-[var(--surface-2)] border-[var(--border)] hover:bg-[var(--surface-3)] hover:border-[var(--border-strong)] flex items-center justify-center cursor-pointer transition-all shadow-xs"
+				onclick={onOpenQuestions}
+				aria-label="Shipment Questions (Help)"
+			>
+				<Icon name="help-circle" size={17} strokeWidth={2} aria-hidden="true" />
+				<span class="ribbon-tooltip absolute right-[calc(100%+10px)] top-1/2 -translate-y-1/2 scale-95 bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border-strong)] text-[11.5px] font-semibold whitespace-nowrap px-2.5 py-1 rounded shadow-md pointer-events-none opacity-0 invisible group-hover/ribbon:opacity-100 group-hover/ribbon:visible group-hover/ribbon:scale-100 transition-all flex items-center gap-1.5 z-50 max-sm:!hidden">
+					Shipment Questions <kbd class="tooltip-kbd font-mono text-[10px] bg-[var(--surface-1)] border border-[var(--border)] px-1 py-0.5 rounded text-[var(--text-2)]">Help</kbd>
+				</span>
+			</button>
 		{/if}
 
 		<!-- Add Row Tool Button -->

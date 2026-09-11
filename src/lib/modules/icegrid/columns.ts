@@ -58,6 +58,7 @@ export const ICEGRID_COLUMNS: readonly IcegridColumnSpec[] = [
 	{ id: 'sqcQty', header: 'SQCQTY', type: 'number', description: 'Standard Quantity Code quantity' },
 	{ id: 'sqcUnit', header: 'SQCUnit', type: 'dropdown', description: 'Standard Quantity Code unit', catalog: 'unit' },
 	{ id: 'netWeight', header: 'NetWeight', type: 'number', description: 'Net weight of this line item in kilograms; source data for SQCQTY, never filed', internal: true },
+	{ id: 'materialComposition', header: 'MaterialComposition', type: 'text', description: 'Constituent materials and weights from packing list or invoice; internal for tariff classification', internal: true },
 	{ id: 'unitPrice', header: 'UnitPrice', type: 'number', description: 'Price per unit', required: true },
 	{ id: 'productAmount', header: 'ProductAmount', type: 'number', description: 'Total item amount as stated on the source document' },
 	{ id: 'per', header: 'Per', type: 'number', description: 'Unit price denominator; defaults to 1' },
@@ -159,4 +160,13 @@ export function buildIcegridTableColumns(
 			}
 		};
 	});
+}
+
+/**
+ * Checks whether the columns match the ICEGrid/ICEGATE customs format.
+ */
+export function isIcegridTable(columns: readonly { name?: string; id?: string }[]): boolean {
+	if (!columns || columns.length === 0) return false;
+	const signatures = ['RITCCode', 'drawback_schno', 'StateOrigin', 'ApplicableExpSchemes'];
+	return signatures.every((sig) => columns.some((c) => c.name === sig || c.id === sig));
 }

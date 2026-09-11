@@ -24,7 +24,7 @@ export const IcegridEvidenceSpanSchema = z.object({
 	fields: z
 		.array(IcegridHeaderSchema)
 		.min(1)
-		.max(37)
+		.max(50)
 		.describe('Which output fields this quote supports')
 });
 
@@ -51,6 +51,11 @@ export const IcegridRowSchema = z.object({
 		.number()
 		.nullable()
 		.describe('Net weight of this line item in kilograms, as printed for that line'),
+	MaterialComposition: z
+		.string()
+		.nullable()
+		.optional()
+		.describe('Constituent materials and weights/percentages from packing list or invoice (e.g. "Wood: 18kg, Iron: 5kg"); internal for tariff classification'),
 	UnitPrice: z.number().nullable(),
 	ProductAmount: z.number().nullable().describe('Line amount as printed on the document; never calculated'),
 	Per: z.number().nullable().describe('Unit price calculation denominator (usually 1)'),

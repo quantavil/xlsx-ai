@@ -2,7 +2,7 @@ import type { DropdownOption } from '$lib/types';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
 import { buildDrawbackOptions, normalizeRitcCode, type DutyLookupMap } from './duty-lookup';
 import type { ExchangeRate } from './exchange-rate';
-import type { TariffCandidate, TariffClassification } from './tariff';
+import type { TariffCandidate, TariffClassification, TariffQuery } from './tariff';
 import type { IcegridRow } from './schema';
 import { isBlank } from '$lib/table/cells';
 
@@ -75,6 +75,10 @@ export interface IcegridUnclassifiedItem {
 	terms: string[];
 	/** Set only when the ranker judged none of the candidates fit. */
 	note: string;
+	/** Material breakdown from packing list/invoice, if available. */
+	materials?: string | null;
+	/** Net weight in kilograms, if available. */
+	netWeight?: number | null;
 }
 
 export interface IcegridConfirmInput {
@@ -95,6 +99,8 @@ export interface IcegridConfirmInput {
 	 * claim about the tariff rather than about our own request failing.
 	 */
 	classifyWarning: string;
+	/** Set to true when reopening declarations for an active table. */
+	isReopen?: boolean;
 }
 
 const RITC_FIELDS = [
@@ -187,9 +193,14 @@ export function buildConfirmInput(
 		documentExchangeRate?: number | null;
 		classifications?: ReadonlyMap<string, TariffClassification>;
 		classifyWarning?: string;
+		isReopen?: boolean;
+		fallbackDrawbackOptions?: readonly DropdownOption[];
 	}
 ): IcegridConfirmInput {
-	const drawbackOptions = options.lookups ? buildDrawbackOptions(options.lookups) : [];
+	const lookupOptions = options.lookups ? buildDrawbackOptions(options.lookups) : [];
+	const drawbackOptions = options.fallbackDrawbackOptions
+		? [...lookupOptions, ...options.fallbackDrawbackOptions]
+		: lookupOptions;
 
 	const settled = rows.filter((row) => isFilableRitc(row.RITCCode));
 	const unsettled = rows.filter((row) => !isFilableRitc(row.RITCCode));
@@ -214,6 +225,8 @@ export function buildConfirmInput(
 		...groupBy(unsettled, unclassifiedKey)
 	].map(([key, itemRows]) => {
 		const classification = options.classifications?.get(key);
+		const rawMaterials = asText(firstAnswer(itemRows, 'MaterialComposition'));
+		const rawWeight = asNumber(firstAnswer(itemRows, 'NetWeight'));
 		return {
 			key,
 			description: asText(firstAnswer(itemRows, 'Description')) ?? '(no description)',
@@ -221,7 +234,9 @@ export function buildConfirmInput(
 			rowCount: itemRows.length,
 			candidates: classification?.candidates ?? [],
 			terms: classification?.terms ?? [],
-			note: classification?.note ?? ''
+			note: classification?.note ?? '',
+			...(rawMaterials ? { materials: rawMaterials } : {}),
+			...(rawWeight !== null ? { netWeight: rawWeight } : {})
 		};
 	});
 
@@ -240,18 +255,30 @@ export function buildConfirmInput(
 		currency: options.currency ?? null,
 		exchangeRate: options.exchangeRate ?? null,
 		documentExchangeRate: options.documentExchangeRate ?? null,
-		classifyWarning: options.classifyWarning ?? ''
+		classifyWarning: options.classifyWarning ?? '',
+		isReopen: options.isReopen
 	};
 }
 
 /** The items whose code has to be chosen, in the shape the classifier wants. */
-export function tariffQueriesFor(rows: readonly IcegridRow[]) {
+export function tariffQueriesFor(rows: readonly IcegridRow[]): TariffQuery[] {
 	return [...groupBy(rows.filter((row) => !isFilableRitc(row.RITCCode)), unclassifiedKey)].map(
-		([key, itemRows]) => ({
-			key,
-			description: String(itemRows[0].Description ?? '').trim() || '(no description)',
-			printed: normalizeRitcCode(itemRows[0].RITCCode)
-		})
+		([key, itemRows]) => {
+			const query: TariffQuery = {
+				key,
+				description: String(itemRows[0].Description ?? '').trim() || '(no description)',
+				printed: normalizeRitcCode(itemRows[0].RITCCode)
+			};
+			const materials = asText(firstAnswer(itemRows, 'MaterialComposition'));
+			if (materials) {
+				query.materials = materials;
+			}
+			const netWeight = asNumber(firstAnswer(itemRows, 'NetWeight'));
+			if (netWeight !== null) {
+				query.netWeight = netWeight;
+			}
+			return query;
+		}
 	);
 }
 

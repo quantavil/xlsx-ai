@@ -164,6 +164,142 @@ describe('icegrid classify handler', () => {
 		expect(result.items[0].key).toBe('|mystery goods');
 		expect(result.items[0].candidates).toEqual([]);
 	});
+
+	it('batches all items at once in a single stream with packing list materials and weights', async () => {
+		// All items must be sent together in a single batch, passing packing list materials
+		// and weights so the model can deduce predominant material under GRI 3(b).
+		const { model, prompts } = stubModel([
+			{
+				items: [
+					{ key: 'i0', terms: ['wooden furniture', 'wood table'], note: '' },
+					{ key: 'i1', terms: ['metal furniture', 'iron table'], note: '' }
+				]
+			},
+			{
+				items: [
+					{
+						key: 'r0',
+						codes: ['94036000', '94032090'],
+						note: 'Classified under 94036000 by wood weight preponderance (78%) under GRI 3(b)'
+					},
+					{
+						key: 'r1',
+						codes: ['94032090', '94036000'],
+						note: 'Classified under 94032090 by iron weight preponderance (80%) under GRI 3(b)'
+					}
+				]
+			}
+		]);
+
+		const dgft = stubDgft({
+			'wooden furniture': [
+				{ itcCode: '94036000', itcDescription: 'Other wooden furniture' },
+				{ itcCode: '94032090', itcDescription: 'Other metal furniture' }
+			],
+			'wood table': [
+				{ itcCode: '94036000', itcDescription: 'Other wooden furniture' }
+			],
+			'metal furniture': [
+				{ itcCode: '94032090', itcDescription: 'Other metal furniture' },
+				{ itcCode: '94036000', itcDescription: 'Other wooden furniture' }
+			],
+			'iron table': [
+				{ itcCode: '94032090', itcDescription: 'Other metal furniture' }
+			]
+		});
+		restoreFetch = dgft.restore;
+
+		const result = (await icegridClassifyAiHandler.execute(
+			{
+				items: [
+					{
+						key: '|table item 1',
+						description: 'COMPOSITE TABLE',
+						printed: '',
+						materials: 'Wood: 18kg, Iron: 5kg',
+						netWeight: 23
+					},
+					{
+						key: '|table item 2',
+						description: 'HEAVY BASE TABLE',
+						printed: '',
+						materials: 'Iron: 20kg, Wood: 5kg',
+						netWeight: 25
+					}
+				]
+			},
+			context(model)
+		)) as { items: { key: string; terms: string[]; note: string; candidates: { code: string }[] }[] };
+
+		// Both items are present in Prompt 1 (all items at once)
+		expect(prompts[0]).toContain('i0');
+		expect(prompts[0]).toContain('i1');
+		expect(prompts[0]).toContain('Materials: Wood: 18kg, Iron: 5kg');
+		expect(prompts[0]).toContain('Net Wt: 23 kg');
+		expect(prompts[0]).toContain('Materials: Iron: 20kg, Wood: 5kg');
+		expect(prompts[0]).toContain('Net Wt: 25 kg');
+
+		// Both items are present in Prompt 2 (all items at once)
+		expect(prompts[1]).toContain('r0');
+		expect(prompts[1]).toContain('r1');
+		expect(prompts[1]).toContain('materials: Wood: 18kg, Iron: 5kg');
+		expect(prompts[1]).toContain('materials: Iron: 20kg, Wood: 5kg');
+
+		expect(result.items).toHaveLength(2);
+		expect(result.items[0].candidates[0].code).toBe('94036000');
+		expect(result.items[0].note).toContain('GRI 3(b)');
+		expect(result.items[1].candidates[0].code).toBe('94032090');
+		expect(result.items[1].note).toContain('GRI 3(b)');
+	});
+
+	it('recovers multiple items in parallel batch without sequential item-by-item queries', async () => {
+		const { model } = stubModel([
+			{
+				items: [
+					{ key: 'i0', terms: ['rare goods 1'], note: '' },
+					{ key: 'i1', terms: ['rare goods 2'], note: '' }
+				]
+			},
+			{
+				items: [
+					{ key: 'r0', codes: ['44191100'], note: '' },
+					{ key: 'r1', codes: ['83062100'], note: '' }
+				]
+			}
+		]);
+
+		const dgft = stubDgft({
+			'rare goods 1': [
+				{ itcCode: '4419', itcDescription: 'Tableware and kitchenware of wood' }
+			],
+			'rare goods 2': [
+				{ itcCode: '8306', itcDescription: 'Statuettes and other ornaments' }
+			],
+			'4419': [
+				{ itcCode: '44191100', itcDescription: 'Bread boards' }
+			],
+			'8306': [
+				{ itcCode: '83062100', itcDescription: 'Statuettes of base metal' }
+			]
+		});
+		restoreFetch = dgft.restore;
+
+		const result = (await icegridClassifyAiHandler.execute(
+			{
+				items: [
+					{ key: '|rare 1', description: 'RARE 1', printed: '' },
+					{ key: '|rare 2', description: 'RARE 2', printed: '' }
+				]
+			},
+			context(model)
+		)) as { items: { candidates: { code: string; basis: string }[] }[] };
+
+		expect(result.items).toHaveLength(2);
+		expect(result.items[0].candidates[0].code).toBe('44191100');
+		expect(result.items[0].candidates[0].basis).toBe('broad');
+		expect(result.items[1].candidates[0].code).toBe('83062100');
+		expect(result.items[1].candidates[0].basis).toBe('broad');
+	});
 });
 
 describe('spending the search budget', () => {

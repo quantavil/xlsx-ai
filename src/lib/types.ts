@@ -149,6 +149,7 @@ export type IconName =
 	| 'star'
 	| 'star-filled'
 	| 'loader'
-	| 'filter';
+	| 'filter'
+	| 'help-circle';
 
 

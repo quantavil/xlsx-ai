@@ -32,7 +32,7 @@ const MECHANICAL = new Set<string>(MECHANICAL_HEADERS);
  * carries. Because derivation never overwrites an extracted value, a loosely
  * verified guess here would outrank the authoritative text.
  */
-const TRUSTED_TEXT = new Set<string>(['Description']);
+const TRUSTED_TEXT = new Set<string>(['Description', 'MaterialComposition']);
 
 /** One string contains the other, after evidence-grade folding. */
 function overlaps(quote: string, value: string): boolean {

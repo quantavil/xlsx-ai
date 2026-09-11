@@ -388,4 +388,41 @@ describe('which rows need a code', () => {
 		const r = row({ RITCCode: '9403.89', Description: '  Side Table  ' });
 		expect(unclassifiedKey(r)).toBe('940389|side table');
 	});
+
+	it('forwards material composition and net weight when available', () => {
+		const queries = tariffQueriesFor([
+			row({
+				RITCCode: '',
+				Description: 'CONSOLE TABLE',
+				MaterialComposition: 'Wood 18kg, Iron 5kg',
+				NetWeight: 23
+			})
+		]);
+		expect(queries).toEqual([
+			{
+				key: '|console table',
+				description: 'CONSOLE TABLE',
+				printed: '',
+				materials: 'Wood 18kg, Iron 5kg',
+				netWeight: 23
+			}
+		]);
+	});
+
+	it('ranks candidate matching constituent material higher when materials are supplied', () => {
+		const candidates: TariffCandidate[] = [
+			{ code: '94032090', description: 'Other metal furniture', basis: 'search', via: 'furniture' },
+			{ code: '94036000', description: 'Other wooden furniture', basis: 'search', via: 'furniture' }
+		];
+		// Description alone only has "CONSOLE TABLE", so both tie or depend on length.
+		// When materials "Mango Wood 18kg, Iron 5kg" are provided, "wood" reaches "wooden"
+		// and ranks 94036000 first under GRI 3(b).
+		const ranked = rankTariffCandidates(
+			candidates,
+			'CONSOLE TABLE',
+			6,
+			'Mango Wood 18kg, Iron 5kg'
+		);
+		expect(ranked[0].code).toBe('94036000');
+	});
 });

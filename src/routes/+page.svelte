@@ -8,6 +8,7 @@
 	import SourceViewerDrawer from '$lib/components/SourceViewerDrawer.svelte';
 	import RightRibbon from '$lib/components/RightRibbon.svelte';
 	import { importFileToTable } from '$lib/data/index';
+	import { isIcegridTable, reopenIcegridConfirmation } from '$lib/modules/icegrid';
 	import {
 		store,
 		findStore,
@@ -56,6 +57,35 @@
 
 	function openSettings() {
 		goto('/settings');
+	}
+
+	let isReopeningQuestions = $state(false);
+	const isIcegrid = $derived(isIcegridTable(store.columns));
+
+	async function handleOpenQuestions() {
+		if (isReopeningQuestions || !isIcegrid) return;
+		isReopeningQuestions = true;
+		try {
+			const result = await reopenIcegridConfirmation({
+				title: store.title,
+				columns: store.columns,
+				rows: store.rows,
+				cellAlign: store.cellAlign,
+				sourceText: store.sourceText
+			});
+			if (result && result.table) {
+				store.loadTable(result.table, { undoable: true });
+				notify('success', 'Shipment declarations and values updated.');
+				if (result.warnings && result.warnings.length > 0) {
+					notify('info', `${result.warnings.length} review notes generated.`);
+				}
+			}
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : 'Failed to update shipment values.';
+			notify((err as { name?: string })?.name === 'AbortError' ? 'info' : 'error', msg);
+		} finally {
+			isReopeningQuestions = false;
+		}
 	}
 
 	onMount(() => {
@@ -171,6 +201,8 @@
 			onToggleAiDrawer={() => toggleDrawer('ai')}
 			onToggleFindDrawer={() => toggleDrawer('find')}
 			onToggleSourceDrawer={() => toggleDrawer('source')}
+			onOpenQuestions={handleOpenQuestions}
+			isQuestionsAvailable={isIcegrid}
 		/>
 	</div>
 </div>

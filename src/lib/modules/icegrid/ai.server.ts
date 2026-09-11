@@ -95,6 +95,7 @@ VALUE FORMAT
 - There is no currency output column, and no InvoiceSNo, ItemSNo, Per, Accessories or Total_Package column; do not report any of them.
 - NetWeight: the net weight of THIS line item, in kilograms. Report it only where the document prints a net weight against that individual line. A consignment or invoice total, a carton or per-carton weight, and a gross weight are all different figures - leave NetWeight null rather than reporting one of them, and never divide a total across lines. If the printed weight is in any unit other than kilograms, leave it null.
 - Description: report only the text printed inside that line's own Description cell. When the cell wraps across several printed rows it is still one value: join its continuation lines, in printed order, separated by single spaces. Two things never belong in it. First, a heading that spans more than one line item - a page title, a section banner, or a goods-class phrase printed once above a block of rows - however close it sits to the cell. Second, data that belongs to another column even when the layout prints it in the same block: PO numbers, HSN or tariff lines, carton dimensions, net or gross weights, and packaging notes. Dimensions and sizes that are part of the article's own printed name do belong.
+- MaterialComposition: report constituent materials and weights or percentages from the packing list or invoice (e.g. "Mango Wood: 18 KGS, Iron: 5 KGS" or "75% Wood, 25% Steel" or "Wood"). If an item is composed of multiple materials, capture all materials and their corresponding weights or percentages. Leave null if not stated.
 - Any field not present in the documents must be null. Missing data is expected and correct.`;
 
 export const icegridExtractAiHandler: ModuleAiHandler = {
@@ -155,7 +156,11 @@ export const IcegridClassifyInputSchema = z.object({
 				key: z.string().min(1).max(200),
 				description: z.string().min(1).max(500),
 				/** Digits of a partial code the documents printed, e.g. `9403`. */
-				printed: z.string().max(8).regex(/^\d*$/)
+				printed: z.string().max(8).regex(/^\d*$/),
+				/** Material breakdown from packing list or invoice, e.g. "Wood: 18kg, Iron: 5kg". */
+				materials: z.string().max(500).nullable().optional(),
+				/** Net weight in kilograms, e.g. 23. */
+				netWeight: z.number().nullable().optional()
 			})
 		)
 		.min(1)
@@ -174,7 +179,7 @@ export const IcegridClassifyInputSchema = z.object({
  */
 export const ICEGRID_CLASSIFY_PROMPT = `You are helping search the Indian ITC-HS customs tariff.
 
-For each item you are given a commercial-invoice description. Return the SEARCH PHRASES that would find that item in the tariff schedule.
+For each item you are given a commercial-invoice description, and optionally packing list material breakdown and weights. Return the SEARCH PHRASES that would find that item in the tariff schedule.
 
 NEVER RETURN A TARIFF CODE. Only words. Codes are looked up from the official schedule using your phrases; a code you write would be discarded.
 
@@ -185,11 +190,15 @@ HOW THE SEARCH WORKS
 - A phrase that is one common word finds hundreds and is useless: "table", "wood", "steel".
 - Aim for a two or three word noun phrase naming the ARTICLE and, where the tariff distinguishes it, the MATERIAL.
 
+GRI RULE 3(b) ESSENTIAL CHARACTER & PREDOMINANT MATERIAL:
+- Under General Rules for the Interpretation (GRI) of the Harmonized System Rule 3(b), composite goods made of multiple materials (e.g. wood, iron, copper, glass) are classified by the material giving them their essential character, determined by weight preponderance (highest net weight).
+- If packing list materials or weights are provided (e.g. "Wood: 18kg, Iron: 5kg"), determine the predominant material by weight (Wood = 78%) and focus your search phrases on that predominant material (e.g. "wooden furniture", "wooden table"), NOT the minor material.
+
 FOR EACH ITEM
 - Give 2 to 4 phrases, most likely first.
 - Vary them: one naming the article with its material, one naming the article alone, one naming the broader class it belongs to.
 - Make the LAST phrase a deliberately broad one, one or two words: the material or the chapter the goods belong to ("marble", "wooden tableware", "glassware"). The match is literal and all-or-nothing, so a narrow phrase that misses leaves nothing behind. A broad phrase that returns too much is still a result; a precise phrase that returns nothing is not.
-- Use the material named in the description when the tariff is likely to split on it (wood, cotton, steel, plastics, glass, leather).
+- Use the material named in the description or packing list when the tariff is likely to split on it (wood, cotton, steel, plastics, glass, leather).
 - Strip sizes, colours, model numbers, pack counts and marketing words. "SIDE TABLE LARGE MANGO WOOD 24 INCH" is a wooden table.
 - If the description is too vague to classify at all, return an empty phrase list for that item rather than guessing.`;
 
@@ -207,18 +216,25 @@ FOR EACH ITEM
  */
 export const ICEGRID_RANK_PROMPT = `You are classifying goods against the Indian ITC-HS customs tariff.
 
-For each item you are given its commercial-invoice description and a list of candidate tariff codes taken from the official schedule, each with the schedule's own wording.
+For each item you are given its commercial-invoice description, packing list material breakdown and weights (when available), and candidate tariff codes taken from the official schedule, each with the schedule's own wording.
 
 Order that item's codes from most to least likely to be the correct classification.
+
+GRI RULE 3(b) ESSENTIAL CHARACTER (WEIGHT PREPONDERANCE):
+- Under General Rules for the Interpretation (GRI) Rule 3(b), composite goods consisting of different materials or components (e.g. wood, iron, copper, brass, plastics, glass, stone) must be classified according to the material that gives them their ESSENTIAL CHARACTER.
+- In customs classification, essential character is determined primarily by WEIGHT PREPONDERANCE (the material with the highest net weight / percentage).
+- Example: An item with Wood: 18kg (75%) and Iron: 6kg (25%) has Wood as its predominant material. Therefore, it MUST be classified under wooden articles or wooden furniture (Heading 9403.60 / Chapter 44), NOT iron articles (Chapter 73) or metal furniture (9403.20).
+- Example: An item with Iron: 20kg (80%) and Wood: 5kg (20%) has Iron as its predominant material -> classify under metal furniture (9403.20) or iron articles (Chapter 73).
+- In the ranked output, rank the candidate code matching the predominant material by weight FIRST.
+- In \`note\`, summarize the justification citing the predominant material and weight (e.g. "Classified under 94036000 by wood weight preponderance (75%) under GRI 3(b)").
 
 RULES
 - Use only the codes given for that item. Do not write a code that is not on its list; it will be discarded.
 - Do not drop codes you are unsure about. Order them, do not filter them.
 - Judge by what the goods ARE, not by which entry sounds better or which duty is lower.
 - A residual entry ("Other", "Others", "Parts: Other") is correct only when no specific entry covers the goods. Rank a specific entry that names the article or its material above it.
-- Watch the material. A tariff routinely splits the same article by wood, steel, plastics, cotton or glass, and the invoice usually names it.
 - "Parts" entries are for components, not for a complete article. Do not rank a parts entry first for a finished product.
-- If genuinely none of the candidates fit the goods, still order them, and put in \`note\` a short suggestion of what to search instead. Otherwise leave \`note\` as an empty string.`;
+- If genuinely none of the candidates fit the goods, still order them, and put in \`note\` a short suggestion of what to search instead. Otherwise leave \`note\` as your GRI 3(b) rationale or empty.`;
 
 export const icegridClassifyAiHandler: ModuleAiHandler = {
 	moduleId: 'icegrid',
@@ -250,7 +266,12 @@ export const icegridClassifyAiHandler: ModuleAiHandler = {
 				prompt: `Items:\n${[...ids]
 					.map(([id, key]) => {
 						const item = needSearch.find((i) => i.key === key)!;
-						return `- ${id}: ${item.description}`;
+						const materialPart = item.materials ? ` | Materials: ${item.materials}` : '';
+						const weightPart =
+							item.netWeight !== undefined && item.netWeight !== null
+								? ` (Net Wt: ${item.netWeight} kg)`
+								: '';
+						return `- ${id}: ${item.description}${materialPart}${weightPart}`;
 					})
 					.join('\n')}`,
 				schema: IcegridSearchTermsSchema,
@@ -285,62 +306,85 @@ export const icegridClassifyAiHandler: ModuleAiHandler = {
 			);
 		};
 
-		// A second round for the items that came back with nothing.
-		//
-		// The schedule is matched literally, so a phrase either lands or it does not, and
-		// a shipment of retail goods routinely produces four phrases that all miss - the
-		// invoice writes CAKE STAND W/ GLASS DOME and the tariff writes neither. Without
-		// this the item reaches the dialog with no candidates and no route to one, which
-		// reads as "the schedule has no code for these goods" when it means "we asked the
-		// wrong words". Two leads, cheapest first:
-		//
-		//   1. A heading the phrases already found. `tableware` answers with `4419
-		//      Tableware and kitchenware, of wood` and nothing filable, and that heading's
-		//      children are the answer. This costs one query and is usually the one.
-		//   2. The words inside the phrases that missed. Broad, but a broad list the
-		//      ranker can read beats an empty one.
-		//
-		// Budgeted separately and spent only on items that need it, so a run where the
-		// first pass worked costs exactly what it did before.
+		// A second round for items that came back with nothing, processed in parallel batches.
 		let recoveryBudget = MAX_RECOVERY_QUERIES;
 		const recovered = new Map<string, TariffCandidate[]>();
-		for (const item of items) {
-			if (recoveryBudget <= 0) break;
-			if (candidatesFor(item).length > 0) continue;
 
-			const terms = termsByKey.get(item.key) ?? [];
-			const found = terms.flatMap((term) => searches.get(term.trim()) ?? []);
+		const missingItems = items.filter((item) => candidatesFor(item).length === 0);
+		if (missingItems.length > 0 && recoveryBudget > 0) {
+			const headingsByItem = new Map<string, string[]>();
+			const allHeadings: string[] = [];
 
-			const headings = headingCodes(found).slice(0, recoveryBudget);
-			recoveryBudget -= headings.length;
-			const fromHeadings = await Promise.all(
-				headings.map(async (code) =>
-					filableCandidates(await searchTariffPrefix(code).catch(() => []), 'broad', code)
-				)
-			);
-			let extra = mergeCandidates(...fromHeadings);
+			for (const item of missingItems) {
+				const terms = termsByKey.get(item.key) ?? [];
+				const found = terms.flatMap((term) => searches.get(term.trim()) ?? []);
+				const itemHeadings = headingCodes(found);
+				headingsByItem.set(item.key, itemHeadings);
+				allHeadings.push(...itemHeadings);
+			}
 
-			if (extra.length === 0 && recoveryBudget > 0) {
-				const words = broadenTerms(terms).slice(0, recoveryBudget);
-				recoveryBudget -= words.length;
-				const byWord = await searchTariffBatch(words);
-				extra = mergeCandidates(
-					...words.map((word) => filableCandidates(byWord.get(word) ?? [], 'broad', word))
+			const uniqueHeadings = [...new Set(allHeadings)].slice(0, recoveryBudget);
+			recoveryBudget -= uniqueHeadings.length;
+
+			const headingResults = new Map<string, TariffCandidate[]>();
+			if (uniqueHeadings.length > 0) {
+				await Promise.all(
+					uniqueHeadings.map(async (code) => {
+						const matches = await searchTariffPrefix(code).catch(() => []);
+						headingResults.set(code, filableCandidates(matches, 'broad', code));
+					})
 				);
 			}
-			if (extra.length > 0) recovered.set(item.key, extra);
+
+			const stillMissing: typeof items = [];
+			for (const item of missingItems) {
+				const itemHeadings = headingsByItem.get(item.key) ?? [];
+				const extra = mergeCandidates(...itemHeadings.map((h) => headingResults.get(h) ?? []));
+				if (extra.length > 0) {
+					recovered.set(item.key, extra);
+				} else {
+					stillMissing.push(item);
+				}
+			}
+
+			if (stillMissing.length > 0 && recoveryBudget > 0) {
+				const wordsByItem = new Map<string, string[]>();
+				const allWords: string[] = [];
+
+				for (const item of stillMissing) {
+					const terms = termsByKey.get(item.key) ?? [];
+					const itemWords = broadenTerms(terms);
+					wordsByItem.set(item.key, itemWords);
+					allWords.push(...itemWords);
+				}
+
+				const uniqueWords = [...new Set(allWords)].slice(0, recoveryBudget);
+				recoveryBudget -= uniqueWords.length;
+
+				if (uniqueWords.length > 0) {
+					const wordResults = await searchTariffBatch(uniqueWords);
+					for (const item of stillMissing) {
+						const itemWords = wordsByItem.get(item.key) ?? [];
+						const extra = mergeCandidates(
+							...itemWords.map((w) => filableCandidates(wordResults.get(w) ?? [], 'broad', w))
+						);
+						if (extra.length > 0) {
+							recovered.set(item.key, extra);
+						}
+					}
+				}
+			}
 		}
 
-		// Word overlap only picks the shortlist the ranker reads. Capping to the six the
-		// user finally sees would let it decide which codes the model may consider at
-		// all, and a heading like `9403` has sixteen children worth reading.
+		// Word overlap picks the shortlist the ranker reads, factoring in constituent materials.
 		const shortlists = new Map<string, TariffCandidate[]>(
 			items.map((item) => [
 				item.key,
 				rankTariffCandidates(
 					mergeCandidates(candidatesFor(item), recovered.get(item.key) ?? []),
 					item.description,
-					RANKING_SHORTLIST
+					RANKING_SHORTLIST,
+					item.materials
 				)
 			])
 		);
@@ -358,10 +402,17 @@ export const icegridClassifyAiHandler: ModuleAiHandler = {
 				prompt: [...rankIds]
 					.map(([id, key]) => {
 						const item = rankable.find((i) => i.key === key)!;
+						const materialLine = item.materials
+							? `\n  materials: ${item.materials}${
+									item.netWeight !== undefined && item.netWeight !== null
+										? ` (Total Net Wt: ${item.netWeight} kg)`
+										: ''
+								}`
+							: '';
 						const lines = (shortlists.get(key) ?? [])
 							.map((c) => `    ${c.code}  ${c.description}`)
 							.join('\n');
-						return `${id}\n  goods: ${item.description}\n  candidates:\n${lines}`;
+						return `${id}\n  goods: ${item.description}${materialLine}\n  candidates:\n${lines}`;
 					})
 					.join('\n\n'),
 				schema: IcegridRankedCodesSchema,

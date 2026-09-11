@@ -46,6 +46,10 @@ export interface TariffQuery {
 	description: string;
 	/** Digits of a partial code the documents printed, e.g. `9403`. */
 	printed: string;
+	/** Material breakdown from packing list/invoice, e.g. "Wood: 18kg, Iron: 5kg". */
+	materials?: string | null;
+	/** Net weight in kilograms, e.g. 23. */
+	netWeight?: number | null;
 }
 
 export interface TariffClassification {
@@ -234,9 +238,13 @@ const BASIS_RANK: Record<TariffCandidate['basis'], number> = { prefix: 0, search
 export function rankTariffCandidates(
 	candidates: readonly TariffCandidate[],
 	itemDescription: string,
-	limit = MAX_CANDIDATES_PER_ITEM
+	limit = MAX_CANDIDATES_PER_ITEM,
+	materials?: string | null
 ): TariffCandidate[] {
 	const wanted = tokens(itemDescription);
+	if (materials) {
+		wanted.push(...tokens(materials));
+	}
 
 	// Distinct words, not occurrences. A description that happens to say "wood" three
 	// times is not three times the match, and under a heading whose own text repeats the
@@ -432,7 +440,15 @@ export async function requestTariffClassification(
 		}>(
 			{
 				operation: { kind: 'module', moduleId: 'icegrid', action: 'classify' },
-				input: { items: asked.map(({ key, description, printed }) => ({ key, description, printed })) }
+				input: {
+					items: asked.map(({ key, description, printed, materials, netWeight }) => ({
+						key,
+						description,
+						printed,
+						...(materials ? { materials } : {}),
+						...(netWeight !== undefined && netWeight !== null ? { netWeight } : {})
+					}))
+				}
 			},
 			signal ? { signal } : {}
 		);
