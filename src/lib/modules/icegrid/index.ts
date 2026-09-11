@@ -2,6 +2,7 @@ import type { WorkspaceModule, ModuleContext, ModuleResult } from '../types';
 import IcegridSettings from './IcegridSettings.svelte';
 
 export { ICEGRID_COLUMNS, ICEGRID_HEADERS, buildIcegridTableColumns, isIcegridTable } from './columns';
+export { expandIcegridPatches } from './derive';
 export { reopenIcegridConfirmation, type ReopenIcegridResult } from './reopen';
 export {
 	saveIcegridSession,

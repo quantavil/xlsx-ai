@@ -66,6 +66,7 @@
 - Marking `MaterialComposition` and `_PatchSchema.oldValue` `.optional()` broke strict JSON schema validation across Gemini (400 `INVALID_ARGUMENT`) and OpenRouter/Meta models (`required` must include all properties). Fixed by keeping all object properties in `required` using `.nullable()` without `.optional()`.
 - Nested enum and array bounds (e.g. `fields: z.array(z.enum(...)).max(50)` inside `evidence.max(100)` inside `rows.max(500)`) caused Gemini grammar parser state explosion, failing with HTTP 400 `INVALID_ARGUMENT` ("too many states for serving"). Fixed by using `z.array(z.string())` for `fields` and omitting state-exploding array/string max limits in the extraction schema.
 - Reopening ICEGrid modal moved unclassified items with assigned codes into settled groups and wiped candidates. Fixed by persisting tariff candidate sessions in `session.ts` and tagging `_unclassifiedKey` on rows so items needing codes stay preserved whether selected or not.
+- Svelte 5 `{#each}` duplicate key crash (`https://svelte.dev/e/each_key_duplicate`) when live duty lookups returned duplicate drawback serials. Fixed by deduplicating candidate options across server/client and keying option loops with index-safe identifiers (`${opt.value}::${idx}`).
 
 ## Notes & Discoveries
 - **ICEGrid rules architecture**: All customs filing domain logic (schemes, drawback gating, quantity formulas, address geography, tax arithmetic) is encapsulated inside `src/lib/modules/icegrid/rules/`.
@@ -91,6 +92,7 @@
 - **E2E testing**: Always run with `bun run test:e2e` (targets fresh build via `vite preview`), never bare `playwright test`.
 - **Reopening shipment questions**: `isIcegridTable` detects ICEGATE customs columns; `RightRibbon.svelte` generically surfaces a dedicated `help-circle` button (`onOpenQuestions`) when active. `reopenIcegridConfirmation` re-evaluates declarations/rates, preserves unclassified candidates/selections via `session.ts`, and pushes an undoable table update.
 - **Material & GRI 3(b) classification**: Composite goods with multiple materials classify by highest net weight preponderance (GRI 3(b)). Internal `MaterialComposition` captures constituent weights from packing lists; AI batches all items together in single stream and orders candidate tariff codes grounding decisions in official DGFT schedule data.
+- **RITC manual entry & paste auto-fill**: Setting or pasting an 8-digit RITC triggers `expandIcegridPatches` in table store, deriving `SQCUnit`, `SQCQTY` (`=M{row}`), `drawback_schno`, `dbk_rate`, `dbk_unit`, `dbk_qty`, `RODTEP`, `RoDTEPQty` (`=O{row}`), and updating dropdown options in a 1-step undoable batch.
 
 ## Workspace Module Rules
 - Register browser modules only in `src/lib/modules/registry.ts`; register server AI actions only in `src/lib/server/modules/registry.ts`. Runtime-downloaded modules are not supported.

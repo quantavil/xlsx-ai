@@ -5,6 +5,7 @@ import { createModuleStore } from '$lib/modules/module-store.svelte';
 import { createToastStore, type NotifyFn } from '$lib/ui/toast.svelte';
 import { LS_THEME_KEY, DEFAULT_TABLE_TITLE } from '$lib/constants';
 import type { TableData } from '$lib/types';
+import { expandIcegridPatches } from '$lib/modules/icegrid';
 
 // One workspace shared by every route. The table lives above the router so navigating to
 // /settings (and back) never rebuilds or drops the open file.
@@ -12,7 +13,8 @@ export const documents = createDocumentStore();
 export const store = createTableStore(undefined, {
 	storageKey: () => documents.contentKey(),
 	// A failed write means edits are only in memory — the user has to hear about it.
-	onSaveError: (message) => notify('error', `Could not save: ${message}`, { durationMs: 8000 })
+	onSaveError: (message) => notify('error', `Could not save: ${message}`, { durationMs: 8000 }),
+	expandPatches: expandIcegridPatches
 });
 export const findStore = createFindStore(store);
 export const moduleStore = createModuleStore();

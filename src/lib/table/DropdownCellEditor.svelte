@@ -47,9 +47,17 @@
 	let filteredOptions = $derived.by(() => {
 		const q = search.trim().toLowerCase();
 		const list = options.filter((opt) => opt?.value && opt.value.trim().length > 0);
-		if (!q) return list;
-		// Search matches the code and the description, so `RAJASTHAN` finds `08`.
-		return list.filter((opt) => dropdownOptionLabel(opt).toLowerCase().includes(q));
+		const filtered = !q ? list : list.filter((opt) => dropdownOptionLabel(opt).toLowerCase().includes(q));
+		const seen = new Set<string>();
+		const deduped: DropdownOption[] = [];
+		for (const opt of filtered) {
+			const key = opt.value.trim().toLowerCase();
+			if (!seen.has(key)) {
+				seen.add(key);
+				deduped.push(opt);
+			}
+		}
+		return deduped;
 	});
 
 	let showCreate = $derived.by(() => {
@@ -223,7 +231,7 @@
 			</p>
 		{/if}
 
-		{#each filteredOptions as opt, idx (opt.value)}
+		{#each filteredOptions as opt, idx (`${opt.value}::${idx}`)}
 			{@const style = getDropdownStyle(opt.value)}
 			{@const isSelected = !mixed && (value || '').toLowerCase() === opt.value.toLowerCase()}
 			{@const isHighlighted = highlightIndex === idx}

@@ -205,9 +205,18 @@ export function buildConfirmInput(
 	}
 ): IcegridConfirmInput {
 	const lookupOptions = options.lookups ? buildDrawbackOptions(options.lookups) : [];
-	const drawbackOptions = options.fallbackDrawbackOptions
+	const rawDrawbackOptions = options.fallbackDrawbackOptions
 		? [...lookupOptions, ...options.fallbackDrawbackOptions]
 		: lookupOptions;
+	const seenDrawback = new Set<string>();
+	const drawbackOptions: DropdownOption[] = [];
+	for (const opt of rawDrawbackOptions) {
+		const k = `${opt.parentValue ?? ''}::${opt.value.trim().toUpperCase()}`;
+		if (!seenDrawback.has(k)) {
+			seenDrawback.add(k);
+			drawbackOptions.push(opt);
+		}
+	}
 
 	const sessionKeys = new Set(options.unclassifiedSession?.items.map((it) => it.key) ?? []);
 
@@ -356,10 +365,22 @@ function withCurrentValue(
 	options: readonly DropdownOption[],
 	current: string | null
 ): DropdownOption[] {
-	if (!current || options.some((o) => o.value.toUpperCase() === current.toUpperCase())) {
-		return [...options];
+	const seen = new Set<string>();
+	const result: DropdownOption[] = [];
+	if (current && current.trim()) {
+		const curVal = current.trim().toUpperCase();
+		seen.add(curVal);
+		const existing = options.find((o) => o.value.trim().toUpperCase() === curVal);
+		result.push(existing ?? { value: current.trim() });
 	}
-	return [{ value: current }, ...options];
+	for (const opt of options) {
+		const val = opt.value.trim().toUpperCase();
+		if (!seen.has(val)) {
+			seen.add(val);
+			result.push(opt);
+		}
+	}
+	return result;
 }
 
 const EMPTY_RITC_ANSWER: IcegridRitcAnswer = {

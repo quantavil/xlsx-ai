@@ -12,8 +12,15 @@ export interface CellPatch {
 export function dedupeAndNormalizePatches(
 	patches: CellPatch[],
 	rows: Row[],
-	columns: Column[]
+	columns: Column[],
+	options?: {
+		expandPatches?: (patches: CellPatch[], rows: Row[], columns: Column[]) => CellPatch[];
+	}
 ): Array<{ row: Row; columnId: string; oldValue: CellValue; newValue: CellValue }> {
+	const initialPatches = options?.expandPatches
+		? options.expandPatches(patches, rows, columns)
+		: patches;
+
 	const colMap = new Map<string, Column>();
 	for (const col of columns) colMap.set(col.id, col);
 
@@ -25,7 +32,7 @@ export function dedupeAndNormalizePatches(
 	// Map incoming explicit patch values per rowId, so dependent option lookups in a batch
 	// (e.g. changing both parent and child together) resolve against the incoming parent value.
 	const incomingRowPatches = new Map<string, Record<string, CellValue>>();
-	for (const p of patches) {
+	for (const p of initialPatches) {
 		let rowPatches = incomingRowPatches.get(p.rowId);
 		if (!rowPatches) {
 			rowPatches = {};
@@ -74,7 +81,7 @@ export function dedupeAndNormalizePatches(
 	// is queued *before* the patch that caused it, and the map below is last-wins, so
 	// an explicit edit to a filled column in the same batch still beats its own fill.
 	const expanded: CellPatch[] = [];
-	for (const patch of patches) {
+	for (const patch of initialPatches) {
 		const row = rowMap.get(patch.rowId);
 		const column = colMap.get(patch.columnId);
 		if (row && column) expanded.push(...coupledPatches(row, column, patch.newValue));

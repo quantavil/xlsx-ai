@@ -436,3 +436,34 @@ describe('defaultAnswers', () => {
 });
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+describe('drawback options deduplication', () => {
+	it('deduplicates drawback options across lookups and fallbacks', () => {
+		const dupLookups = new Map<string, DutyLookupEntry>([
+			[
+				'94038900',
+				{
+					ritc: '94038900',
+					drawback: [
+						{ serial: '940301', description: 'Variant 1', rate: 1.5, cap: 10, unit: 'PCS', roslRate: null, roslCap: null },
+						{ serial: '940301', description: 'Variant 2 duplicate', rate: 1.5, cap: 10, unit: 'PCS', roslRate: null, roslCap: null }
+					],
+					rodtep: null
+				}
+			]
+		]);
+		const input = buildConfirmInput([row({ RITCCode: '94038900', drawback_schno: '940301' })], {
+			catalogs,
+			lookups: dupLookups,
+			fallbackDrawbackOptions: [
+				{ value: '940301', parentValue: '94038900' },
+				{ value: '940399', parentValue: '94038900' }
+			]
+		});
+		const group = input.groups.find((g) => g.key === '94038900');
+		expect(group).toBeDefined();
+		const values = group!.drawbackOptions.map((o) => o.value);
+		const uniqueValues = new Set(values.map((v) => v.toUpperCase()));
+		expect(values.length).toBe(uniqueValues.size);
+	});
+});

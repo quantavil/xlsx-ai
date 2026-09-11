@@ -94,6 +94,19 @@ function toRodtep(rows: unknown[]): DutyRodtepEntry | null {
 	};
 }
 
+function dedupeCandidates(candidates: DutyDrawbackCandidate[]): DutyDrawbackCandidate[] {
+	const map = new Map<string, DutyDrawbackCandidate>();
+	for (const c of candidates) {
+		const existing = map.get(c.serial);
+		if (!existing) {
+			map.set(c.serial, c);
+		} else if (!existing.description && c.description) {
+			map.set(c.serial, c);
+		}
+	}
+	return Array.from(map.values());
+}
+
 /**
  * Look up one tariff code. Throws only on a transport failure, which the caller
  * turns into a warning; an unknown code is a successful lookup with nothing in it.
@@ -109,9 +122,11 @@ export async function fetchDutyLookup(ritc: string): Promise<DutyLookupEntry> {
 
 	const entry: DutyLookupEntry = {
 		ritc,
-		drawback: dbkRows
-			.map((row) => toCandidate(row as Record<string, unknown>))
-			.filter((c): c is DutyDrawbackCandidate => c !== null),
+		drawback: dedupeCandidates(
+			dbkRows
+				.map((row) => toCandidate(row as Record<string, unknown>))
+				.filter((c): c is DutyDrawbackCandidate => c !== null)
+		),
 		rodtep: toRodtep(rodtepRows)
 	};
 	cache.set(ritc, entry);

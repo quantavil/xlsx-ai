@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'bun:test';
-import { deriveRows, findExchangeRate, stateCodeFromGstin } from '../../src/lib/modules/icegrid/derive';
+import {
+	deriveRows,
+	findExchangeRate,
+	stateCodeFromGstin,
+	expandIcegridPatches
+} from '../../src/lib/modules/icegrid/derive';
 import {
 	lookupDrawback,
 	lookupRodtep,
@@ -8,8 +13,10 @@ import {
 import { SCHEDULES_PROVENANCE } from '../../src/lib/modules/icegrid/catalogs/generated/provenance';
 import { getCatalogSnapshot } from '../../src/lib/modules/icegrid/catalogs';
 import { parseProfile, EMPTY_PROFILE } from '../../src/lib/modules/icegrid/profile';
-import { ICEGRID_ALL_HEADERS } from '../../src/lib/modules/icegrid/columns';
+import { ICEGRID_ALL_HEADERS, buildIcegridTableColumns } from '../../src/lib/modules/icegrid/columns';
 import type { IcegridRow } from '../../src/lib/modules/icegrid/schema';
+import { createTableStore } from '../../src/lib/table/store.svelte';
+import type { Row } from '../../src/lib/types';
 
 const catalogs = getCatalogSnapshot();
 const row = (over: Partial<IcegridRow>): IcegridRow =>
@@ -262,3 +269,194 @@ describe('profile persistence', () => {
 		expect(p).toEqual({ ...EMPTY_PROFILE, endUse: 'GNX100' });
 	});
 });
+
+describe('expandIcegridPatches', () => {
+	it('auto-fills dependent customs fields when RITCCode is set on a single row', () => {
+		const columns = buildIcegridTableColumns(catalogs);
+		const rows: Row[] = [
+			{
+				id: 'r1',
+				Quantity: 50,
+				QuantityUnit: 'NOS',
+				ApplicableExpSchemes: '19-Drawback (DBK)',
+				RITCCode: null,
+				SQCUnit: null,
+				SQCQTY: null,
+				drawback_schno: null,
+				dbk_rate: null,
+				dbk_unit: null,
+				dbk_qty: null,
+				RODTEP: null,
+				RoDTEPQty: null,
+				PerUnit: null
+			}
+		];
+
+		const result = expandIcegridPatches(
+			[{ rowId: 'r1', columnId: 'RITCCode', newValue: '94036000' }],
+			rows,
+			columns
+		);
+
+		const map = Object.fromEntries(result.map((p) => [p.columnId, p.newValue]));
+		expect(map.RITCCode).toBe('94036000');
+		expect(map.SQCUnit).toBe('NOS');
+		expect(map.SQCQTY).toBe('=M2');
+		expect(map.drawback_schno).toBe('940399B');
+		expect(map.dbk_rate).toBe(1.2);
+		expect(map.dbk_unit).toBe('NOS');
+		expect(map.RODTEP).toBe('Yes');
+		expect(map.RoDTEPQty).toBe('=O2');
+		expect(map.PerUnit).toBe('NOS');
+	});
+
+	it('handles batch copy-paste across multiple rows with row-specific formula indexes', () => {
+		const columns = buildIcegridTableColumns(catalogs);
+		const rows: Row[] = [
+			{ id: 'r1', Quantity: 10, QuantityUnit: 'NOS', ApplicableExpSchemes: '19-Drawback (DBK)', RITCCode: null },
+			{ id: 'r2', Quantity: 20, QuantityUnit: 'NOS', ApplicableExpSchemes: '19-Drawback (DBK)', RITCCode: null },
+			{ id: 'r3', Quantity: 30, QuantityUnit: 'NOS', ApplicableExpSchemes: '19-Drawback (DBK)', RITCCode: null }
+		];
+
+		const pastePatches = [
+			{ rowId: 'r1', columnId: 'RITCCode', newValue: '94036000' },
+			{ rowId: 'r2', columnId: 'RITCCode', newValue: '94036000' },
+			{ rowId: 'r3', columnId: 'RITCCode', newValue: '94036000' }
+		];
+
+		const result = expandIcegridPatches(pastePatches, rows, columns);
+
+		const r1Patches = Object.fromEntries(result.filter((p) => p.rowId === 'r1').map((p) => [p.columnId, p.newValue]));
+		const r2Patches = Object.fromEntries(result.filter((p) => p.rowId === 'r2').map((p) => [p.columnId, p.newValue]));
+		const r3Patches = Object.fromEntries(result.filter((p) => p.rowId === 'r3').map((p) => [p.columnId, p.newValue]));
+
+		expect(r1Patches.SQCQTY).toBe('=M2');
+		expect(r1Patches.RoDTEPQty).toBe('=O2');
+
+		expect(r2Patches.SQCQTY).toBe('=M3');
+		expect(r2Patches.RoDTEPQty).toBe('=O3');
+
+		expect(r3Patches.SQCQTY).toBe('=M4');
+		expect(r3Patches.RoDTEPQty).toBe('=O4');
+
+		expect(r1Patches.drawback_schno).toBe('940399B');
+		expect(r2Patches.drawback_schno).toBe('940399B');
+		expect(r3Patches.drawback_schno).toBe('940399B');
+	});
+
+	it('clears drawback fields for non-drawback schemes while preserving RoDTEP', () => {
+		const columns = buildIcegridTableColumns(catalogs);
+		const rows: Row[] = [
+			{
+				id: 'r1',
+				Quantity: 10,
+				QuantityUnit: 'NOS',
+				ApplicableExpSchemes: '00', // Free Shipping Bill
+				RITCCode: null
+			}
+		];
+
+		const result = expandIcegridPatches(
+			[{ rowId: 'r1', columnId: 'RITCCode', newValue: '94036000' }],
+			rows,
+			columns
+		);
+
+		const map = Object.fromEntries(result.map((p) => [p.columnId, p.newValue]));
+		expect(map.drawback_schno).toBeNull();
+		expect(map.dbk_rate).toBeNull();
+		expect(map.SQCUnit).toBe('NOS');
+		expect(map.RODTEP).toBe('Yes');
+	});
+
+	it('clears dependent fields when RITCCode is blanked', () => {
+		const columns = buildIcegridTableColumns(catalogs);
+		const rows: Row[] = [
+			{
+				id: 'r1',
+				Quantity: 10,
+				QuantityUnit: 'NOS',
+				ApplicableExpSchemes: '19-Drawback (DBK)',
+				RITCCode: '94036000',
+				drawback_schno: '940301B',
+				dbk_rate: 2.2,
+				SQCUnit: 'NOS',
+				SQCQTY: '=M2',
+				RODTEP: 'Yes',
+				RoDTEPQty: '=O2'
+			}
+		];
+
+		const result = expandIcegridPatches(
+			[{ rowId: 'r1', columnId: 'RITCCode', newValue: '' }],
+			rows,
+			columns
+		);
+
+		const map = Object.fromEntries(result.map((p) => [p.columnId, p.newValue]));
+		expect(map.drawback_schno).toBeNull();
+		expect(map.dbk_rate).toBeNull();
+		expect(map.SQCUnit).toBeNull();
+		expect(map.SQCQTY).toBeNull();
+		expect(map.RODTEP).toBeNull();
+		expect(map.RoDTEPQty).toBeNull();
+	});
+
+	it('does not touch patches on non-icegrid tables', () => {
+		const plainColumns = [{ id: 'col1', name: 'Product', type: 'text' as const }];
+		const rows: Row[] = [{ id: 'r1', col1: 'val' }];
+		const patches = [{ rowId: 'r1', columnId: 'col1', newValue: 'newVal' }];
+
+		const result = expandIcegridPatches(patches, rows, plainColumns);
+		expect(result).toBe(patches);
+	});
+
+	it('integrates with createTableStore with 1-step atomic undo', () => {
+		const columns = buildIcegridTableColumns(catalogs);
+		const initialRows: Row[] = [
+			{
+				id: 'r1',
+				Quantity: 15,
+				QuantityUnit: 'NOS',
+				ApplicableExpSchemes: '19-Drawback (DBK)',
+				RITCCode: null,
+				SQCUnit: null,
+				SQCQTY: null,
+				drawback_schno: null,
+				dbk_rate: null,
+				dbk_unit: null,
+				dbk_qty: null,
+				RODTEP: null,
+				RoDTEPQty: null
+			}
+		];
+
+		const store = createTableStore(
+			{
+				title: 'Test Table',
+				columns,
+				rows: initialRows
+			},
+			{
+				persist: false,
+				expandPatches: expandIcegridPatches
+			}
+		);
+
+		store.applyCellPatches([{ rowId: 'r1', columnId: 'RITCCode', newValue: '94036000' }]);
+
+		expect(store.rows[0].RITCCode).toBe('94036000');
+		expect(store.rows[0].drawback_schno).toBe('940399B');
+		expect(store.rows[0].dbk_rate).toBe(1.2);
+		expect(store.rows[0].SQCUnit).toBe('NOS');
+		expect(store.rows[0].SQCQTY).toBe('=M2');
+		expect(store.rows[0].RODTEP).toBe('Yes');
+
+		// 1-step undo reverts all auto-filled columns atomically
+		store.undo();
+		expect(store.rows[0].RITCCode).toBeNull();
+		expect(store.rows[0].drawback_schno).toBeNull();
+		expect(store.rows[0].SQCUnit).toBeNull();
+	});
+});
+

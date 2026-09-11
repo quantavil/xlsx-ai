@@ -122,13 +122,17 @@ export function selectDrawbackSerial(
  */
 export function buildDrawbackOptions(lookups: DutyLookupMap): DropdownOption[] {
 	const options: DropdownOption[] = [];
+	const seen = new Set<string>();
 	for (const entry of lookups.values()) {
 		for (const candidate of entry.drawback) {
+			const key = `${entry.ritc}::${candidate.serial.trim().toUpperCase()}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
 			// The label carries the description alone: the grid prepends the value itself
 			// when it renders an option, so repeating the serial here printed it twice.
 			options.push({
 				value: candidate.serial,
-				...(candidate.description ? { label: candidate.description } : {}),
+				...(candidate.description ? { label: candidate.description } : {}) ,
 				parentValue: entry.ritc,
 				// Everything `derive` copies out of the chosen candidate at import time, so
 				// picking a different serial in the grid moves the same fields with it.

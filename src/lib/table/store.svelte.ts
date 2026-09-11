@@ -44,6 +44,8 @@ export interface TableStoreOptions {
 	storageKey?: string | (() => string);
 	/** Called when a save fails (quota exceeded, storage unavailable) so the UI can warn. */
 	onSaveError?: (message: string) => void;
+	/** Expands incoming patches before validation and deduping (for domain-specific column coupling). */
+	expandPatches?: (patches: CellPatch[], rows: Row[], columns: Column[]) => CellPatch[];
 }
 
 function cloneColumns(cols: Column[]): Column[] {
@@ -397,7 +399,9 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 	}
 
 	function applyCellPatches(patches: CellPatch[]): number {
-		const validPatches = dedupeAndNormalizePatches(patches, rows, columns);
+		const validPatches = dedupeAndNormalizePatches(patches, rows, columns, {
+			expandPatches: options.expandPatches
+		});
 		if (validPatches.length === 0) return 0;
 
 		pushHistory();
@@ -405,6 +409,7 @@ export function createTableStore(initialData?: TableData, options: TableStoreOpt
 			patch.row[patch.columnId] = patch.newValue;
 		}
 		rows = [...rows];
+		columns = [...columns];
 		triggerSave();
 		return validPatches.length;
 	}

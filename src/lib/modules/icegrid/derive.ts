@@ -1,8 +1,10 @@
-import { ICEGRID_COLUMNS } from './columns';
+import { ICEGRID_COLUMNS, isIcegridTable } from './columns';
 import { isBlank } from '$lib/table/cells';
+import type { Row, Column, CellValue, DropdownOption } from '$lib/types';
+import type { CellPatch } from '$lib/table/commands';
 import { resolveCatalogValue } from './catalogs';
 import type { IcegridCatalogSnapshot } from './catalogs/types';
-import { lookupDrawback, lookupRodtep, uqcToUnit } from './catalogs/generated/schedules';
+import { lookupDrawback, lookupRodtep, uqcToUnit, type DrawbackEntry } from './catalogs/generated/schedules';
 import { SCHEDULES_PROVENANCE } from './catalogs/generated/provenance';
 import { EMPTY_PROFILE, PROFILE_FIELD_HEADERS, type IcegridProfile } from './profile';
 import type { IcegridRow } from './schema';
@@ -20,7 +22,10 @@ import {
 	scanDocumentGeography,
 	isDrawbackScheme,
 	stateCodeFromGstin,
-	findExchangeRate
+	findExchangeRate,
+	deriveSqcQty,
+	deriveDbkQty,
+	deriveRodtepQty
 } from './rules';
 
 export { stateCodeFromGstin, findExchangeRate };
@@ -314,4 +319,265 @@ export function deriveRows(rows: readonly IcegridRow[], options: DeriveOptions):
 	}
 
 	return { rows: out, warnings, provenance, filled };
+}
+
+export function ensureDrawbackDropdownOptions(
+	options: DropdownOption[],
+	ritc: string,
+	entry: DrawbackEntry
+): void {
+	const normRitc = normalizeRitcCode(ritc);
+	const seen = new Set(options.map((o) => `${o.parentValue ?? ''}::${o.value.trim().toUpperCase()}`));
+	const candidates = [entry.schno, ...(entry.alternatives ?? [])];
+	for (const serial of candidates) {
+		const key = `${normRitc}::${serial.trim().toUpperCase()}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		const rate = lookupDrawback(serial)?.rate ?? entry.rate;
+		options.push({
+			value: serial,
+			parentValue: normRitc,
+			fills: {
+				dbk_rate: rate,
+				dbk_unit: { from: 'QuantityUnit' }
+			}
+		});
+	}
+}
+
+/**
+ * Expands cell patches for ICEGrid tables so that modifying or copy-pasting RITCCode
+ * automatically fills dependent customs columns:
+ * - SQCUnit & SQCQTY
+ * - drawback_schno, dbk_rate, dbk_unit, dbk_qty
+ * - RODTEP, RoDTEPQty
+ * - PerUnit
+ *
+ * Generated patches are placed before explicit patches, ensuring explicit edits in
+ * the same batch override derived defaults.
+ */
+export function expandIcegridPatches(
+	patches: CellPatch[],
+	rows: Row[],
+	columns: Column[]
+): CellPatch[] {
+	if (!isIcegridTable(columns) || patches.length === 0) return patches;
+
+	const hasRitcPatch = patches.some((p) => p.columnId === 'RITCCode');
+	const hasSchemePatch = patches.some((p) => p.columnId === 'ApplicableExpSchemes');
+	const hasUnitPatch = patches.some((p) => p.columnId === 'QuantityUnit');
+
+	if (!hasRitcPatch && !hasSchemePatch && !hasUnitPatch) return patches;
+
+	const rowMap = new Map<string, Row>();
+	const rowIndexMap = new Map<string, number>();
+	rows.forEach((r, idx) => {
+		rowMap.set(r.id, r);
+		rowIndexMap.set(r.id, idx);
+	});
+
+	// Map incoming batch values per rowId
+	const incomingRowPatches = new Map<string, Record<string, CellValue>>();
+	for (const p of patches) {
+		let rp = incomingRowPatches.get(p.rowId);
+		if (!rp) {
+			rp = {};
+			incomingRowPatches.set(p.rowId, rp);
+		}
+		rp[p.columnId] = p.newValue;
+	}
+
+	const derivedPatches: CellPatch[] = [];
+	const drawbackCol = columns.find((c) => c.id === 'drawback_schno' || c.name === 'drawback_schno');
+
+	for (const [rowId, patchValues] of incomingRowPatches.entries()) {
+		const row = rowMap.get(rowId);
+		if (!row) continue;
+
+		const rowIndex = rowIndexMap.get(rowId) ?? 0;
+		const excelRowIndex = rowIndex + 2;
+		const effectiveRow: Row = { ...row, ...patchValues };
+
+		const ritcPatched = 'RITCCode' in patchValues;
+		const schemePatched = 'ApplicableExpSchemes' in patchValues;
+		const unitPatched = 'QuantityUnit' in patchValues;
+
+		if (ritcPatched) {
+			const rawRitc = patchValues['RITCCode'];
+			const code = normalizeRitcCode(rawRitc);
+
+			if (code.length === 8) {
+				// 1. SQCUnit & SQCQTY
+				const rodtep = lookupRodtep(code);
+				const sqcUnit = rodtep ? uqcToUnit(rodtep.uqc) : null;
+				if (sqcUnit) {
+					derivedPatches.push({ rowId, columnId: 'SQCUnit', newValue: sqcUnit });
+					effectiveRow.SQCUnit = sqcUnit;
+				}
+
+				const qtyUnit = typeof effectiveRow.QuantityUnit === 'string' ? effectiveRow.QuantityUnit : null;
+				const qty = typeof effectiveRow.Quantity === 'number' ? effectiveRow.Quantity : null;
+				const netWeight = typeof effectiveRow.NetWeight === 'number' ? effectiveRow.NetWeight : null;
+				const sqcQty = deriveSqcQty(sqcUnit, qtyUnit, qty, netWeight, excelRowIndex);
+				if (sqcQty !== null) {
+					derivedPatches.push({ rowId, columnId: 'SQCQTY', newValue: sqcQty });
+					effectiveRow.SQCQTY = sqcQty;
+				}
+
+				// 2. Drawback
+				const scheme = effectiveRow.ApplicableExpSchemes;
+				const isDbk = !scheme || isDrawbackScheme(scheme);
+
+				if (isDbk) {
+					const matchedOptions = drawbackCol?.dropdown?.options?.filter((o) => o.parentValue === code) ?? [];
+					let chosenSerial: string | null = null;
+					let chosenRate: number | null = null;
+					let chosenDesc: string | null = null;
+
+					if (matchedOptions.length > 0) {
+						const firstOpt = matchedOptions[0];
+						chosenSerial = firstOpt.value;
+						chosenRate = typeof firstOpt.fills?.dbk_rate === 'number' ? firstOpt.fills.dbk_rate : null;
+						chosenDesc = typeof firstOpt.fills?.dbk_desc === 'string' ? firstOpt.fills.dbk_desc : null;
+					} else {
+						const dbk = lookupDrawback(code);
+						if (dbk) {
+							chosenSerial = dbk.schno;
+							chosenRate = dbk.rate;
+							if (drawbackCol?.dropdown?.options) {
+								ensureDrawbackDropdownOptions(drawbackCol.dropdown.options, code, dbk);
+							}
+						}
+					}
+
+					if (chosenSerial) {
+						derivedPatches.push({ rowId, columnId: 'drawback_schno', newValue: chosenSerial });
+						effectiveRow.drawback_schno = chosenSerial;
+					}
+					if (chosenRate !== null) {
+						derivedPatches.push({ rowId, columnId: 'dbk_rate', newValue: chosenRate });
+						effectiveRow.dbk_rate = chosenRate;
+					}
+					if (chosenDesc) {
+						derivedPatches.push({ rowId, columnId: 'dbk_desc', newValue: chosenDesc });
+						effectiveRow.dbk_desc = chosenDesc;
+					}
+
+					const dbkUnit = effectiveRow.dbk_unit || effectiveRow.QuantityUnit || null;
+					if (dbkUnit && isBlank(effectiveRow.dbk_unit)) {
+						derivedPatches.push({ rowId, columnId: 'dbk_unit', newValue: dbkUnit });
+						effectiveRow.dbk_unit = dbkUnit;
+					}
+
+					const dbkQty = deriveDbkQty(effectiveRow.dbk_unit as string, sqcUnit, qtyUnit, qty, excelRowIndex, true);
+					if (dbkQty !== null) {
+						derivedPatches.push({ rowId, columnId: 'dbk_qty', newValue: dbkQty });
+						effectiveRow.dbk_qty = dbkQty;
+					}
+				} else {
+					derivedPatches.push(
+						{ rowId, columnId: 'drawback_schno', newValue: null },
+						{ rowId, columnId: 'dbk_rate', newValue: null },
+						{ rowId, columnId: 'dbk_unit', newValue: null },
+						{ rowId, columnId: 'dbk_qty', newValue: null },
+						{ rowId, columnId: 'dbk_desc', newValue: null }
+					);
+				}
+
+				// 3. RoDTEP
+				const rodtepVal = rodtep ? 'Yes' : 'N/A';
+				derivedPatches.push({ rowId, columnId: 'RODTEP', newValue: rodtepVal });
+				effectiveRow.RODTEP = rodtepVal;
+
+				const rodtepQty = deriveRodtepQty(rodtepVal, excelRowIndex);
+				if (rodtepQty !== null) {
+					derivedPatches.push({ rowId, columnId: 'RoDTEPQty', newValue: rodtepQty });
+					effectiveRow.RoDTEPQty = rodtepQty;
+				}
+
+				// 4. PerUnit
+				if (isBlank(effectiveRow.PerUnit) && !isBlank(effectiveRow.QuantityUnit)) {
+					derivedPatches.push({ rowId, columnId: 'PerUnit', newValue: effectiveRow.QuantityUnit });
+				}
+			} else if (isBlank(rawRitc)) {
+				// Blanked RITC -> clear dependent fields
+				derivedPatches.push(
+					{ rowId, columnId: 'drawback_schno', newValue: null },
+					{ rowId, columnId: 'dbk_rate', newValue: null },
+					{ rowId, columnId: 'dbk_unit', newValue: null },
+					{ rowId, columnId: 'dbk_qty', newValue: null },
+					{ rowId, columnId: 'dbk_desc', newValue: null },
+					{ rowId, columnId: 'SQCUnit', newValue: null },
+					{ rowId, columnId: 'SQCQTY', newValue: null },
+					{ rowId, columnId: 'RODTEP', newValue: null },
+					{ rowId, columnId: 'RoDTEPQty', newValue: null }
+				);
+			}
+		} else if (schemePatched) {
+			const scheme = patchValues['ApplicableExpSchemes'];
+			const isDbk = !scheme || isDrawbackScheme(scheme);
+			if (!isDbk) {
+				derivedPatches.push(
+					{ rowId, columnId: 'drawback_schno', newValue: null },
+					{ rowId, columnId: 'dbk_rate', newValue: null },
+					{ rowId, columnId: 'dbk_unit', newValue: null },
+					{ rowId, columnId: 'dbk_qty', newValue: null },
+					{ rowId, columnId: 'dbk_desc', newValue: null }
+				);
+			} else {
+				const code = normalizeRitcCode(effectiveRow.RITCCode);
+				if (code.length === 8) {
+					const dbk = lookupDrawback(code);
+					if (dbk) {
+						derivedPatches.push(
+							{ rowId, columnId: 'drawback_schno', newValue: dbk.schno },
+							{ rowId, columnId: 'dbk_rate', newValue: dbk.rate }
+						);
+						const dbkUnit = effectiveRow.dbk_unit || effectiveRow.QuantityUnit || null;
+						if (dbkUnit && isBlank(effectiveRow.dbk_unit)) {
+							derivedPatches.push({ rowId, columnId: 'dbk_unit', newValue: dbkUnit });
+						}
+						const qtyUnit = typeof effectiveRow.QuantityUnit === 'string' ? effectiveRow.QuantityUnit : null;
+						const qty = typeof effectiveRow.Quantity === 'number' ? effectiveRow.Quantity : null;
+						const rodtep = lookupRodtep(code);
+						const sqcUnit = rodtep ? uqcToUnit(rodtep.uqc) : (typeof effectiveRow.SQCUnit === 'string' ? effectiveRow.SQCUnit : null);
+						const dbkQty = deriveDbkQty(dbkUnit as string, sqcUnit, qtyUnit, qty, excelRowIndex, true);
+						if (dbkQty !== null) {
+							derivedPatches.push({ rowId, columnId: 'dbk_qty', newValue: dbkQty });
+						}
+					}
+				}
+			}
+		} else if (unitPatched) {
+			const newUnit = patchValues['QuantityUnit'];
+			if (typeof newUnit === 'string' && newUnit.trim()) {
+				if (isBlank(effectiveRow.PerUnit) || effectiveRow.PerUnit === row.QuantityUnit) {
+					derivedPatches.push({ rowId, columnId: 'PerUnit', newValue: newUnit });
+				}
+				if (isBlank(effectiveRow.dbk_unit) || effectiveRow.dbk_unit === row.QuantityUnit) {
+					derivedPatches.push({ rowId, columnId: 'dbk_unit', newValue: newUnit });
+					effectiveRow.dbk_unit = newUnit;
+				}
+				const code = normalizeRitcCode(effectiveRow.RITCCode);
+				const rodtep = code.length === 8 ? lookupRodtep(code) : null;
+				const sqcUnit = rodtep ? uqcToUnit(rodtep.uqc) : (typeof effectiveRow.SQCUnit === 'string' ? effectiveRow.SQCUnit : null);
+				const qty = typeof effectiveRow.Quantity === 'number' ? effectiveRow.Quantity : null;
+				const netWeight = typeof effectiveRow.NetWeight === 'number' ? effectiveRow.NetWeight : null;
+				const sqcQty = deriveSqcQty(sqcUnit, newUnit, qty, netWeight, excelRowIndex);
+				if (sqcQty !== null) {
+					derivedPatches.push({ rowId, columnId: 'SQCQTY', newValue: sqcQty });
+				}
+				const scheme = effectiveRow.ApplicableExpSchemes;
+				const isDbk = !scheme || isDrawbackScheme(scheme);
+				if (isDbk) {
+					const dbkQty = deriveDbkQty(effectiveRow.dbk_unit as string, sqcUnit, newUnit, qty, excelRowIndex, true);
+					if (dbkQty !== null) {
+						derivedPatches.push({ rowId, columnId: 'dbk_qty', newValue: dbkQty });
+					}
+				}
+			}
+		}
+	}
+
+	return [...derivedPatches, ...patches];
 }

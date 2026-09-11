@@ -6,7 +6,7 @@
 	import { rateFor, requestExchangeRates, type ExchangeRate } from './exchange-rate';
 	import { requestTariffSearch, tariffLeaf, type TariffCandidate } from './tariff';
 	import { requestDutyLookups } from './duty-lookup.client';
-	import { selectDrawbackSerial } from './duty-lookup';
+	import { selectDrawbackSerial, type DutyDrawbackCandidate } from './duty-lookup';
 	import type { DropdownOption } from '$lib/types';
 	import {
 		clearCodeDerived,
@@ -107,6 +107,22 @@
 	 */
 	let dutyByCode = $state<Record<string, { options: DropdownOption[]; suggested: string | null; rodtep: string }>>({});
 
+	function buildUniqueDrawbackOptions(candidates: DutyDrawbackCandidate[]): DropdownOption[] {
+		const seen = new Set<string>();
+		const out: DropdownOption[] = [];
+		for (const c of candidates) {
+			const key = c.serial.trim().toUpperCase();
+			if (!seen.has(key)) {
+				seen.add(key);
+				out.push({
+					value: c.serial,
+					...(c.description ? { label: c.description } : {})
+				});
+			}
+		}
+		return out;
+	}
+
 	// Seed duty structure for preselected tariff codes on mount
 	$effect(() => {
 		for (const [key, code] of Object.entries(answers.assignedRitc)) {
@@ -116,10 +132,7 @@
 					const entry = entries[0];
 					if (entry && !dutyByCode[code]) {
 						dutyByCode[code] = {
-							options: entry.drawback.map((c) => ({
-								value: c.serial,
-								...(c.description ? { label: c.description } : {})
-							})),
+							options: buildUniqueDrawbackOptions(entry.drawback),
 							suggested: selectDrawbackSerial(entry.drawback, itemValues?.drawback_schno ?? null).serial,
 							rodtep: entry.rodtep ? 'Yes' : 'N/A'
 						};
@@ -193,10 +206,7 @@
 				const entry = entries[0];
 				if (entry) {
 					dutyByCode[next] = {
-						options: entry.drawback.map((c) => ({
-							value: c.serial,
-							...(c.description ? { label: c.description } : {})
-						})),
+						options: buildUniqueDrawbackOptions(entry.drawback),
 						suggested: selectDrawbackSerial(entry.drawback, null).serial,
 						rodtep: entry.rodtep ? 'Yes' : 'N/A'
 					};
@@ -552,7 +562,7 @@
 												class="icegrid-field"
 											>
 												<option value="">— not set —</option>
-												{#each dutyByCode[chosen]?.options ?? [] as opt (opt.value)}
+												{#each dutyByCode[chosen]?.options ?? [] as opt, idx (`${opt.value}::${idx}`)}
 													<option value={opt.value}>{optionLabel(opt)}</option>
 												{/each}
 											</select>
@@ -644,7 +654,7 @@
 											class="icegrid-field w-full max-w-[280px]"
 										>
 											<option value="">— not set —</option>
-											{#each group.drawbackOptions as opt (opt.value)}
+											{#each group.drawbackOptions as opt, idx (`${opt.value}::${idx}`)}
 												<option value={opt.value}>{optionLabel(opt)}</option>
 											{/each}
 										</select>
